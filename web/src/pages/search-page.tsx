@@ -17,7 +17,7 @@ import { SearchContext, useAccentColour, useArtwork } from "@/lib/artwork"
 import { plural } from "@/lib/format"
 import { moonPhase } from "@/lib/moon-phase"
 import { SORTS, type SortKey, tierOf, typicalTracks } from "@/lib/quality"
-import { useRecentSearches } from "@/lib/recent"
+import { recentLabel, rememberLabel, useRecentSearches } from "@/lib/recent"
 import { useAddToWishlist } from "@/lib/wishlist"
 import { matchLink, relevance, ResolvedContext } from "@/lib/tracklist"
 import { type SearchState, useSearch } from "@/lib/use-search"
@@ -38,6 +38,12 @@ export function SearchPage() {
     },
     [navigate, remember],
   )
+
+  // Past searches for links show what the link was, not the URL.
+  useEffect(() => {
+    const link = search.resolved
+    if (q && link) rememberLabel(q, [link.title, link.artist].filter(Boolean).join(", "))
+  }, [q, search.resolved])
 
   if (!q) return <Idle onSubmit={submit} recent={recent} onForget={forget} />
   // For links, artwork and library matching go by what the link points at, not the URL.
@@ -85,7 +91,7 @@ function Idle({ onSubmit, recent, onForget }: { onSubmit: (q: string) => void; r
         <div className="mt-6 flex w-full flex-wrap items-center gap-2 px-1">
           <span className="mr-1 text-sm text-muted-foreground">Recent</span>
           {recent.map((query) => (
-            <span key={query} className="group flex items-center rounded-full border bg-card/50 text-sm transition-colors hover:bg-accent">
+            <span key={recentLabel(query) ?? query} className="group flex items-center rounded-full border bg-card/50 text-sm transition-colors hover:bg-accent">
               <button type="button" onClick={() => onSubmit(query)} className="rounded-l-full py-1.5 pr-1 pl-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 {query}
               </button>

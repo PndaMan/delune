@@ -95,8 +95,8 @@ Navidrome, from both the web UI and the TUI.
 - [ ] Playlist links (with playlist import)
 
 **Profiles and look**
-- [ ] Profile pictures: upload your own (shown in the rail, people list, requests) and show Soulseek users' pictures everywhere they appear
-- [ ] Themes: light, dark and system; accent presets; per-person theme saved to their account
+- [x] Profile pictures: upload your own (rail, profile menu, people list); Soulseek users' pictures on their pages
+- [x] Themes: System, Night, Blue hour, Midnight (OLED), Forest (green); six accents; saved to each account
 
 **Mobile**
 - [x] Phone layouts for search results, filters, release view (sticky action), downloads

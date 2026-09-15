@@ -23,7 +23,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
-use delune_core::api::{ApiError, AuthMode, LoginRequest, Me, People, Permissions, Person};
+use delune_core::api::{ApiError, Appearance, AuthMode, LoginRequest, Me, People, Permissions, Person};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -42,6 +42,7 @@ pub const OPEN_MODE_USER: &str = "admin";
 pub struct Accounts {
     navidrome_url: Option<String>,
     store: Option<PathBuf>,
+    avatars: Option<PathBuf>,
     state: Mutex<Stored>,
     failures: Mutex<HashMap<String, (u32, Instant)>>,
 }
@@ -55,6 +56,18 @@ struct Stored {
     /// Keyed by the SHA-256 of the token.
     #[serde(default)]
     sessions: HashMap<String, Session>,
+    /// Appearance and profile pictures, by username (open mode's admin included).
+    #[serde(default)]
+    profiles: BTreeMap<String, Profile>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct Profile {
+    #[serde(default)]
+    appearance: Appearance,
+    /// Content type and version of their picture, when they've set one.
+    #[serde(default)]
+    avatar: Option<(String, u64)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,13 +142,19 @@ impl Accounts {
         if navidrome_url.is_none() {
             tracing::warn!("no Navidrome configured: anyone who can reach delune can use it as an admin");
         }
-        Self { navidrome_url, store: Some(store), state: Mutex::new(state), failures: Mutex::default() }
+        Self {
+            navidrome_url,
+            store: Some(store),
+            avatars: Some(data_dir.join("avatars")),
+            state: Mutex::new(state),
+            failures: Mutex::default(),
+        }
     }
 
     /// In-memory accounts for tests.
     #[must_use]
     pub fn in_memory(navidrome_url: Option<String>) -> Self {
-        Self { navidrome_url, store: None, state: Mutex::default(), failures: Mutex::default() }
+        Self { navidrome_url, store: None, avatars: None, state: Mutex::default(), failures: Mutex::default() }
     }
 
     #[must_use]
@@ -275,6 +294,7 @@ impl Accounts {
                     admin: u.admin,
                     permissions: if u.admin { Permissions::ALL } else { u.permissions },
                     last_login: u.last_login,
+                    avatar: state.profiles.get(&u.username).and_then(|p| p.avatar.as_ref()).map(|(_, v)| *v),
                 })
                 .collect(),
         }
@@ -333,14 +353,101 @@ fn session_cookie(token: &str, headers: &HeaderMap, max_age: u64) -> HeaderValue
         .unwrap_or_else(|_| HeaderValue::from_static(""))
 }
 
-fn me(user: &CurrentUser, mode: AuthMode, token: Option<String>) -> Me {
+fn me(accounts: &Accounts, user: &CurrentUser, token: Option<String>) -> Me {
+    let profile = accounts.lock().profiles.get(&user.username).cloned().unwrap_or_default();
     Me {
         username: user.username.clone(),
         admin: user.admin,
         permissions: user.permissions,
         can_import: user.can_import,
-        mode,
+        mode: accounts.mode(),
+        appearance: profile.appearance,
+        avatar: profile.avatar.map(|(_, version)| version),
         token,
+    }
+}
+
+/// Where someone's picture lives: named by a hash, so usernames never become paths.
+fn avatar_path(dir: &Path, username: &str) -> PathBuf {
+    dir.join(hash(username))
+}
+
+/// `PUT /api/v1/session/appearance`
+pub async fn set_appearance(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Json(appearance): Json<Appearance>,
+) -> Json<Appearance> {
+    let accounts = &app.accounts;
+    let mut state = accounts.lock();
+    state.profiles.entry(user.username.clone()).or_default().appearance = appearance;
+    accounts.save(&mut state);
+    Json(appearance)
+}
+
+const MAX_AVATAR_BYTES: usize = 1 << 20;
+
+/// `PUT /api/v1/session/avatar`: the request body is the image.
+pub async fn set_avatar(State(app): State<AppState>, user: CurrentUser, body: axum::body::Bytes) -> Response {
+    let Some(dir) = app.accounts.avatars.clone() else {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "no-storage", "Pictures can't be saved here.");
+    };
+    if body.len() > MAX_AVATAR_BYTES {
+        return error(StatusCode::PAYLOAD_TOO_LARGE, "too-big", "Pick a picture under 1 MB.");
+    }
+    // Trust the bytes, not the file name or the header the browser sent.
+    let kind = match body.get(..12) {
+        Some([0x89, b'P', b'N', b'G', ..]) => "image/png",
+        Some([0xFF, 0xD8, 0xFF, ..]) => "image/jpeg",
+        Some([b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P']) => "image/webp",
+        Some([b'G', b'I', b'F', b'8', ..]) => "image/gif",
+        _ => return error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "not-an-image", "Use a PNG, JPEG, WebP or GIF picture."),
+    };
+    let path = avatar_path(&dir, &user.username);
+    let written = tokio::fs::create_dir_all(&dir).await.and(tokio::fs::write(&path, &body).await);
+    if let Err(e) = written {
+        tracing::warn!(error = %e, "couldn't save a profile picture");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "save-failed", "Couldn't save the picture.");
+    }
+    let version = now();
+    let accounts = &app.accounts;
+    let mut state = accounts.lock();
+    state.profiles.entry(user.username.clone()).or_default().avatar = Some((kind.to_owned(), version));
+    accounts.save(&mut state);
+    Json(serde_json::json!({ "avatar": version })).into_response()
+}
+
+/// `DELETE /api/v1/session/avatar`
+pub async fn remove_avatar(State(app): State<AppState>, user: CurrentUser) -> StatusCode {
+    if let Some(dir) = &app.accounts.avatars {
+        let _ = tokio::fs::remove_file(avatar_path(dir, &user.username)).await;
+    }
+    let accounts = &app.accounts;
+    let mut state = accounts.lock();
+    if let Some(profile) = state.profiles.get_mut(&user.username) {
+        profile.avatar = None;
+    }
+    accounts.save(&mut state);
+    StatusCode::NO_CONTENT
+}
+
+/// `GET /api/v1/avatars/{username}`
+pub async fn avatar(State(app): State<AppState>, UrlPath(username): UrlPath<String>) -> Response {
+    let kind = app.accounts.lock().profiles.get(&username).and_then(|p| p.avatar.clone()).map(|(kind, _)| kind);
+    let (Some(kind), Some(dir)) = (kind, app.accounts.avatars.as_ref()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::fs::read(avatar_path(dir, &username)).await {
+        Ok(bytes) => (
+            [
+                (header::CONTENT_TYPE, kind),
+                (header::CACHE_CONTROL, "private, max-age=31536000, immutable".to_owned()),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -349,7 +456,7 @@ fn me(user: &CurrentUser, mode: AuthMode, token: Option<String>) -> Me {
 /// Answering `200 null` rather than 401 keeps "not signed in yet" from showing up as
 /// an error in the browser console on every visit.
 pub async fn session(State(app): State<AppState>, headers: HeaderMap) -> Json<Option<Me>> {
-    Json(app.accounts.authenticate(token_from(&headers).as_deref()).map(|user| me(&user, app.accounts.mode(), None)))
+    Json(app.accounts.authenticate(token_from(&headers).as_deref()).map(|user| me(&app.accounts, &user, None)))
 }
 
 /// `POST /api/v1/session`: sign in with a Navidrome username and password.
@@ -358,7 +465,7 @@ pub async fn sign_in(State(app): State<AppState>, headers: HeaderMap, Json(reque
     let Some(url) = accounts.navidrome_url.clone() else {
         // Open mode: nobody to check the password with, and nothing to sign in to.
         return match accounts.authenticate(None) {
-            Some(user) => Json(me(&user, AuthMode::Open, None)).into_response(),
+            Some(user) => Json(me(accounts, &user, None)).into_response(),
             None => error(StatusCode::INTERNAL_SERVER_ERROR, "no-session", "Couldn't start a session."),
         };
     };
@@ -404,7 +511,7 @@ pub async fn sign_in(State(app): State<AppState>, headers: HeaderMap, Json(reque
     let (token, user) = accounts.signed_in(&navidrome_user.username, navidrome_user.admin_role);
     tracing::info!(username = %user.username, admin = user.admin, "signed in");
 
-    let body = me(&user, AuthMode::Navidrome, request.token.then(|| token.clone()));
+    let body = me(accounts, &user, request.token.then(|| token.clone()));
     let mut response = Json(body).into_response();
     response.headers_mut().insert(header::SET_COOKIE, session_cookie(&token, &headers, SESSION_IDLE.as_secs()));
     response

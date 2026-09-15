@@ -44,3 +44,28 @@ export function useRecentList(key: string) {
 
   return { recent, remember, forget }
 }
+
+const LABELS = "delune.recent-labels"
+
+/** Readable names for searches that were links: "No Surprises, Radiohead" instead of a URL. */
+export function recentLabel(query: string): string | undefined {
+  try {
+    const labels = JSON.parse(localStorage.getItem(LABELS) ?? "{}") as Record<string, string>
+    return typeof labels[query] === "string" ? labels[query] : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function rememberLabel(query: string, label: string) {
+  try {
+    const labels = JSON.parse(localStorage.getItem(LABELS) ?? "{}") as Record<string, string>
+    if (labels[query] === label) return
+    labels[query] = label
+    // Keep the map small: drop the oldest entries beyond 50.
+    const entries = Object.entries(labels).slice(-50)
+    localStorage.setItem(LABELS, JSON.stringify(Object.fromEntries(entries)))
+  } catch {
+    // Storage unavailable: the URL shows instead.
+  }
+}

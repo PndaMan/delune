@@ -199,9 +199,17 @@ export type Me = {
   permissions: Permissions
   can_import: boolean
   mode: "navidrome" | "open"
+  appearance: import("@/lib/appearance").Appearance
+  avatar: number | null
 }
 
-export type Person = { username: string; admin: boolean; permissions: Permissions; last_login: number }
+export type Person = {
+  username: string
+  admin: boolean
+  permissions: Permissions
+  last_login: number
+  avatar: number | null
+}
 export type People = { require_approval: boolean; people: Person[] }
 
 export type SoulseekUser = {

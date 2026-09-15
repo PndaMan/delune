@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 
 import { api, type Me, sessionEvents } from "@/lib/api"
+import { applyAppearance } from "@/lib/appearance"
 
 const KEY = ["session"]
 
@@ -9,6 +10,12 @@ const KEY = ["session"]
 export function useSession() {
   const client = useQueryClient()
   const query = useQuery({ queryKey: KEY, queryFn: ({ signal }) => api.session(signal), staleTime: 5 * 60_000, retry: 1 })
+
+  // The account's look wins over whatever this browser last used.
+  const appearance = query.data?.appearance
+  useEffect(() => {
+    if (appearance) applyAppearance(appearance)
+  }, [appearance])
 
   // Any request answered with 401 means the session ended (expired, or signed out elsewhere).
   useEffect(() => {

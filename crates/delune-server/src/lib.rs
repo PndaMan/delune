@@ -165,6 +165,9 @@ pub fn router(state: AppState) -> Router {
     // Everything except health, signing in and the web UI itself needs a session.
     let signed_in = Router::new()
         .route("/api/v1/users", get(accounts::people))
+        .route("/api/v1/session/appearance", put(accounts::set_appearance))
+        .route("/api/v1/session/avatar", put(accounts::set_avatar).delete(accounts::remove_avatar))
+        .route("/api/v1/avatars/{username}", get(accounts::avatar))
         .route("/api/v1/users/approval", put(accounts::set_approval))
         .route("/api/v1/users/{username}/permissions", put(accounts::set_permissions))
         .route("/api/v1/classify", get(classify_input))

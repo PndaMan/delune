@@ -104,6 +104,54 @@
   --sky-2: #0f1226;
 }
 
+/* Midnight: night on true black, for OLED screens. */
+.dark.midnight {
+  --background: #000000;
+  --card: #0b0c16;
+  --popover: #0e0f1b;
+  --secondary: #16172a;
+  --muted: #121324;
+  --accent: #16172a;
+  --sky-1: #070814;
+  --sky-2: #000000;
+}
+
+/* Forest: a deep green night. */
+.dark.forest {
+  --background: #0b1712;
+  --foreground: #e8ede1;
+  --card: #11211a;
+  --card-foreground: #e8ede1;
+  --popover: #13251d;
+  --popover-foreground: #e8ede1;
+  --primary: #8fd9a8;
+  --primary-foreground: #0b1712;
+  --secondary: #1a2f25;
+  --secondary-foreground: #e8ede1;
+  --muted: #16291f;
+  --muted-foreground: #95b2a0;
+  --accent: #1a2f25;
+  --accent-foreground: #e8ede1;
+  --border: rgb(214 255 230 / 0.09);
+  --input: rgb(214 255 230 / 0.14);
+  --ring: #8fd9a8;
+  --moon: #eef0d8;
+  --sky-1: #12291e;
+  --sky-2: #0b1712;
+}
+
+/* Accent presets. "moon" is the palette above; the rest swap the primary colour. */
+[data-accent="aurora"] { --primary: #0f8a86; --ring: #0f8a86; }
+.dark[data-accent="aurora"] { --primary: #6fe0d6; --ring: #6fe0d6; }
+[data-accent="dusk"] { --primary: #c2407a; --ring: #c2407a; }
+.dark[data-accent="dusk"] { --primary: #ff9ec7; --ring: #ff9ec7; }
+[data-accent="ember"] { --primary: #b8610b; --ring: #b8610b; }
+.dark[data-accent="ember"] { --primary: #ffbe73; --ring: #ffbe73; }
+[data-accent="tide"] { --primary: #2466c9; --ring: #2466c9; }
+.dark[data-accent="tide"] { --primary: #8cbcff; --ring: #8cbcff; }
+[data-accent="fern"] { --primary: #2f7d3f; --ring: #2f7d3f; }
+.dark[data-accent="fern"] { --primary: #9ee29a; --ring: #9ee29a; }
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

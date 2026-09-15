@@ -368,6 +368,39 @@ pub enum AuthMode {
     Open,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Theme {
+    /// Night or blue hour, following the device.
+    #[default]
+    System,
+    Night,
+    BlueHour,
+    /// Night on true black, for OLED screens.
+    Midnight,
+    /// A deep green night.
+    Forest,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Accent {
+    #[default]
+    Moon,
+    Aurora,
+    Dusk,
+    Ember,
+    Tide,
+    Fern,
+}
+
+/// How delune looks for one person, saved to their account.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Appearance {
+    pub theme: Theme,
+    pub accent: Accent,
+}
+
 /// `GET /api/v1/session`: who is signed in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Me {
@@ -378,6 +411,11 @@ pub struct Me {
     /// Whether this person can import their own downloads right now.
     pub can_import: bool,
     pub mode: AuthMode,
+    #[serde(default)]
+    pub appearance: Appearance,
+    /// Changes whenever their profile picture does; none without one.
+    #[serde(default)]
+    pub avatar: Option<u64>,
     /// Only returned to clients that asked for one, such as the TUI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
@@ -401,6 +439,8 @@ pub struct Person {
     pub permissions: Permissions,
     /// Unix seconds.
     pub last_login: u64,
+    #[serde(default)]
+    pub avatar: Option<u64>,
 }
 
 /// `GET /api/v1/users`

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { LogOut, Lock } from "lucide-react"
-import { useEffect } from "react"
+import { Camera, LoaderCircle, LogOut, Lock } from "lucide-react"
+import { useEffect, useRef } from "react"
 
 import { NamingEditor } from "@/components/naming-editor"
 import { SharingSettingsPanel } from "@/components/sharing-settings"
@@ -9,6 +9,7 @@ import { Moon } from "@/components/moon"
 import { Avatar } from "@/components/profile-menu"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { ACCENTS, avatarUrl, THEMES, useSetAppearance, useSetAvatar } from "@/lib/appearance"
 import { useMe, useSignOut } from "@/lib/session"
 import { PageFrame } from "@/pages/placeholder-pages"
 import { api, type People, type Permissions, type Person } from "@/lib/api"
@@ -30,6 +31,9 @@ export function SettingsPage() {
       <div className="mt-10 divide-y border-t pb-24 md:mt-10">
         <Section id="account" title="Your account" description="delune uses your Navidrome account. Admins in Navidrome are admins here.">
           <Account />
+        </Section>
+        <Section id="appearance" title="Appearance" description="How delune looks for you, on every device you sign in on.">
+          <AppearancePicker />
         </Section>
         {me.permissions.manage && (
           <Section
@@ -71,6 +75,7 @@ export function SettingsPage() {
 function SectionNav({ manage }: { manage: boolean }) {
   const sections = [
     ["account", "Account"],
+    ["appearance", "Appearance"],
     ...(manage ? [["people", "People"]] : []),
     ["sources", "Sources"],
     ...(manage ? [["sharing", "Sharing"]] : []),
@@ -166,6 +171,100 @@ function SoulseekAccount() {
   )
 }
 
+function AvatarPicker() {
+  const me = useMe()
+  const setAvatar = useSetAvatar()
+  const input = useRef<HTMLInputElement>(null)
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => input.current?.click()}
+        className="group relative rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Change profile picture"
+        title="Change profile picture"
+      >
+        <Avatar name={me.username} src={avatarUrl(me.username, me.avatar)} className="size-14 text-xl" />
+        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
+          {setAvatar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Camera className="size-5" />}
+        </span>
+      </button>
+      {me.avatar && (
+        <button type="button" onClick={() => setAvatar.mutate(null)} className="text-[12px] text-muted-foreground hover:text-foreground">
+          Remove
+        </button>
+      )}
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) setAvatar.mutate(file)
+          e.target.value = ""
+        }}
+      />
+      {setAvatar.isError && <p className="max-w-40 text-center text-[12px] text-destructive">{setAvatar.error.message}</p>}
+    </div>
+  )
+}
+
+function AppearancePicker() {
+  const me = useMe()
+  const set = useSetAppearance()
+  const { theme, accent } = me.appearance
+  return (
+    <div className="space-y-6">
+      <div role="radiogroup" aria-label="Theme" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {THEMES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="radio"
+            aria-checked={theme === t.id}
+            onClick={() => set.mutate({ theme: t.id, accent })}
+            className={cn(
+              "overflow-hidden rounded-2xl border text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              theme === t.id ? "border-primary ring-1 ring-primary" : "hover:border-foreground/30",
+            )}
+          >
+            <span className="flex h-16" aria-hidden>
+              <span className="flex-1" style={{ background: t.swatch[0] }} />
+              <span className="flex w-1/3 items-end justify-center pb-2" style={{ background: t.swatch[1] }}>
+                <span className="size-3 rounded-full" style={{ background: ACCENTS.find((a) => a.id === accent)?.color }} />
+              </span>
+            </span>
+            <span className="block px-3 py-2">
+              <span className="block text-[14px] font-medium">{t.label}</span>
+              <span className="block text-[12px] leading-snug text-muted-foreground">{t.description}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <div role="radiogroup" aria-label="Accent colour" className="flex flex-wrap gap-2">
+        {ACCENTS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            role="radio"
+            aria-checked={accent === a.id}
+            onClick={() => set.mutate({ theme, accent: a.id })}
+            className={cn(
+              "flex h-10 items-center gap-2 rounded-full border px-3.5 text-[14px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              accent === a.id ? "border-transparent bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <span className="size-3.5 rounded-full" style={{ background: a.color }} aria-hidden />
+            {a.label}
+          </button>
+        ))}
+      </div>
+      {set.isError && <p className="text-sm text-destructive">{set.error.message}</p>}
+    </div>
+  )
+}
+
 function Account() {
   const me = useMe()
   const signOut = useSignOut()
@@ -177,7 +276,7 @@ function Account() {
   ].filter(Boolean)
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-2xl border bg-card/50 px-5 py-5">
-      <Avatar name={me.username} className="size-12 text-lg" />
+      <AvatarPicker />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[17px] font-semibold">{me.username}</p>
         <p className="mt-0.5 text-sm text-muted-foreground">
@@ -266,7 +365,7 @@ function PersonRow({
   return (
     <li className="flex flex-col gap-3 border-b px-5 py-4 last:border-b-0 md:flex-row md:items-center md:gap-5">
       <div className="flex min-w-0 items-center gap-3 md:w-56">
-        <Avatar name={person.username} />
+        <Avatar name={person.username} src={avatarUrl(person.username, person.avatar)} />
         <div className="min-w-0">
           <p className="truncate text-[15px] font-medium">{person.username}</p>
           <p className="text-[13px] text-muted-foreground">

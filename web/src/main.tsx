@@ -4,14 +4,12 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { applyAppearance } from "@/lib/appearance"
 import { router } from "@/router"
 import "@/index.css"
 
-// Night is the default; the light "blue hour" theme follows an explicit OS preference.
-const light = window.matchMedia("(prefers-color-scheme: light)")
-const applyTheme = () => document.documentElement.classList.toggle("dark", !light.matches)
-applyTheme()
-light.addEventListener("change", applyTheme)
+// Paint the last appearance straight away; the account's arrives with the session.
+applyAppearance()
 
 // Show scrollbars only while something is being scrolled.
 {
