@@ -105,8 +105,31 @@ struct NavidromeArgs {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve { bind, data_dir, soulseek, library, navidrome } => {
+        Command::Serve { bind, data_dir, mut soulseek, mut library, mut navidrome } => {
             init_logging();
+            // Flags and environment variables win; the config file fills in the rest.
+            let locked = delune_server::setup::Locked {
+                library: library.library_dir.is_some(),
+                soulseek: soulseek.slsk_username.is_some(),
+                navidrome: navidrome.navidrome_url.is_some(),
+            };
+            let file_path = delune_server::setup::FileConfig::path(&data_dir);
+            let file = delune_server::setup::FileConfig::load(&file_path).map_err(anyhow::Error::msg)?;
+            if !locked.library {
+                library.library_dir = file.library_dir;
+            }
+            if let (false, Some(file)) = (locked.soulseek, file.soulseek) {
+                soulseek.slsk_username = Some(file.username);
+                soulseek.slsk_password = Some(file.password);
+                if let Some(port) = file.port {
+                    soulseek.slsk_port = port;
+                }
+            }
+            if let (false, Some(file)) = (locked.navidrome, file.navidrome) {
+                navidrome.navidrome_url = Some(file.url);
+                navidrome.navidrome_username = Some(file.username);
+                navidrome.navidrome_password = Some(file.password);
+            }
             let template = delune_library::Template::parse(&library.naming_template)
                 .map_err(|e| anyhow::anyhow!("DELUNE_NAMING_TEMPLATE is invalid: {e}"))?;
             let navidrome = match (navidrome.navidrome_url, navidrome.navidrome_username, navidrome.navidrome_password)
@@ -125,6 +148,7 @@ async fn main() -> Result<()> {
                     options: delune_library::NamingOptions::default(),
                 },
                 navidrome,
+                locked,
             };
             delune_server::serve(bind, config).await?;
         }

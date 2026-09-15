@@ -152,6 +152,12 @@ it is an admin. Keep an open-mode server off the internet.
 
 ## Install
 
+However you install it, open delune in a browser the first time: it asks for your
+music folder, Navidrome and a Soulseek account, checks each one, and saves them to
+`config.toml` in its data folder (readable only by delune). Flags and `DELUNE_*`
+environment variables still work and take precedence; settings made that way show
+as fixed in the web UI.
+
 ### NixOS
 
 delune is a flake with a NixOS module:
@@ -188,7 +194,7 @@ The service listens on `127.0.0.1:7474`; put your reverse proxy in front of it.
 ### Docker
 
 ```sh
-cp .env.example .env   # fill in the Soulseek and Navidrome details
+cp .env.example .env   # optional: or set everything up in the browser
 docker compose up -d
 ```
 

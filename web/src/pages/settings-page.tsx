@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Camera, LoaderCircle, LogOut, Lock } from "lucide-react"
 import { useEffect, useRef } from "react"
 
+import { ConnectionsForm } from "@/components/connections-form"
 import { NamingEditor } from "@/components/naming-editor"
 import { SharingSettingsPanel } from "@/components/sharing-settings"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
@@ -12,6 +13,7 @@ import { Switch } from "@/components/ui/switch"
 import { ACCENTS, avatarUrl, THEMES, useSetAppearance, useSetAvatar } from "@/lib/appearance"
 import { type AutomationSettings, useAutomation } from "@/lib/automation"
 import { useMe, useSignOut } from "@/lib/session"
+import { useSetupStatus } from "@/lib/setup"
 import { PageFrame } from "@/pages/placeholder-pages"
 import { api, type People, type Permissions, type Person } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -30,10 +32,18 @@ export function SettingsPage() {
       </p>
       <SectionNav manage={me.permissions.manage} />
       <div className="mt-10 divide-y border-t pb-24 md:mt-10">
-        <Section id="account" title="Your account" description="delune uses your Navidrome account. Admins in Navidrome are admins here.">
+        <Section
+          id="account"
+          title="Your account"
+          description="delune uses your Navidrome account. Admins in Navidrome are admins here."
+        >
           <Account />
         </Section>
-        <Section id="appearance" title="Appearance" description="How delune looks for you, on every device you sign in on.">
+        <Section
+          id="appearance"
+          title="Appearance"
+          description="How delune looks for you, on every device you sign in on."
+        >
           <AppearancePicker />
         </Section>
         {me.permissions.manage && (
@@ -45,7 +55,11 @@ export function SettingsPage() {
             <PeopleSettings />
           </Section>
         )}
-        <Section id="sources" title="Sources" description="Where delune looks for music, in order. Soulseek always comes first.">
+        <Section
+          id="sources"
+          title="Sources"
+          description="Where delune looks for music, in order. Soulseek always comes first."
+        >
           <Sources />
         </Section>
         {me.permissions.manage && (
@@ -66,7 +80,20 @@ export function SettingsPage() {
             <SharingSettingsPanel />
           </Section>
         )}
-        <Section id="soulseek" title="Soulseek account" description="delune connects to Soulseek itself; no separate client needed.">
+        {me.permissions.manage && (
+          <Section
+            id="connections"
+            title="Connections"
+            description="Your music folder, Navidrome and the Soulseek account delune signs in with."
+          >
+            <Connections />
+          </Section>
+        )}
+        <Section
+          id="soulseek"
+          title="Soulseek account"
+          description="delune connects to Soulseek itself; no separate client needed."
+        >
           <SoulseekAccount />
         </Section>
         <Section
@@ -95,7 +122,13 @@ function SectionNav({ manage }: { manage: boolean }) {
     ["appearance", "Appearance"],
     ...(manage ? [["people", "People"]] : []),
     ["sources", "Sources"],
-    ...(manage ? [["automation", "Automation"], ["sharing", "Sharing"]] : []),
+    ...(manage
+      ? [
+          ["automation", "Automation"],
+          ["sharing", "Sharing"],
+          ["connections", "Connections"],
+        ]
+      : []),
     ["soulseek", "Soulseek"],
     ["lyrics", "Lyrics"],
     ["naming", "File naming"],
@@ -135,7 +168,10 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section id={id} className="grid scroll-mt-16 gap-6 md:scroll-mt-6 py-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12">
+    <section
+      id={id}
+      className="grid scroll-mt-16 gap-6 md:scroll-mt-6 py-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12"
+    >
       <div>
         <h2 className="type-title text-[21px]">{title}</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
@@ -171,6 +207,13 @@ function Sources() {
   )
 }
 
+function Connections() {
+  const setup = useSetupStatus(true)
+  if (setup.isError) return <p className="text-sm text-destructive">{setup.error.message}</p>
+  if (!setup.data) return <div className="h-64 animate-pulse rounded-2xl bg-muted/40" />
+  return <ConnectionsForm status={setup.data} />
+}
+
 function SoulseekAccount() {
   const status = useSoulseekStatus()
   const { illumination, text, tone } = describeSoulseek(status.data, status.isError)
@@ -182,7 +225,7 @@ function SoulseekAccount() {
         <p className="mt-1 text-sm text-muted-foreground">
           {tone === "good"
             ? "Searches are rate-limited to keep the account in good standing."
-            : "Set DELUNE_SLSK_USERNAME and DELUNE_SLSK_PASSWORD when starting the server. A new username is registered the first time it logs in."}
+            : "Add a Soulseek account under Connections. A new username is registered the first time it signs in."}
         </p>
       </div>
     </div>
@@ -208,7 +251,11 @@ function AvatarPicker() {
         </span>
       </button>
       {me.avatar && (
-        <button type="button" onClick={() => setAvatar.mutate(null)} className="text-[12px] text-muted-foreground hover:text-foreground">
+        <button
+          type="button"
+          onClick={() => setAvatar.mutate(null)}
+          className="text-[12px] text-muted-foreground hover:text-foreground"
+        >
           Remove
         </button>
       )}
@@ -223,7 +270,9 @@ function AvatarPicker() {
           e.target.value = ""
         }}
       />
-      {setAvatar.isError && <p className="max-w-40 text-center text-[12px] text-destructive">{setAvatar.error.message}</p>}
+      {setAvatar.isError && (
+        <p className="max-w-40 text-center text-[12px] text-destructive">{setAvatar.error.message}</p>
+      )}
     </div>
   )
 }
@@ -250,7 +299,10 @@ function AppearancePicker() {
             <span className="flex h-16" aria-hidden>
               <span className="flex-1" style={{ background: t.swatch[0] }} />
               <span className="flex w-1/3 items-end justify-center pb-2" style={{ background: t.swatch[1] }}>
-                <span className="size-3 rounded-full" style={{ background: ACCENTS.find((a) => a.id === accent)?.color }} />
+                <span
+                  className="size-3 rounded-full"
+                  style={{ background: ACCENTS.find((a) => a.id === accent)?.color }}
+                />
               </span>
             </span>
             <span className="block px-3 py-2">
@@ -270,7 +322,9 @@ function AppearancePicker() {
             onClick={() => set.mutate({ theme, accent: a.id })}
             className={cn(
               "flex h-10 items-center gap-2 rounded-full border px-3.5 text-[14px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              accent === a.id ? "border-transparent bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+              accent === a.id
+                ? "border-transparent bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <span className="size-3.5 rounded-full" style={{ background: a.color }} aria-hidden />
@@ -333,12 +387,21 @@ function ImportOptionsPanel({ editable }: { editable: boolean }) {
           </button>
         ))}
       </div>
-      <label className={cn("flex items-start gap-4 rounded-2xl border bg-card/50 px-5 py-4", editable && "cursor-pointer")}>
+      <label
+        className={cn("flex items-start gap-4 rounded-2xl border bg-card/50 px-5 py-4", editable && "cursor-pointer")}
+      >
         <span className="min-w-0 flex-1">
           <span className="block text-[15px]">Embed cover art</span>
-          <span className="mt-1 block text-sm text-muted-foreground">Put the album cover inside each track, as well as a cover file in the folder.</span>
+          <span className="mt-1 block text-sm text-muted-foreground">
+            Put the album cover inside each track, as well as a cover file in the folder.
+          </span>
         </span>
-        <Switch checked={o.embed_cover} disabled={!editable} onCheckedChange={(embed_cover) => save.mutate({ ...o, embed_cover })} className="mt-1" />
+        <Switch
+          checked={o.embed_cover}
+          disabled={!editable}
+          onCheckedChange={(embed_cover) => save.mutate({ ...o, embed_cover })}
+          className="mt-1"
+        />
       </label>
     </div>
   )
@@ -416,7 +479,12 @@ function Account() {
         </p>
       </div>
       {me.mode === "navidrome" && (
-        <Button variant="outline" className="w-full sm:w-auto" onClick={() => signOut.mutate()} disabled={signOut.isPending}>
+        <Button
+          variant="outline"
+          className="w-full sm:w-auto"
+          onClick={() => signOut.mutate()}
+          disabled={signOut.isPending}
+        >
           <LogOut /> Sign out
         </Button>
       )}
@@ -458,8 +526,8 @@ function PeopleSettings() {
         <div className="min-w-0 flex-1">
           <p className="text-[15px]">Imports need an admin's approval</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            People review their own downloads either way. When this is on, only admins and people allowed to skip approval
-            can move them into the library.
+            People review their own downloads either way. When this is on, only admins and people allowed to skip
+            approval can move them into the library.
           </p>
         </div>
         <Switch checked={require_approval} onCheckedChange={(checked) => approval.mutate(checked)} className="mt-1" />
@@ -519,7 +587,9 @@ function PersonRow({
                 onClick={() => onChange({ ...person.permissions, [key]: !on })}
                 className={cn(
                   "h-9 rounded-full border px-3.5 text-[13.5px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  on ? "border-transparent bg-foreground text-background" : "bg-transparent text-muted-foreground hover:text-foreground",
+                  on
+                    ? "border-transparent bg-foreground text-background"
+                    : "bg-transparent text-muted-foreground hover:text-foreground",
                   moot && "opacity-50",
                 )}
               >

@@ -1,4 +1,5 @@
 import { Link, Outlet } from "@tanstack/react-router"
+import { useState } from "react"
 import { ArrowDownToLine, Earth, Inbox, Search, SlidersHorizontal } from "lucide-react"
 
 import { Moon } from "@/components/moon"
@@ -6,7 +7,9 @@ import { ProfileMenu } from "@/components/profile-menu"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { moonPhase } from "@/lib/moon-phase"
-import { useSession } from "@/lib/session"
+import { useMe, useSession } from "@/lib/session"
+import { setupSkipped, useSetupStatus } from "@/lib/setup"
+import { SetupPage } from "@/pages/setup-page"
 import { SignInPage } from "@/pages/sign-in-page"
 
 const NAV = [
@@ -37,6 +40,10 @@ export function AppShell() {
 
 function SignedIn() {
   const tonight = moonPhase()
+  const me = useMe()
+  const setup = useSetupStatus(me.permissions.manage)
+  const [skipped, setSkipped] = useState(setupSkipped)
+  if (setup.data?.needed && !skipped) return <SetupPage status={setup.data} onSkip={() => setSkipped(true)} />
 
   return (
     <div className="night-sky min-h-dvh md:pl-[76px]">
@@ -44,7 +51,12 @@ function SignedIn() {
         aria-label="Main"
         className="fixed inset-y-0 left-0 z-30 hidden w-[76px] flex-col items-center border-r bg-card/30 py-5 backdrop-blur-md md:flex"
       >
-        <Link to="/" search={{}} aria-label="delune home" className="mb-8 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link
+          to="/"
+          search={{}}
+          aria-label="delune home"
+          className="mb-8 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <Moon illumination={Math.max(tonight.illumination, 0.18)} waxing={tonight.waxing} size={30} />
         </Link>
         <ul className="flex flex-col gap-1.5">

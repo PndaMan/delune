@@ -17,6 +17,7 @@ pub mod library;
 pub mod naming;
 pub mod review;
 pub mod search;
+pub mod setup;
 pub mod sharing;
 pub mod users;
 mod web;
@@ -52,6 +53,8 @@ pub struct ServerConfig {
     pub library: review::LibrarySettings,
     /// Navidrome to rescan after imports.
     pub navidrome: Option<(String, delune_navidrome::Credentials)>,
+    /// Connections set by flags or environment variables rather than the config file.
+    pub locked: setup::Locked,
 }
 
 impl Default for ServerConfig {
@@ -61,6 +64,7 @@ impl Default for ServerConfig {
             data_dir: PathBuf::from("delune-data"),
             library: review::LibrarySettings::default(),
             navidrome: None,
+            locked: setup::Locked::default(),
         }
     }
 }
@@ -88,6 +92,10 @@ pub struct AppState {
     pub finishing: Arc<finishing::Finishing>,
     /// The naming template and options imports use now.
     pub naming: Arc<naming::Naming>,
+    /// Navidrome's address and account, for showing in settings.
+    pub navidrome_account: Option<(String, String)>,
+    pub soulseek_port: Option<u16>,
+    pub locked: setup::Locked,
 }
 
 impl Default for AppState {
@@ -112,6 +120,9 @@ impl Default for AppState {
             automation: Arc::default(),
             finishing: Arc::default(),
             naming: Arc::default(),
+            navidrome_account: None,
+            soulseek_port: None,
+            locked: setup::Locked::default(),
         }
     }
 }
@@ -121,6 +132,7 @@ impl AppState {
     #[must_use]
     pub fn start(config: ServerConfig) -> Self {
         let navidrome_url = config.navidrome.as_ref().map(|(url, _)| url.clone());
+        let navidrome_account = config.navidrome.as_ref().map(|(url, c)| (url.clone(), c.username.clone()));
         let accounts = Arc::new(accounts::Accounts::open(&config.data_dir, navidrome_url));
         let chat = Arc::new(chat::Chat::open(&config.data_dir));
         let sharing = Arc::new(sharing::Sharing::open(&config.data_dir));
@@ -152,10 +164,13 @@ impl AppState {
             automation,
             finishing,
             naming,
+            navidrome_account,
+            locked: config.locked,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
             state.soulseek_username = Some(slsk.username.clone());
+            state.soulseek_port = slsk.listen_port;
             state.search_timeout = slsk.search_timeout;
             state.soulseek = Some(delune_soulseek::Client::start(slsk));
         }
@@ -224,6 +239,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/library/album", get(library::album))
         .route("/api/v1/artwork", get(artwork::lookup))
         .route("/api/v1/artwork/image", get(artwork::image))
+        .route("/api/v1/setup", get(setup::status).put(setup::update))
+        .route("/api/v1/setup/check", post(setup::check))
         .route("/api/v1/naming", get(naming::get).put(naming::update))
         .route("/api/v1/naming/detect", post(naming::detect))
         .route("/api/v1/naming/tokens", get(naming::tokens))

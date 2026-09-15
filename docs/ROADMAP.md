@@ -14,7 +14,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Single binary serving API and embedded web UI
 - [x] TUI and web UI shells connected to the server
 - [x] TUI vertical slice: search, download for review, downloads (stop, resume, remove), review and import
-- [ ] Configuration file and first-run setup (Navidrome URL, music folder, Soulseek account)
+- [x] Configuration file and first-run setup (Navidrome URL, music folder, Soulseek account), checked before saving
 - [ ] SQLite persistence (settings, jobs, peer history)
 - [x] Login with Navidrome credentials; sessions
 - [ ] OpenAPI generation and a generated TypeScript client
