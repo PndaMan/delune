@@ -18,14 +18,14 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use bytes::BytesMut;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot, watch};
 use tokio::time::timeout;
 use tokio_util::codec::Framed;
 
@@ -110,6 +110,12 @@ pub(crate) struct Shared {
     pub uploads: Uploads,
     /// Private messages and room activity, for whoever is listening.
     pub chat: broadcast::Sender<ChatEvent>,
+    /// Whether we have a parent in the distributed search network.
+    pub distributed_parent: AtomicBool,
+    /// Whether we're trying possible parents right now.
+    pub distributed_connecting: AtomicBool,
+    /// Bumped to drop the current distributed parent.
+    pub distributed_reset: watch::Sender<u64>,
     /// Seconds between wishlist searches, as the server says.
     pub wishlist_interval: AtomicU32,
     /// Rooms to be in, rejoined after every reconnect.
@@ -141,6 +147,9 @@ impl Shared {
             chat: broadcast::channel(512).0,
             rooms: Mutex::default(),
             wishlist_interval: AtomicU32::new(12 * 60),
+            distributed_parent: AtomicBool::new(false),
+            distributed_connecting: AtomicBool::new(false),
+            distributed_reset: watch::channel(0).0,
         }
     }
 
@@ -227,7 +236,7 @@ async fn handle_incoming(stream: TcpStream, addr: SocketAddr, shared: Arc<Shared
                 }
             }
         }
-        // Distributed search connections aren't supported yet.
+        // We don't accept distributed children.
         Ok(other) => tracing::trace!(%addr, ?other, "ignoring connection"),
         Err(error) => tracing::debug!(%addr, %error, "bad peer init"),
     }

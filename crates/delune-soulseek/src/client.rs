@@ -652,10 +652,12 @@ async fn run_session(
             folders: u32::try_from(sharing.folder_count()).unwrap_or(u32::MAX),
             files: u32::try_from(sharing.file_count()).unwrap_or(u32::MAX),
         },
-        ServerRequest::HaveNoParent(true),
         ServerRequest::SetStatus(Status::Online),
         ServerRequest::RoomList,
     ];
+    // A new session starts the distributed network afresh.
+    crate::distributed::reset(shared);
+    greeting.extend(crate::distributed::greeting(shared));
     let rooms: Vec<String> = shared.rooms.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect();
     greeting.extend(rooms.into_iter().map(|room| ServerRequest::JoinRoom { room }));
     if let Some(port) = listen_port {
@@ -749,6 +751,20 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
         ServerEvent::UserJoinedRoom { room, member } => chat(ChatEvent::UserJoinedRoom { room, member }),
         ServerEvent::UserLeftRoom { room, username } => chat(ChatEvent::UserLeftRoom { room, username }),
         ServerEvent::RoomList(rooms) => chat(ChatEvent::RoomList(rooms)),
+        ServerEvent::PossibleParents(candidates) => crate::distributed::on_possible_parents(shared, candidates),
+        ServerEvent::EmbeddedMessage { code, message } => {
+            if let Ok(crate::distributed::DistributedMessage::Search { username, token, query }) =
+                crate::distributed::DistributedMessage::decode_body(code, &message)
+            {
+                crate::distributed::answer(shared, username, token, &query);
+            }
+        }
+        ServerEvent::ResetDistributed => {
+            crate::distributed::reset(shared);
+            if let Some(server) = shared.server() {
+                let _ = server.try_send(ServerRequest::HaveNoParent(true));
+            }
+        }
         ServerEvent::WishlistInterval(seconds) => {
             shared.wishlist_interval.store(seconds, std::sync::atomic::Ordering::Relaxed);
         }

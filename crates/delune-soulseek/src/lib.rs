@@ -17,7 +17,7 @@
 //!
 //! - [`sharing`] and [`upload`] — what we share, answering searches, and uploads.
 //!
-//! Still to come: the distributed search network.
+//! - [`distributed`] — joining the distributed search network as a leaf.
 //!
 //! ```no_run
 //! # async fn demo() -> Result<(), delune_soulseek::client::Error> {
@@ -39,6 +39,7 @@
 
 pub mod client;
 mod connection;
+pub mod distributed;
 pub mod frame;
 pub mod limiter;
 pub mod peer;

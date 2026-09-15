@@ -193,3 +193,82 @@ async fn answers_searches_that_match_our_shares() {
     assert_eq!(response.files[0].path, SHARED);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn joins_the_distributed_network_and_answers_relayed_searches() {
+    let (client, mut server, _) = online_client().await;
+    let dir = temp_dir("distributed");
+    client.set_share_index(shared_file(&dir, b"flac"));
+
+    // The server suggests a parent.
+    let parent_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut w = Writer::new();
+    w.u32(1).string("fast-parent").ip(Ipv4Addr::LOCALHOST).u32(u32::from(parent_listener.local_addr().unwrap().port()));
+    server.send(w.finish(code::POSSIBLE_PARENTS)).await.unwrap();
+
+    // We connect as a distributed child.
+    let (socket, _) = timeout(WAIT, parent_listener.accept()).await.unwrap().unwrap();
+    let mut parent = framed(socket);
+    let init = PeerInit::decode(&next_frame(&mut parent).await).unwrap();
+    assert!(matches!(init, PeerInit::PeerInit { ref kind, .. } if kind == "D"));
+
+    // The parent says where it sits in the tree, then relays a search.
+    let distributed = |message_code: u8, body: Writer| {
+        let body = body.into_body();
+        let mut frame = bytes::BytesMut::new();
+        frame.extend_from_slice(&u32::try_from(body.len() + 1).unwrap().to_le_bytes());
+        frame.extend_from_slice(&[message_code]);
+        frame.extend_from_slice(&body);
+        frame
+    };
+    let mut level = Writer::new();
+    level.u32(1);
+    parent.send(distributed(4, level)).await.unwrap();
+    let mut root = Writer::new();
+    root.string("the-root");
+    parent.send(distributed(5, root)).await.unwrap();
+    let mut search = Writer::new();
+    search.u32(49).string("far-away").u32(9001).string("spirit of eden");
+    parent.send(distributed(3, search)).await.unwrap();
+
+    // We tell the server where we sit, and look up the searcher to answer them, in
+    // whichever order the tasks get there.
+    let searcher = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (mut placed, mut level_seen, mut root_seen, mut answered) = (false, false, false, false);
+    while !(placed && level_seen && root_seen && answered) {
+        let frame = next_frame(&mut server).await;
+        let (message_code, body) = split_code(&frame).unwrap();
+        let mut r = Reader::new(body);
+        match message_code {
+            code::HAVE_NO_PARENT => placed |= !r.bool().unwrap(),
+            code::BRANCH_LEVEL => {
+                assert_eq!(r.u32().unwrap(), 2);
+                level_seen = true;
+            }
+            code::BRANCH_ROOT => {
+                assert_eq!(r.string().unwrap(), "the-root");
+                root_seen = true;
+            }
+            code::GET_PEER_ADDRESS => {
+                let username = r.string().unwrap();
+                assert_eq!(username, "far-away");
+                let mut w = Writer::new();
+                w.string(&username)
+                    .ip(Ipv4Addr::LOCALHOST)
+                    .u32(u32::from(searcher.local_addr().unwrap().port()))
+                    .u32(0)
+                    .u16(0);
+                server.send(w.finish(code::GET_PEER_ADDRESS)).await.unwrap();
+                answered = true;
+            }
+            _ => {}
+        }
+    }
+
+    let (socket, _) = timeout(WAIT, searcher.accept()).await.unwrap().unwrap();
+    let mut conn = framed(socket);
+    let _init = next_frame(&mut conn).await;
+    let response = SearchResponse::decode(&expect_code(&mut conn, peer_code::SEARCH_RESPONSE).await).unwrap();
+    assert_eq!((response.token, response.files.len()), (9001, 1));
+    std::fs::remove_dir_all(dir).unwrap();
+}

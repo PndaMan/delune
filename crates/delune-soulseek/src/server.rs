@@ -43,6 +43,12 @@ pub mod code {
     pub const PING: u32 = 32;
     pub const SHARED_FOLDERS_FILES: u32 = 35;
     pub const HAVE_NO_PARENT: u32 = 71;
+    pub const EMBEDDED_MESSAGE: u32 = 93;
+    pub const ACCEPT_CHILDREN: u32 = 100;
+    pub const POSSIBLE_PARENTS: u32 = 102;
+    pub const BRANCH_LEVEL: u32 = 126;
+    pub const BRANCH_ROOT: u32 = 127;
+    pub const RESET_DISTRIBUTED: u32 = 130;
     pub const RELOGGED: u32 = 41;
     pub const EXCLUDED_SEARCH_PHRASES: u32 = 160;
     pub const CANT_CONNECT_TO_PEER: u32 = 1001;
@@ -149,6 +155,11 @@ pub enum ServerRequest {
         files: u32,
     },
     HaveNoParent(bool),
+    AcceptChildren(bool),
+    /// Our generation in the distributed search tree.
+    BranchLevel(u32),
+    /// Who is at the root of our branch.
+    BranchRoot(String),
     GetPeerAddress {
         username: String,
     },
@@ -230,6 +241,18 @@ impl ServerRequest {
             Self::HaveNoParent(v) => {
                 w.bool(*v);
                 code::HAVE_NO_PARENT
+            }
+            Self::AcceptChildren(v) => {
+                w.bool(*v);
+                code::ACCEPT_CHILDREN
+            }
+            Self::BranchLevel(level) => {
+                w.u32(*level);
+                code::BRANCH_LEVEL
+            }
+            Self::BranchRoot(root) => {
+                w.string(root);
+                code::BRANCH_ROOT
             }
             Self::GetPeerAddress { username } => {
                 w.string(username);
@@ -378,6 +401,15 @@ pub enum ServerEvent {
     RoomList(Vec<RoomSummary>),
     /// How often we may send a wishlist search.
     WishlistInterval(u32),
+    /// Users we could take as our parent in the distributed search network.
+    PossibleParents(Vec<(String, Ipv4Addr, u32)>),
+    /// A distributed message straight from the server, because we're a branch root.
+    EmbeddedMessage {
+        code: u8,
+        message: Vec<u8>,
+    },
+    /// Drop our distributed parent and start over.
+    ResetDistributed,
     /// Phrases the network excludes from search results. Peers drop matching files,
     /// so searching for one of these returns nothing.
     ExcludedSearchPhrases(Vec<String>),
@@ -437,6 +469,18 @@ impl ServerEvent {
             code::USER_JOINED_ROOM => decode_member_joined(&mut r)?,
             code::JOIN_ROOM => decode_joined_room(&mut r)?,
             code::WISHLIST_INTERVAL => Self::WishlistInterval(r.u32()?),
+            code::POSSIBLE_PARENTS => {
+                let count = r.count(12)?;
+                Self::PossibleParents(
+                    (0..count).map(|_| Ok((r.string()?, r.ip()?, r.u32()?))).collect::<Result<_, DecodeError>>()?,
+                )
+            }
+            code::EMBEDDED_MESSAGE => {
+                let code = r.u8()?;
+                let message = r.bytes(r.remaining())?.to_vec();
+                Self::EmbeddedMessage { code, message }
+            }
+            code::RESET_DISTRIBUTED => Self::ResetDistributed,
             code::ROOM_LIST => {
                 let names: Vec<String> = (0..r.count(4)?).map(|_| r.string()).collect::<Result<_, _>>()?;
                 let counts: Vec<u32> = (0..r.count(4)?).map(|_| r.u32()).collect::<Result<_, _>>()?;
