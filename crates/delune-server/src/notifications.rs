@@ -2,7 +2,7 @@
 //! albums added to the library, and (for people who manage delune) new requests.
 //!
 //! Kept in `<data dir>/notifications.json`, newest first, at most
-//! [`KEEP`] per person. The web UI polls for them and shows an unread count.
+//! a hundred per person. The web UI polls for them and shows an unread count.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
