@@ -8,6 +8,7 @@
 //! - [`import`] — planning destinations and moving files into the library.
 //! - Coming next: layout detection, tag writing, artwork and lyrics.
 
+pub mod extras;
 pub mod import;
 pub mod inspect;
 pub mod naming;

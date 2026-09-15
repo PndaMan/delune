@@ -250,16 +250,20 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         .and_then(|t| t.destination.rsplit_once('/').map(|(dir, _)| dir.to_owned()))
         .unwrap_or_default();
     app.downloads.mark_imported(&id, &folder);
-    let scan_started = match &app.navidrome {
-        Some(navidrome) => match navidrome.start_scan(false).await {
-            Ok(_) => true,
-            Err(error) => {
-                tracing::warn!(%error, "imported, but Navidrome didn't start a scan");
-                false
-            }
-        },
-        None => false,
-    };
+    // Artwork, lyrics and the rescan happen in the background.
+    let finishing = checked
+        .plan
+        .tracks
+        .iter()
+        .map(|t| crate::finishing::Imported {
+            path: root.join(&t.destination),
+            title: t.fields.title.clone(),
+            artist: t.fields.artist.clone(),
+        })
+        .collect();
+    let cover = checked.plan.cover.as_ref().map(|(_, relative)| root.join(relative));
+    crate::finishing::finish(&app, finishing, cover);
+    let scan_started = app.navidrome.is_some();
     tracing::info!(%id, files = imported.len(), %folder, scan_started, "imported into the library");
     Json(ImportResult { imported: u32::try_from(imported.len()).unwrap_or(u32::MAX), folder, scan_started })
         .into_response()

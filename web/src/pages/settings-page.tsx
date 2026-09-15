@@ -70,6 +70,13 @@ export function SettingsPage() {
           <SoulseekAccount />
         </Section>
         <Section
+          id="lyrics"
+          title="Lyrics and artwork"
+          description="Added to every import. Lyrics come from LRCLIB, an open lyrics database, with timings where it has them."
+        >
+          <ImportOptionsPanel editable={me.permissions.manage} />
+        </Section>
+        <Section
           id="naming"
           title="File naming"
           description="How folders and files are named when a release is imported. Click a token to insert it."
@@ -90,6 +97,7 @@ function SectionNav({ manage }: { manage: boolean }) {
     ["sources", "Sources"],
     ...(manage ? [["automation", "Automation"], ["sharing", "Sharing"]] : []),
     ["soulseek", "Soulseek"],
+    ["lyrics", "Lyrics"],
     ["naming", "File naming"],
   ]
   return (
@@ -271,6 +279,67 @@ function AppearancePicker() {
         ))}
       </div>
       {set.isError && <p className="text-sm text-destructive">{set.error.message}</p>}
+    </div>
+  )
+}
+
+type ImportOptions = { lyrics: "off" | "sidecar" | "embed" | "both"; embed_cover: boolean }
+
+const LYRICS_CHOICES: { id: ImportOptions["lyrics"]; label: string; description: string }[] = [
+  { id: "sidecar", label: "Beside the track", description: "A .lrc file next to each song; most players read it" },
+  { id: "embed", label: "In the file", description: "Stored in the track's tags" },
+  { id: "both", label: "Both", description: "A .lrc file and the tags" },
+  { id: "off", label: "Off", description: "No lyrics" },
+]
+
+function ImportOptionsPanel({ editable }: { editable: boolean }) {
+  const client = useQueryClient()
+  const options = useQuery({
+    queryKey: ["import-options"],
+    queryFn: async () => (await (await fetch("/api/v1/import-options")).json()) as ImportOptions,
+  })
+  const save = useMutation({
+    mutationFn: async (next: ImportOptions) => {
+      const res = await fetch("/api/v1/import-options", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(next),
+      })
+      if (!res.ok) throw new Error("Couldn't save.")
+      return (await res.json()) as ImportOptions
+    },
+    onSuccess: (next) => client.setQueryData(["import-options"], next),
+  })
+  if (!options.data) return <div className="h-32 animate-pulse rounded-xl bg-muted/50" />
+  const o = options.data
+  return (
+    <div className="space-y-4">
+      <div role="radiogroup" aria-label="Lyrics" className="grid gap-2 sm:grid-cols-2">
+        {LYRICS_CHOICES.map((choice) => (
+          <button
+            key={choice.id}
+            type="button"
+            role="radio"
+            aria-checked={o.lyrics === choice.id}
+            disabled={!editable}
+            onClick={() => save.mutate({ ...o, lyrics: choice.id })}
+            className={cn(
+              "rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-default",
+              o.lyrics === choice.id ? "border-primary ring-1 ring-primary" : "enabled:hover:border-foreground/30",
+            )}
+          >
+            <span className="block text-[15px]">{choice.label}</span>
+            <span className="block text-[13px] text-muted-foreground">{choice.description}</span>
+          </button>
+        ))}
+      </div>
+      <label className={cn("flex items-start gap-4 rounded-2xl border bg-card/50 px-5 py-4", editable && "cursor-pointer")}>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px]">Embed cover art</span>
+          <span className="mt-1 block text-sm text-muted-foreground">Put the album cover inside each track, as well as a cover file in the folder.</span>
+        </span>
+        <Switch checked={o.embed_cover} disabled={!editable} onCheckedChange={(embed_cover) => save.mutate({ ...o, embed_cover })} className="mt-1" />
+      </label>
     </div>
   )
 }

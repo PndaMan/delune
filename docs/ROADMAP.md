@@ -45,7 +45,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Naming template engine
 - [ ] Layout detection from an existing library
 - [x] Decode verification and fake-FLAC detection
-- [ ] Tags (lofty), artwork, synced lyrics (LRCLIB)
+- [x] Tags (lofty), embedded artwork, synced lyrics (LRCLIB)
 - [x] Review inbox
 - [x] Admin approval gate
 - [x] Import with conflict checks, then a Navidrome scan
