@@ -24,6 +24,8 @@ enum Command {
         /// Address to listen on.
         #[arg(long, env = "DELUNE_BIND", default_value = "0.0.0.0:7474")]
         bind: SocketAddr,
+        #[command(flatten)]
+        soulseek: SoulseekArgs,
     },
     /// Open the terminal UI.
     Tui {
@@ -33,13 +35,40 @@ enum Command {
     },
 }
 
+// Field names become the `--slsk-*` flags, so the shared prefix is the point.
+#[allow(clippy::struct_field_names)]
+#[derive(Debug, clap::Args)]
+#[group(requires_all = ["slsk_username", "slsk_password"], multiple = true)]
+struct SoulseekArgs {
+    /// Soulseek account name. Search is disabled without one.
+    #[arg(long, env = "DELUNE_SLSK_USERNAME")]
+    slsk_username: Option<String>,
+    /// Soulseek account password.
+    #[arg(long, env = "DELUNE_SLSK_PASSWORD", hide_env_values = true)]
+    slsk_password: Option<String>,
+    /// Port other Soulseek users connect to. Forward it on your router for more
+    /// and faster results.
+    #[arg(long, env = "DELUNE_SLSK_PORT", default_value_t = 2234)]
+    slsk_port: u16,
+}
+
+impl SoulseekArgs {
+    fn into_config(self) -> Option<delune_soulseek::Config> {
+        let (Some(username), Some(password)) = (self.slsk_username, self.slsk_password) else { return None };
+        let mut config = delune_soulseek::Config::new(username, password);
+        config.listen_port = Some(self.slsk_port);
+        Some(config)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve { bind } => {
+        Command::Serve { bind, soulseek } => {
             init_logging();
-            delune_server::serve(bind).await?;
+            let config = delune_server::ServerConfig { soulseek: soulseek.into_config() };
+            delune_server::serve(bind, config).await?;
         }
         // No logging to stdout here: it would corrupt the terminal UI.
         Command::Tui { server } => delune_tui::run(server)?,

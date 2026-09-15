@@ -71,9 +71,21 @@ impl SharedFile {
         } else {
             &self.extension
         };
-        let codec = Codec::from_extension(ext)?;
-        let bitrate =
-            self.bitrate_kbps.or_else(|| self.duration_secs.and_then(|d| Quality::estimate_bitrate_kbps(self.size, d)));
+        let mut codec = Codec::from_extension(ext)?;
+        let estimated = self.duration_secs.and_then(|d| Quality::estimate_bitrate_kbps(self.size, d));
+        let mut bitrate = self.bitrate_kbps.or(estimated);
+
+        // `.m4a` holds either AAC or ALAC. AAC tops out around 320 kbps; anything
+        // well above that is lossless.
+        if codec == Codec::Aac && bitrate.is_some_and(|b| b >= 500) {
+            codec = Codec::Alac;
+        }
+        // MP3 can't exceed 320 kbps. A higher figure is a bad attribute from the
+        // peer, so prefer the size-based estimate if it's plausible.
+        if codec == Codec::Mp3 && bitrate.is_some_and(|b| b > 320) {
+            bitrate = estimated.filter(|&b| b <= 330).map(|b| b.min(320));
+        }
+
         Some(Quality {
             codec,
             bit_depth: self.bit_depth.and_then(|b| u8::try_from(b).ok()).filter(|_| codec.is_lossless()),
@@ -150,6 +162,44 @@ impl SearchResponse {
         let mut framed = Writer::new();
         framed.raw(&compressed);
         framed.finish(code::SEARCH_RESPONSE)
+    }
+}
+
+/// The first message on every peer connection. Its code is a single byte, unlike
+/// every later message on the same connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerInit {
+    /// "I'm connecting because the server told me to": answers a `ConnectToPeer`
+    /// the other side sent, identified by its token.
+    PierceFirewall { token: u32 },
+    /// "I'm connecting to you directly." `kind` is `P`, `F` or `D`.
+    PeerInit { username: String, kind: String, token: u32 },
+}
+
+impl PeerInit {
+    /// Decode a frame payload (code byte included).
+    pub fn decode(payload: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new(payload);
+        match r.u8()? {
+            code::PIERCE_FIREWALL => Ok(Self::PierceFirewall { token: r.u32()? }),
+            code::PEER_INIT => Ok(Self::PeerInit { username: r.string()?, kind: r.string()?, token: r.u32()? }),
+            other => Err(DecodeError::UnknownInit(other)),
+        }
+    }
+
+    #[must_use]
+    pub fn encode(&self) -> BytesMut {
+        let mut w = Writer::new();
+        match self {
+            Self::PierceFirewall { token } => {
+                w.u32(*token);
+                w.finish_init(code::PIERCE_FIREWALL)
+            }
+            Self::PeerInit { username, kind, token } => {
+                w.string(username).string(kind).u32(*token);
+                w.finish_init(code::PEER_INIT)
+            }
+        }
     }
 }
 
@@ -267,6 +317,47 @@ mod tests {
         assert_eq!(bare.quality().unwrap().to_string(), "MP3 320");
 
         assert!(SharedFile { extension: "jpg".into(), ..flac("cover.jpg") }.quality().is_none());
+    }
+
+    #[test]
+    fn peer_init_round_trip() {
+        for init in [
+            PeerInit::PierceFirewall { token: 0xABCD },
+            PeerInit::PeerInit { username: "moonlight".into(), kind: "P".into(), token: 0 },
+        ] {
+            let frame = init.encode();
+            assert_eq!(u32::from_le_bytes(frame[..4].try_into().unwrap()) as usize, frame.len() - 4);
+            assert_eq!(PeerInit::decode(&frame[4..]).unwrap(), init);
+        }
+        assert!(matches!(PeerInit::decode(&[9]), Err(DecodeError::UnknownInit(9))));
+    }
+
+    #[test]
+    fn corrects_implausible_peer_attributes() {
+        let base = SharedFile {
+            path: r"x\song.m4a".into(),
+            size: 40_000_000,
+            extension: "m4a".into(),
+            bitrate_kbps: Some(1046),
+            duration_secs: Some(300),
+            vbr: false,
+            sample_rate: Some(44_100),
+            bit_depth: Some(16),
+        };
+        assert_eq!(base.quality().unwrap().to_string(), "ALAC 16/44.1");
+        assert_eq!(SharedFile { bitrate_kbps: Some(256), ..base.clone() }.quality().unwrap().to_string(), "AAC 256");
+
+        // 12 MB over 300 s is ~320 kbps: trust the size, not the claimed 1013.
+        let mp3 = SharedFile {
+            path: r"x\song.mp3".into(),
+            extension: "mp3".into(),
+            size: 12_000_000,
+            bitrate_kbps: Some(1013),
+            ..base.clone()
+        };
+        assert_eq!(mp3.quality().unwrap().to_string(), "MP3 320");
+        let no_duration = SharedFile { duration_secs: None, ..mp3 };
+        assert_eq!(no_duration.quality().unwrap().to_string(), "MP3");
     }
 
     #[test]

@@ -13,9 +13,11 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+futures-util = { version = "0.3.33", default-features = false, features = ["std"] }
 axum = "0.8.9"
 delune-core = { version = "0.1.0-dev", path = "../delune-core" }
 delune-resolve = { version = "0.1.0-dev", path = "../delune-resolve" }
+delune-soulseek = { version = "0.1.0-dev", path = "../delune-soulseek" }
 mime_guess = "2.0.5"
 rust-embed = "8.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -26,5 +28,6 @@ tower-http = { version = "0.7.1", features = ["trace", "cors"] }
 tracing = "0.1.44"
 
 [dev-dependencies]
+bytes = "1.12.1"
 http-body-util = "0.1.5"
 tower = { version = "0.5.3", features = ["util"] }

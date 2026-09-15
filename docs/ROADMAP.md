@@ -20,9 +20,9 @@ Navidrome, from both the web UI and the TUI.
 
 **Soulseek**
 - [x] Wire primitives, server messages, compressed search responses
-- [ ] Server session: login, keepalive, reconnect with backoff
-- [ ] Listening port, peer connections, firewall piercing
-- [ ] Search with rate limiting; results streamed to clients
+- [x] Server session: login, keepalive, reconnect with backoff
+- [x] Listening port, peer connections, firewall piercing
+- [x] Search with rate limiting; results streamed to clients (API + TUI)
 - [ ] Transfers: queueing, download, resume, patience/cancel
 - [ ] Share index of the music folder; answering searches; uploads with slot limits
 
@@ -30,7 +30,9 @@ Navidrome, from both the web UI and the TUI.
 - [x] Link parsing for 9 services
 - [ ] MusicBrainz, UPC and ISRC resolution with caching
 - [ ] Library check against Navidrome
-- [ ] Folder grouping, tracklist matching and ranking
+- [x] Folder grouping and quality/availability ranking
+- [ ] Tracklist matching against the resolved release
+- [ ] Automatic retry with fewer words when the network returns nothing
 
 **Getting it into the library**
 - [x] Naming template engine
@@ -45,6 +47,11 @@ Navidrome, from both the web UI and the TUI.
 - [ ] NixOS module and flake
 - [ ] Release binaries for Linux and macOS
 - [ ] AUR and Homebrew packages
+
+## Next: web UI overhaul
+
+- [ ] Complete visual redesign of the web UI (identity, typography, colour, motion)
+- [ ] Live search results, release detail, review and settings screens
 
 ## After v0.1
 

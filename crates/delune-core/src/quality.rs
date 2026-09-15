@@ -111,19 +111,22 @@ impl Quality {
 
     /// A single comparable key. Higher is better.
     ///
-    /// Layout (most significant first):
-    /// `lossless flag | bit depth | sample rate (kHz) | effective lossy bitrate`.
+    /// Layout (most significant bits first):
+    /// `lossless flag (bit 30) | bit depth (bits 18–29) | sample rate in 100 Hz (bits 0–17)`
+    /// for lossless, and effective bitrate for lossy. It fits in a `u32` so it can be
+    /// sent to JavaScript clients without losing precision.
     #[must_use]
-    pub fn rank(&self) -> u64 {
+    pub fn rank(&self) -> u32 {
         if self.codec.is_lossless() {
             // Unknown depth/rate on a lossless file: assume CD quality but rank it
             // one step below a file that *says* it is CD quality.
-            let depth = u64::from(self.bit_depth.unwrap_or(16)) * 2 + u64::from(self.bit_depth.is_some());
-            let khz = u64::from(self.sample_rate.unwrap_or(44_100) / 100) * 2 + u64::from(self.sample_rate.is_some());
-            (1 << 62) | (depth << 32) | khz
+            let depth = u32::from(self.bit_depth.unwrap_or(16).min(64)) * 2 + u32::from(self.bit_depth.is_some());
+            let rate =
+                (self.sample_rate.unwrap_or(44_100).min(1_536_000) / 100) * 2 + u32::from(self.sample_rate.is_some());
+            (1 << 30) | (depth << 18) | rate
         } else {
-            let kbps = self.bitrate_kbps.unwrap_or(0);
-            u64::from(kbps * self.codec.efficiency_percent() / 100)
+            let kbps = self.bitrate_kbps.unwrap_or(0).min(10_000);
+            kbps * self.codec.efficiency_percent() / 100
         }
     }
 

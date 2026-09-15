@@ -33,6 +33,8 @@ pub enum DecodeError {
     InvalidBool(u8),
     #[error("decompression failed: {0}")]
     Zlib(String),
+    #[error("unknown peer init code {0}")]
+    UnknownInit(u8),
 }
 
 /// Reads protocol primitives from a byte slice.

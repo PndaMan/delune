@@ -17,8 +17,8 @@ file names you asked for.
 </div>
 
 > [!WARNING]
-> **delune is in early development and can't download anything yet.** The
-> architecture, protocol layer and UI shells are in place; the first working
+> **delune is in early development and can't download anything yet.** Live
+> Soulseek search works from the API and the terminal UI; the first working
 > release (v0.1) is tracked in the [roadmap](docs/ROADMAP.md). Star or watch the
 > repo to follow along.
 
@@ -63,8 +63,8 @@ you can run `delune tui` from your laptop.
 | | Status |
 |---|---|
 | Paste links from Spotify, Apple Music, Tidal, Qobuz, Deezer, YouTube Music, SoundCloud, Bandcamp, MusicBrainz | Link parsing done |
-| Native Soulseek client (no slskd needed) | Wire protocol done, sessions next |
-| Quality ranking (24/192 → 16/44.1 → lossy, with fake-FLAC detection) | Ranking key done |
+| Native Soulseek client (no slskd needed) | Live search working: login, reconnect, firewall piercing, rate limiting |
+| Quality ranking (24/192 → 16/44.1 → lossy, with fake-FLAC detection) | Ranking done; fake-FLAC detection planned |
 | "Already in library" and "better copy available" checks | Navidrome client done |
 | File and folder naming templates with live preview | Template engine done |
 | Review inbox with optional admin approval | Planned for v0.1 |
@@ -91,8 +91,15 @@ cargo run -- serve
 cargo run -- tui
 ```
 
-For web development with hot reload, run `bun run dev` in `web/`; it proxies
-`/api` to the server on port 7474.
+To search, give the server a Soulseek account (a new username is registered the
+first time it logs in):
+
+```sh
+DELUNE_SLSK_USERNAME=you DELUNE_SLSK_PASSWORD=secret cargo run -- serve
+```
+
+For web development, `scripts/dev.sh` runs the API server and the hot-reloading
+web UI together; open http://localhost:5173.
 
 Docker images, a NixOS module, release binaries and AUR/Homebrew packages come
 with v0.1. A development [`compose.yaml`](compose.yaml) is included.

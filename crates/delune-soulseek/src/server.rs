@@ -28,6 +28,8 @@ pub mod code {
     pub const PING: u32 = 32;
     pub const SHARED_FOLDERS_FILES: u32 = 35;
     pub const HAVE_NO_PARENT: u32 = 71;
+    pub const RELOGGED: u32 = 41;
+    pub const EXCLUDED_SEARCH_PHRASES: u32 = 160;
     pub const CANT_CONNECT_TO_PEER: u32 = 1001;
 }
 
@@ -171,6 +173,11 @@ pub enum ServerEvent {
         token: u32,
         query: String,
     },
+    /// The same account logged in somewhere else, and the server disconnected us.
+    Relogged,
+    /// Phrases the network excludes from search results. Peers drop matching files,
+    /// so searching for one of these returns nothing.
+    ExcludedSearchPhrases(Vec<String>),
     Unhandled {
         code: u32,
         len: usize,
@@ -206,6 +213,11 @@ impl ServerEvent {
                 Self::ConnectToPeer { username, kind, ip: r.ip()?, port: r.u32()?, token: r.u32()? }
             }
             code::FILE_SEARCH => Self::FileSearch { username: r.string()?, token: r.u32()?, query: r.string()? },
+            code::RELOGGED => Self::Relogged,
+            code::EXCLUDED_SEARCH_PHRASES => {
+                let count = r.count(4)?;
+                Self::ExcludedSearchPhrases((0..count).map(|_| r.string()).collect::<Result<_, _>>()?)
+            }
             other => Self::Unhandled { code: other, len: body.len() },
         })
     }
@@ -266,6 +278,16 @@ mod tests {
                 port: 2234,
                 token: 77
             }
+        );
+    }
+
+    #[test]
+    fn decodes_excluded_phrases() {
+        let mut w = Writer::new();
+        w.u32(2).string("some artist").string("another phrase");
+        assert_eq!(
+            ServerEvent::decode(code::EXCLUDED_SEARCH_PHRASES, &w.into_body()).unwrap(),
+            ServerEvent::ExcludedSearchPhrases(vec!["some artist".into(), "another phrase".into()])
         );
     }
 
