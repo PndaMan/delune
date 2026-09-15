@@ -142,9 +142,11 @@ impl Downloads {
         self.lock().iter().find(|e| e.job.id == id).map(|e| e.job.requested_by.clone())
     }
 
-    pub fn mark_imported(&self, id: &str) {
+    pub fn mark_imported(&self, id: &str, folder: &str) {
         if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
             entry.job.status = JobStatus::Imported;
+            entry.job.imported_to = Some(folder.to_owned());
+            entry.job.imported_at = Some(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()));
             entry.checked = None;
         }
         self.changed();
@@ -240,6 +242,8 @@ pub fn begin(
         total_bytes: request.files.iter().map(|f| f.size).sum(),
         review: ReviewState::Waiting,
         requested_by: Some(requested_by.to_owned()),
+        imported_to: None,
+        imported_at: None,
     };
     let (cancel, cancel_rx) = watch::channel(false);
     app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None });
@@ -528,6 +532,8 @@ mod tests {
             total_bytes: 30,
             review: ReviewState::Checking,
             requested_by: None,
+            imported_to: None,
+            imported_at: None,
         }];
         std::fs::write(dir.join("jobs.json"), serde_json::to_vec(&saved).unwrap()).unwrap();
 

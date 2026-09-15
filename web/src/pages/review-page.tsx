@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { AudioWaveform, Check, CircleAlert, FolderInput, LoaderCircle, Trash2, TriangleAlert } from "lucide-react"
+import { Dialog } from "@base-ui/react/dialog"
+import { AudioWaveform, Check, ChevronRight, CircleAlert, FolderInput, LoaderCircle, Search, Trash2, TriangleAlert, X } from "lucide-react"
+import { useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
@@ -8,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { api, type DownloadJob, type ReviewReport, type ReviewTrack } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
 import { useDownloads, useRemoveDownload } from "@/lib/downloads"
+import { useLibraryAlbum } from "@/lib/library"
 import { requesterLabel, useMe } from "@/lib/session"
 import { formatTrackTime, plural } from "@/lib/format"
 import { TIER_TEXT, tierOf } from "@/lib/quality"
@@ -54,17 +57,130 @@ export function ReviewPage() {
 
 function ImportedRow({ job }: { job: DownloadJob }) {
   const artwork = useArtwork(job.parent, job.title)
+  const [open, setOpen] = useState(false)
   return (
-    <li className="flex items-center gap-4 px-4 py-3">
-      <Cover src={artwork.data?.thumb} alt="" className="size-10 rounded-lg" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px]">{artwork.data?.album ?? job.title}</p>
-        <p className="truncate text-[13px] text-muted-foreground">{artwork.data?.artist ?? job.parent}</p>
-      </div>
-      <span className="flex items-center gap-1.5 text-[13px] text-q-lossless">
-        <Check className="size-4" /> In your library
-      </span>
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors outline-none hover:bg-accent/50 focus-visible:bg-accent/50"
+      >
+        <Cover src={artwork.data?.thumb} alt="" className="size-10 rounded-lg" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px]">{artwork.data?.album ?? job.title}</p>
+          <p className="truncate text-[13px] text-muted-foreground">{artwork.data?.artist ?? job.parent}</p>
+        </div>
+        <span className="flex items-center gap-1.5 text-[13px] text-q-lossless">
+          <Check className="size-4" /> <span className="hidden sm:inline">In your library</span>
+        </span>
+        <ChevronRight className="size-4 text-muted-foreground" />
+      </button>
+      <ImportedDialog job={job} open={open} onClose={() => setOpen(false)} />
     </li>
+  )
+}
+
+/** What an import brought in: where it went, and what the library holds now. */
+function ImportedDialog({ job, open, onClose }: { job: DownloadJob; open: boolean; onClose: () => void }) {
+  const me = useMe()
+  const artwork = useArtwork(job.parent, job.title)
+  const library = useLibraryAlbum(open ? job.parent : null, open ? job.title : null)
+  const remove = useRemoveDownload()
+  const requester = requesterLabel(me, job.requested_by)
+  const tracks = library.data?.state === "in-library" ? library.data.tracks : []
+
+  return (
+    <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-[#05060f]/70 backdrop-blur-md" />
+        <Dialog.Popup className="fixed inset-0 z-50 m-auto flex h-[100dvh] w-full flex-col overflow-hidden bg-card outline-none sm:h-auto sm:max-h-[85dvh] sm:w-[min(92vw,640px)] sm:rounded-3xl sm:border">
+          <div className="flex items-start gap-5 p-6">
+            <Cover src={artwork.data?.cover} alt="" className="size-28 shrink-0 rounded-2xl shadow-lg" />
+            <div className="min-w-0 flex-1">
+              <Dialog.Title className="type-title line-clamp-2 text-[24px]">
+                {library.data?.album ?? artwork.data?.album ?? job.title}
+              </Dialog.Title>
+              <Dialog.Description className="truncate text-muted-foreground">
+                {library.data?.artist ?? artwork.data?.artist ?? job.parent}
+                {library.data?.year ? `, ${library.data.year}` : ""}
+              </Dialog.Description>
+              <p className="mt-3 flex items-center gap-1.5 text-[14px] text-q-lossless">
+                <Check className="size-4" /> In your library
+                {library.data?.quality_label && <span className="text-muted-foreground">as {library.data.quality_label}</span>}
+              </p>
+            </div>
+            <Dialog.Close className="rounded-full p-2 text-muted-foreground hover:text-foreground" aria-label="Close">
+              <X className="size-5" />
+            </Dialog.Close>
+          </div>
+
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-t px-6 py-4 text-sm">
+            <div className="col-span-2 min-w-0">
+              <dt className="text-[12px] text-muted-foreground">Imported to</dt>
+              <dd className="truncate" title={job.imported_to ?? undefined}>
+                {job.imported_to ?? "Your library"}
+              </dd>
+            </div>
+            {job.imported_at && (
+              <div>
+                <dt className="text-[12px] text-muted-foreground">When</dt>
+                <dd>{new Date(job.imported_at * 1000).toLocaleString()}</dd>
+              </div>
+            )}
+            <div className="min-w-0">
+              <dt className="text-[12px] text-muted-foreground">From</dt>
+              <dd className="truncate">
+                <Link to="/soulseek/users/$username" params={{ username: job.username }} className="hover:underline">
+                  {job.username}
+                </Link>
+              </dd>
+            </div>
+            {requester && (
+              <div>
+                <dt className="text-[12px] text-muted-foreground">Requested by</dt>
+                <dd>{requester}</dd>
+              </div>
+            )}
+          </dl>
+
+          <div className="scrollbar-themed min-h-0 flex-1 overflow-y-auto border-t px-3 py-3">
+            {library.isPending ? (
+              <p className="px-3 py-4 text-sm text-muted-foreground">Looking it up in Navidrome</p>
+            ) : tracks.length ? (
+              <ol>
+                {tracks.map((t, i) => (
+                  <li key={`${t.disc}-${t.track}-${i}`} className="flex items-center gap-3 rounded-lg px-3 py-1.5 text-[14.5px]">
+                    <span className="w-8 text-right text-[13px] text-muted-foreground/70">
+                      {t.disc && t.disc > 1 ? `${t.disc}-` : ""}
+                      {t.track ?? i + 1}
+                    </span>
+                    <span className="truncate">{t.title}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="px-3 py-4 text-sm text-muted-foreground">
+                Navidrome hasn't listed it yet. It appears once its scan finishes.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-t px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <Button variant="outline" nativeButton={false} render={<Link to="/" search={{ q: [job.parent, job.title].filter(Boolean).join(" ") }} />}>
+              <Search /> Search again
+            </Button>
+            <Button
+              variant="ghost"
+              className="ml-auto text-muted-foreground"
+              onClick={() => remove.mutate(job.id, { onSuccess: onClose })}
+              disabled={remove.isPending}
+            >
+              Remove from this list
+            </Button>
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 

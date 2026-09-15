@@ -237,7 +237,6 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "import-failed", "Import stopped unexpectedly."),
     };
 
-    app.downloads.mark_imported(&id);
     app.library_cache.clear();
     // Share what just arrived.
     crate::sharing::refresh(&app);
@@ -250,6 +249,7 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         .first()
         .and_then(|t| t.destination.rsplit_once('/').map(|(dir, _)| dir.to_owned()))
         .unwrap_or_default();
+    app.downloads.mark_imported(&id, &folder);
     let scan_started = match &app.navidrome {
         Some(navidrome) => match navidrome.start_scan(false).await {
             Ok(_) => true,

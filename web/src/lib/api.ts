@@ -131,6 +131,9 @@ export type DownloadJob = {
   review: ReviewState
   /** Who started it; null for downloads from before accounts. */
   requested_by: string | null
+  /** Folder it was imported to, relative to the library, and when. */
+  imported_to: string | null
+  imported_at: number | null
 }
 
 export type DownloadJobRequest = {

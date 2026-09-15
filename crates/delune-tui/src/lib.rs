@@ -657,6 +657,8 @@ mod tests {
             total_bytes: 100,
             review: ReviewState::Waiting,
             requested_by: None,
+            imported_to: None,
+            imported_at: None,
         }
     }
 

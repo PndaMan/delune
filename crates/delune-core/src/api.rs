@@ -315,6 +315,11 @@ pub struct DownloadJob {
     /// Who started it. Jobs saved before accounts existed have none.
     #[serde(default)]
     pub requested_by: Option<String>,
+    /// Once imported: the folder it went to (relative to the library) and when.
+    #[serde(default)]
+    pub imported_to: Option<String>,
+    #[serde(default)]
+    pub imported_at: Option<u64>,
 }
 
 impl DownloadJob {
@@ -901,6 +906,8 @@ mod tests {
             total_bytes: 0,
             review: ReviewState::Waiting,
             requested_by: None,
+            imported_to: None,
+            imported_at: None,
         };
         job.refresh();
         assert_eq!((job.status, job.total_bytes), (JobStatus::Queued, 20));
