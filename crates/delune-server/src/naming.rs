@@ -1,12 +1,152 @@
-//! Naming template preview, for the settings editor.
+//! Naming settings: the template imports follow, a live preview for the editor, and
+//! detecting the layout an existing library already uses.
 //!
 //! The editor sends the template on every keystroke and shows the result for a few
 //! sample tracks chosen to exercise the tricky cases: a multi-disc album, an edition
-//! name, and characters that aren't allowed in file names.
+//! name, and characters that aren't allowed in file names. Saved settings live in
+//! `<data dir>/naming.json` and override the template given at startup.
 
-use axum::{Json, http::StatusCode};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
+
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use delune_core::api::ApiError;
+use delune_library::layout::{self, DetectedLayout};
 use delune_library::naming::{NamingOptions, TOKENS, Template, TemplateError, TrackFields};
 use serde::{Deserialize, Serialize};
+
+use crate::AppState;
+use crate::accounts::CurrentUser;
+use crate::review::{DEFAULT_TEMPLATE, LibrarySettings};
+
+/// Audio files read when detecting a library's layout.
+const DETECT_SAMPLE: usize = 300;
+
+/// `GET/PUT /api/v1/naming`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamingSettings {
+    pub template: String,
+    pub options: NamingOptions,
+}
+
+/// The naming settings in force.
+#[derive(Debug)]
+pub struct Naming {
+    path: Option<PathBuf>,
+    current: Mutex<(Template, NamingOptions)>,
+}
+
+impl Default for Naming {
+    fn default() -> Self {
+        let template = Template::parse(DEFAULT_TEMPLATE).expect("default template is valid");
+        Self { path: None, current: Mutex::new((template, NamingOptions::default())) }
+    }
+}
+
+impl Naming {
+    /// Saved settings from `data_dir`, or the startup ones in `library`.
+    #[must_use]
+    pub fn open(data_dir: &Path, library: &LibrarySettings) -> Self {
+        let path = data_dir.join("naming.json");
+        let saved = std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<NamingSettings>(&bytes).ok())
+            .and_then(|s| Template::parse(&s.template).ok().map(|t| (t, s.options)));
+        let current = saved.unwrap_or_else(|| (library.template.clone(), library.options.clone()));
+        Self { path: Some(path), current: Mutex::new(current) }
+    }
+
+    #[must_use]
+    pub fn current(&self) -> (Template, NamingOptions) {
+        self.current.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    fn settings(&self) -> NamingSettings {
+        let (template, options) = self.current();
+        NamingSettings { template: template.as_str().to_owned(), options }
+    }
+}
+
+fn error(status: StatusCode, code: &str, message: &str) -> Response {
+    (status, Json(ApiError::new(code, message))).into_response()
+}
+
+/// `GET /api/v1/naming`
+pub async fn get(State(app): State<AppState>, _user: CurrentUser) -> Json<NamingSettings> {
+    Json(app.naming.settings())
+}
+
+/// `PUT /api/v1/naming`: save, then re-plan albums waiting in review.
+pub async fn update(State(app): State<AppState>, user: CurrentUser, Json(settings): Json<NamingSettings>) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.manage, "change file naming") {
+        return denied;
+    }
+    let template = match Template::parse(&settings.template) {
+        Ok(template) => template,
+        Err(e) => {
+            return error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad-template",
+                &format!("The template has a problem: {e}."),
+            );
+        }
+    };
+    let mut options = settings.options;
+    options.track_padding = options.track_padding.clamp(1, 6);
+    options.max_component_bytes = options.max_component_bytes.clamp(32, 255);
+    if options.illegal_replacement.chars().any(|c| matches!(c, '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*')) {
+        return error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad-replacement",
+            "The replacement can't itself be a character that isn't allowed.",
+        );
+    }
+    *app.naming.current.lock().unwrap_or_else(PoisonError::into_inner) = (template, options);
+    let saved = app.naming.settings();
+    if let Some(path) = &app.naming.path
+        && let Err(e) =
+            serde_json::to_vec_pretty(&saved).map_err(std::io::Error::other).and_then(|json| std::fs::write(path, json))
+    {
+        tracing::warn!(error = %e, "couldn't save naming settings");
+    }
+    tracing::info!(by = %user.username, template = %saved.template, "naming settings changed");
+    crate::downloads::recheck_reviews(&app);
+    Json(saved).into_response()
+}
+
+/// `POST /api/v1/naming/detect`: the template the library already follows.
+pub async fn detect(State(app): State<AppState>, user: CurrentUser) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.manage, "change file naming") {
+        return denied;
+    }
+    let Some(root) = app.library.library_dir.clone() else {
+        return error(
+            StatusCode::CONFLICT,
+            "no-library",
+            "Set a library folder when starting the server to detect its layout.",
+        );
+    };
+    let detected = tokio::task::spawn_blocking(move || {
+        let samples = layout::sample(&root, DETECT_SAMPLE);
+        (samples.len(), layout::detect(&samples))
+    })
+    .await;
+    match detected {
+        Ok((_, Some(layout))) => Json::<DetectedLayout>(layout).into_response(),
+        Ok((0, None)) => error(StatusCode::NOT_FOUND, "empty-library", "There's no music in the library folder yet."),
+        Ok((_, None)) => error(
+            StatusCode::NOT_FOUND,
+            "no-layout",
+            "Couldn't recognise a layout: the files' names don't match their tags. Pick a preset instead.",
+        ),
+        Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "detect-failed", "Detection stopped unexpectedly."),
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TokenInfo {

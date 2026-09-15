@@ -86,6 +86,8 @@ pub struct AppState {
     pub totals: Arc<sharing::Totals>,
     pub automation: Arc<automation::Automation>,
     pub finishing: Arc<finishing::Finishing>,
+    /// The naming template and options imports use now.
+    pub naming: Arc<naming::Naming>,
 }
 
 impl Default for AppState {
@@ -109,6 +111,7 @@ impl Default for AppState {
             totals: Arc::default(),
             automation: Arc::default(),
             finishing: Arc::default(),
+            naming: Arc::default(),
         }
     }
 }
@@ -125,6 +128,7 @@ impl AppState {
         let totals = Arc::new(sharing::Totals::open(&config.data_dir));
         let automation = Arc::new(automation::Automation::open(&config.data_dir));
         let finishing = Arc::new(finishing::Finishing::open(&config.data_dir));
+        let naming = Arc::new(naming::Naming::open(&config.data_dir, &config.library));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -147,6 +151,7 @@ impl AppState {
             totals,
             automation,
             finishing,
+            naming,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -219,6 +224,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/library/album", get(library::album))
         .route("/api/v1/artwork", get(artwork::lookup))
         .route("/api/v1/artwork/image", get(artwork::image))
+        .route("/api/v1/naming", get(naming::get).put(naming::update))
+        .route("/api/v1/naming/detect", post(naming::detect))
         .route("/api/v1/naming/tokens", get(naming::tokens))
         .route("/api/v1/naming/preview", post(naming::preview))
         .route_layer(middleware::from_fn_with_state(state.clone(), accounts::require_session));
@@ -416,6 +423,52 @@ mod tests {
         assert_eq!(status("/api/v1/session", Some(&token)).await, StatusCode::OK);
         assert_eq!(status("/api/v1/downloads", Some(&token)).await, StatusCode::OK);
         assert_eq!(status("/api/v1/users", Some(&token)).await, StatusCode::FORBIDDEN, "members can't manage people");
+    }
+
+    #[tokio::test]
+    async fn naming_settings_are_validated_saved_and_detected() {
+        let dir = std::env::temp_dir().join(format!("delune-naming-{}", std::process::id()));
+        let library = dir.join("music");
+        let album = library.join("Radiohead").join("1997 - OK Computer");
+        std::fs::create_dir_all(&album).unwrap();
+        let naming = Arc::new(naming::Naming::open(&dir, &review::LibrarySettings::default()));
+        let app = router(AppState {
+            naming: naming.clone(),
+            library: Arc::new(review::LibrarySettings { library_dir: Some(library), ..Default::default() }),
+            ..AppState::default()
+        });
+        let send = |method: &str, uri: &str, body: &str| {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_owned()))
+                .unwrap();
+            let app = app.clone();
+            async move {
+                let response = app.oneshot(request).await.unwrap();
+                let status = response.status();
+                (status, response.into_body().collect().await.unwrap().to_bytes())
+            }
+        };
+        let options = serde_json::to_string(&delune_library::NamingOptions::default()).unwrap();
+
+        let (status, _) =
+            send("PUT", "/api/v1/naming", &format!(r#"{{"template":"{{nope}}","options":{options}}}"#)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        let (status, _) =
+            send("PUT", "/api/v1/naming", &format!(r#"{{"template":"{{artist}}/{{title}}","options":{options}}}"#))
+                .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(naming.current().0.as_str(), "{artist}/{title}");
+        let reopened = naming::Naming::open(&dir, &review::LibrarySettings::default());
+        assert_eq!(reopened.current().0.as_str(), "{artist}/{title}", "saved across restarts");
+
+        // An empty library has nothing to detect.
+        let (status, body) = send("POST", "/api/v1/naming/detect", "").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(serde_json::from_slice::<ApiError>(&body).unwrap().code, "empty-library");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

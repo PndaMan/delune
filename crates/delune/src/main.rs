@@ -80,7 +80,8 @@ struct LibraryArgs {
     /// Your music folder (the one Navidrome scans). Approved imports are moved here.
     #[arg(long, env = "DELUNE_LIBRARY_DIR")]
     library_dir: Option<std::path::PathBuf>,
-    /// How imported files are named. See the Settings page for tokens and a preview.
+    /// How imported files are named, until naming is saved from the Settings page
+    /// (which can also match an existing library).
     #[arg(long, env = "DELUNE_NAMING_TEMPLATE", default_value = delune_server::review::DEFAULT_TEMPLATE)]
     naming_template: String,
 }

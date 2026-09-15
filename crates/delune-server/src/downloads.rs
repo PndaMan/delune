@@ -30,6 +30,7 @@ use tokio::sync::{Notify, watch};
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::naming::Naming;
 use crate::review::{self, Checked, LibrarySettings};
 
 /// All jobs plus the cancel switches of the ones still running.
@@ -370,7 +371,7 @@ fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, can
     let context = ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
     let staging = staging_dir(&app.data_dir, &job.id);
     let downloads = app.downloads.clone();
-    let library = app.library.clone();
+    let (library, naming) = (app.library.clone(), app.naming.clone());
     let (id, username, files) = (job.id.clone(), job.username.clone(), job.files.clone());
     tokio::spawn(async move {
         let mut cancel = cancel;
@@ -382,7 +383,7 @@ fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, can
         downloads.release_slot(&id);
         let ready = downloads.review(&id).is_some_and(|(status, ..)| status == JobStatus::Ready);
         if ready {
-            check_job(&downloads, &id, staging, context, library).await;
+            check_job(&downloads, &id, staging, context, library, &naming).await;
         }
     });
 }
@@ -403,15 +404,33 @@ pub fn resume(app: &AppState) {
     };
     for (job, cancel) in pending {
         if job.status == JobStatus::Ready {
-            let context =
-                ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
-            let (downloads, library, staging) =
-                (app.downloads.clone(), app.library.clone(), staging_dir(&app.data_dir, &job.id));
-            tokio::spawn(async move { check_job(&downloads, &job.id, staging, context, library).await });
+            recheck(app, &job);
         } else if let Some(client) = app.soulseek.clone() {
             tracing::info!(id = %job.id, title = %job.title, "resuming download");
             start(app, client, &job, cancel);
         }
+    }
+}
+
+/// Check a finished job again, for example after the naming template changed.
+fn recheck(app: &AppState, job: &DownloadJob) {
+    let context = ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
+    let (downloads, library, naming) = (app.downloads.clone(), app.library.clone(), app.naming.clone());
+    let (id, staging) = (job.id.clone(), staging_dir(&app.data_dir, &job.id));
+    tokio::spawn(async move { check_job(&downloads, &id, staging, context, library, &naming).await });
+}
+
+/// Check every album waiting in review again, so planned paths follow new naming settings.
+pub fn recheck_reviews(app: &AppState) {
+    let ready: Vec<DownloadJob> = app
+        .downloads
+        .lock()
+        .iter()
+        .filter(|e| e.job.status == JobStatus::Ready && e.job.review != ReviewState::Checking)
+        .map(|e| e.job.clone())
+        .collect();
+    for job in &ready {
+        recheck(app, job);
     }
 }
 
@@ -506,7 +525,10 @@ async fn check_job(
     staging: PathBuf,
     context: ReleaseContext,
     library: Arc<LibrarySettings>,
+    naming: &Naming,
 ) {
+    let (template, options) = naming.current();
+    let library = LibrarySettings { library_dir: library.library_dir.clone(), template, options };
     downloads.set_review(id, ReviewState::Checking, None);
     let result = tokio::task::spawn_blocking(move || review::check(&staging, &context, &library)).await;
     match result {

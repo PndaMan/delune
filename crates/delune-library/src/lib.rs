@@ -6,11 +6,13 @@
 //! - [`inspect`] — audio properties and tags of downloaded files.
 //! - [`verify`] — full decode and spectral transcode detection.
 //! - [`import`] — planning destinations and moving files into the library.
-//! - Coming next: layout detection, tag writing, artwork and lyrics.
+//! - [`layout`] — working out an existing library's naming template.
+//! - [`extras`] — embedded artwork and lyrics.
 
 pub mod extras;
 pub mod import;
 pub mod inspect;
+pub mod layout;
 pub mod naming;
 pub mod verify;
 

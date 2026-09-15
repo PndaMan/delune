@@ -1,9 +1,13 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { LoaderCircle, ScanSearch } from "lucide-react"
 import { useRef, useState } from "react"
 
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api, type NamingOptions } from "@/lib/api"
+import { plural } from "@/lib/format"
+import { type DetectedLayout, type NamingSettings, namingApi, useNamingSettings } from "@/lib/naming"
 import { cn } from "@/lib/utils"
 
 const PRESETS = [
@@ -20,12 +24,43 @@ const DEFAULTS: NamingOptions = {
   max_component_bytes: 200,
 }
 
-export function NamingEditor() {
-  const input = useRef<HTMLInputElement>(null)
-  const [template, setTemplate] = useState(PRESETS[0].template)
-  const [options, setOptions] = useState(DEFAULTS)
+/** Edit the template imports follow; people who manage delune can save it. */
+export function NamingEditor({ editable }: { editable: boolean }) {
+  const client = useQueryClient()
+  const saved = useNamingSettings()
+  const [draft, setDraft] = useState<NamingSettings | null>(null)
+  const [detected, setDetected] = useState<DetectedLayout | null>(null)
+  const current = draft ?? saved.data ?? { template: PRESETS[0].template, options: DEFAULTS }
+  const { template, options } = current
+  const setTemplate = (next: string) => setDraft({ ...current, template: next })
+  const setOptions = (next: NamingOptions) => setDraft({ ...current, options: next })
+  const dirty =
+    draft !== null &&
+    (draft.template !== saved.data?.template || JSON.stringify(draft.options) !== JSON.stringify(saved.data?.options))
 
-  const tokens = useQuery({ queryKey: ["naming-tokens"], queryFn: ({ signal }) => api.namingTokens(signal), staleTime: Infinity })
+  const save = useMutation({
+    mutationFn: namingApi.update,
+    onSuccess: (next) => {
+      client.setQueryData(["naming"], next)
+      setDraft(null)
+      setDetected(null)
+      void client.invalidateQueries({ queryKey: ["downloads"] })
+    },
+  })
+  const detect = useMutation({
+    mutationFn: namingApi.detect,
+    onSuccess: (layout) => {
+      setDetected(layout)
+      setDraft({ template: layout.template, options: { ...options, ...layout.options } })
+    },
+  })
+  const input = useRef<HTMLInputElement>(null)
+
+  const tokens = useQuery({
+    queryKey: ["naming-tokens"],
+    queryFn: ({ signal }) => api.namingTokens(signal),
+    staleTime: Infinity,
+  })
   const preview = useQuery({
     queryKey: ["naming-preview", template, options],
     queryFn: ({ signal }) => api.namingPreview(template, options, signal),
@@ -49,6 +84,39 @@ export function NamingEditor() {
 
   return (
     <div className="space-y-7">
+      {editable && (
+        <div className="rounded-2xl border bg-card/50 px-5 py-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="min-w-0 flex-1 text-[14.5px]">
+              Already have a library? delune can read it and name new albums the same way.
+            </p>
+            <Button variant="outline" size="sm" disabled={detect.isPending} onClick={() => detect.mutate()}>
+              {detect.isPending ? <LoaderCircle className="animate-spin" /> : <ScanSearch />} Match my library
+            </Button>
+          </div>
+          {detect.isError && <p className="mt-2 text-sm text-destructive">{detect.error.message}</p>}
+          {detected && (
+            <div className="mt-3 text-sm text-muted-foreground">
+              <p>
+                <span className="text-foreground">
+                  {detected.matching === detected.sampled
+                    ? `All ${plural(detected.sampled, "file")} checked follow this layout`
+                    : `${detected.matching} of ${plural(detected.sampled, "file")} checked follow this layout`}
+                </span>
+                {dirty ? ". It's filled in below; save to use it." : ", which is what delune already uses."}
+              </p>
+              <ul className="mt-1.5 space-y-0.5">
+                {detected.examples.map((example) => (
+                  <li key={example} className="truncate">
+                    {example}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {PRESETS.map((preset) => (
           <button
@@ -81,7 +149,9 @@ export function NamingEditor() {
             {capitalise(error.message)}:{" "}
             <span className="text-muted-foreground">
               {[...template].slice(0, error.position).join("")}
-              <mark className="rounded bg-destructive/20 px-0.5 text-destructive">{[...template].slice(error.position, error.position + 1).join("") || " "}</mark>
+              <mark className="rounded bg-destructive/20 px-0.5 text-destructive">
+                {[...template].slice(error.position, error.position + 1).join("") || " "}
+              </mark>
               {[...template].slice(error.position + 1).join("")}
             </span>
           </p>
@@ -165,6 +235,34 @@ export function NamingEditor() {
         ))}
         {!examples && <div className="h-40 animate-pulse bg-muted/30" />}
       </div>
+
+      {editable && (dirty || save.isError) && (
+        <div className="sticky bottom-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-card/95 px-5 py-3 shadow-lg backdrop-blur">
+          <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+            {save.isError ? (
+              <span className="text-destructive">{save.error.message}</span>
+            ) : (
+              "Albums waiting in Review are re-planned when you save."
+            )}
+          </p>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setDraft(null)
+              setDetected(null)
+            }}
+            disabled={save.isPending}
+          >
+            Discard
+          </Button>
+          <Button onClick={() => save.mutate(current)} disabled={!!error || save.isPending}>
+            {save.isPending && <LoaderCircle className="animate-spin" />} Save naming
+          </Button>
+        </div>
+      )}
+      {!editable && (
+        <p className="text-sm text-muted-foreground">Someone who manages delune can change how files are named.</p>
+      )}
     </div>
   )
 }

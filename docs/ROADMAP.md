@@ -43,7 +43,7 @@ Navidrome, from both the web UI and the TUI.
 
 **Getting it into the library**
 - [x] Naming template engine
-- [ ] Layout detection from an existing library
+- [x] Layout detection from an existing library; naming settings saved from the web UI
 - [x] Decode verification and fake-FLAC detection
 - [x] Tags (lofty), embedded artwork, synced lyrics (LRCLIB)
 - [x] Review inbox

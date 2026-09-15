@@ -81,7 +81,7 @@ export function SettingsPage() {
           title="File naming"
           description="How folders and files are named when a release is imported. Click a token to insert it."
         >
-          <NamingEditor />
+          <NamingEditor editable={me.permissions.manage} />
         </Section>
       </div>
     </PageFrame>
