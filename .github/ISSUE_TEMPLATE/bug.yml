@@ -1,0 +1,33 @@
+name: Bug report
+description: Something doesn't work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: delune version
+      description: Output of `delune --version`
+    validations: { required: true }
+  - type: dropdown
+    id: client
+    attributes:
+      label: Where
+      options: [Web UI, TUI, Server, Install / packaging]
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Server output around the problem. Remove passwords and tokens.
+      render: text

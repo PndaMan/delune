@@ -1,0 +1,7 @@
+/target
+node_modules/
+/web/dist
+.env
+*.local
+.DS_Store
+/.local

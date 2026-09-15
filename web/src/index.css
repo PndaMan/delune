@@ -1,0 +1,109 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/hanken-grotesk";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-moon: var(--moon);
+  --color-ok: var(--ok);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+/*
+ * delune palette: "night slate" dark, "cool paper" light.
+ * --primary is the accent; it will be overridden per album from cover art,
+ * so nothing structural may depend on its exact hue.
+ */
+:root {
+  --background: #f2f3f7;
+  --foreground: #1c2030;
+  --card: #fbfbfd;
+  --card-foreground: #1c2030;
+  --popover: #fbfbfd;
+  --popover-foreground: #1c2030;
+  --primary: #4f5bd5;
+  --primary-foreground: #fbfbfd;
+  --secondary: #e6e8f0;
+  --secondary-foreground: #1c2030;
+  --muted: #e6e8f0;
+  --muted-foreground: #5d6378;
+  --accent: #e3e6f5;
+  --accent-foreground: #1c2030;
+  --destructive: #c8384a;
+  --border: #dcdfe8;
+  --input: #cfd3df;
+  --ring: #4f5bd5;
+  --moon: #3b4260;
+  --ok: #2f8f5b;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: #171b26;
+  --foreground: #e4e8f4;
+  --card: #1f2433;
+  --card-foreground: #e4e8f4;
+  --popover: #1f2433;
+  --popover-foreground: #e4e8f4;
+  --primary: #aeb8ff;
+  --primary-foreground: #171b26;
+  --secondary: #262c3d;
+  --secondary-foreground: #e4e8f4;
+  --muted: #262c3d;
+  --muted-foreground: #8b91a8;
+  --accent: #2a3147;
+  --accent-foreground: #e4e8f4;
+  --destructive: #ff7a85;
+  --border: #2b3144;
+  --input: #343b52;
+  --ring: #aeb8ff;
+  --moon: #e4e8f4;
+  --ok: #6fd39b;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

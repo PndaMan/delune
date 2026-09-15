@@ -1,0 +1,1 @@
+doc-valid-idents = ["MusicBrainz", "SoundCloud", "YouTube", "OpenAPI", "OpenSubsonic", "ReplayGain", "..", "TypeScript"]

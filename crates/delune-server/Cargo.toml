@@ -1,0 +1,30 @@
+[package]
+name = "delune-server"
+description = "HTTP API server for delune"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = "0.8.9"
+delune-core = { version = "0.1.0-dev", path = "../delune-core" }
+delune-resolve = { version = "0.1.0-dev", path = "../delune-resolve" }
+mime_guess = "2.0.5"
+rust-embed = "8.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["full"] }
+tower-http = { version = "0.7.1", features = ["trace", "cors"] }
+tracing = "0.1.44"
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+tower = { version = "0.5.3", features = ["util"] }

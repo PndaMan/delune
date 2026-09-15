@@ -1,0 +1,23 @@
+[package]
+name = "delune-navidrome"
+description = "Navidrome (Subsonic API) client for delune"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+delune-core = { version = "0.1.0-dev", path = "../delune-core" }
+md-5 = "0.11.0"
+rand = "0.10.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "query"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+url = "2.5.8"

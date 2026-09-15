@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .moon { fill: #4f5bd5; }
+    @media (prefers-color-scheme: dark) { .moon { fill: #aeb8ff; } }
+  </style>
+  <mask id="crescent">
+    <rect width="32" height="32" fill="white" />
+    <circle cx="22" cy="12" r="11" fill="black" />
+  </mask>
+  <circle class="moon" cx="16" cy="16" r="13" mask="url(#crescent)" />
+</svg>

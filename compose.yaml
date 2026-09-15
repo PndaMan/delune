@@ -1,0 +1,11 @@
+# Development example. A documented production setup ships with v0.1.
+services:
+  delune:
+    build: .
+    ports:
+      - "7474:7474"
+      - "2234:2234"
+    volumes:
+      # Mount the same music folder Navidrome uses, at the same path if you can.
+      - /path/to/music:/music
+    restart: unless-stopped
