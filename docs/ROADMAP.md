@@ -16,7 +16,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] TUI vertical slice: search, download for review, downloads (stop, resume, remove), review and import
 - [ ] Configuration file and first-run setup (Navidrome URL, music folder, Soulseek account)
 - [ ] SQLite persistence (settings, jobs, peer history)
-- [ ] Login with Navidrome credentials; sessions
+- [x] Login with Navidrome credentials; sessions
 - [ ] OpenAPI generation and a generated TypeScript client
 
 **Soulseek**
@@ -35,7 +35,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Library check against Navidrome
 - [x] Folder grouping and quality/availability ranking
 - [x] Tracklist matching against the resolved release
-- [~] Automatic retry with fewer words when the network returns nothing (links retry with the title alone)
+- [x] Automatic retry with fewer words when the network returns nothing (noise, filler words, then for links the title alone)
 
 **Downloads**
 - [x] Download jobs: one folder, every file queued at once, staged under the data directory
@@ -51,9 +51,9 @@ Navidrome, from both the web UI and the TUI.
 - [x] Import with conflict checks, then a Navidrome scan
 
 **Shipping**
-- [ ] Docker image (multi-arch) and compose example
-- [ ] NixOS module and flake
-- [ ] Release binaries for Linux and macOS
+- [x] Docker image (multi-arch) and compose example
+- [x] NixOS module and flake, with a VM test
+- [x] Release binaries for Linux and macOS
 - [~] AUR and Homebrew packages: PKGBUILD, formula and systemd unit written; publishing them waits for the first release
 
 ## Next: web UI overhaul

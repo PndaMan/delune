@@ -23,7 +23,10 @@ use delune_core::{
     Quality,
     api::{ApiError, Candidate, CandidateFile, SearchEvent},
 };
-use delune_resolve::{ResolveError, classify, query::search_query};
+use delune_resolve::{
+    ResolveError, classify,
+    query::{broader_queries, search_query},
+};
 use delune_soulseek::peer::{SearchResponse, SharedFile};
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -40,8 +43,10 @@ pub struct SearchParams {
 /// cancels the search.
 ///
 /// A pasted link is resolved first (a `resolved` event says what it points at), then
-/// Soulseek is searched for its artist and title. If nobody answers that, the title
-/// alone gets a second try: store titles often carry words shared folders don't.
+/// Soulseek is searched for its artist and title. If nothing turns up, broader searches
+/// follow: without edition noise and filler words, and for links the title alone.
+/// Soulseek requires every word, so store titles and typed queries often carry one
+/// that shared folders don't.
 pub async fn stream(State(app): State<AppState>, user: CurrentUser, Query(params): Query<SearchParams>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.search, "search") {
         return denied;
@@ -63,12 +68,17 @@ pub async fn stream(State(app): State<AppState>, user: CurrentUser, Query(params
     let (tx, rx) = mpsc::channel::<SearchEvent>(64);
     tokio::spawn(async move {
         let (query, fallback) = match input {
-            delune_resolve::Query::Text(query) => (query, None),
+            delune_resolve::Query::Text(query) => {
+                let fallback = broader_queries(&query);
+                (query, fallback)
+            }
             delune_resolve::Query::Link(parsed) => match app.resolver.resolve(&parsed).await {
                 Ok(link) => {
-                    let fallback = (link.artist.is_some() && link.kind != EntityKind::Artist)
+                    let mut fallback = broader_queries(&link.query);
+                    let title_alone = (link.artist.is_some() && link.kind != EntityKind::Artist)
                         .then(|| search_query(None, &link.title))
-                        .filter(|f| f.len() >= 4 && *f != link.query);
+                        .filter(|f| f.len() >= 4 && *f != link.query && !fallback.contains(f));
+                    fallback.extend(title_alone);
                     let query = link.query.clone();
                     let playlist = link.kind == EntityKind::Playlist;
                     if tx.send(SearchEvent::Resolved { link }).await.is_err() {

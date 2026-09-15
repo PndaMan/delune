@@ -60,7 +60,15 @@ export function SearchPage() {
   )
 }
 
-function Idle({ onSubmit, recent, onForget }: { onSubmit: (q: string) => void; recent: string[]; onForget: (q: string) => void }) {
+function Idle({
+  onSubmit,
+  recent,
+  onForget,
+}: {
+  onSubmit: (q: string) => void
+  recent: string[]
+  onForget: (q: string) => void
+}) {
   const tonight = moonPhase()
   const status = useSoulseekStatus()
   const soulseek = describeSoulseek(status.data, status.isError)
@@ -68,11 +76,19 @@ function Idle({ onSubmit, recent, onForget }: { onSubmit: (q: string) => void; r
   return (
     <div className="relative mx-auto flex min-h-[calc(100dvh-5rem)] max-w-[760px] flex-col items-center justify-center px-5 py-16 md:min-h-dvh">
       <div className="flex flex-col items-center text-center">
-        <Moon illumination={tonight.illumination} waxing={tonight.waxing} size={188} glow label={`${tonight.name}, ${Math.round(tonight.illumination * 100)} percent lit`} />
+        <Moon
+          illumination={tonight.illumination}
+          waxing={tonight.waxing}
+          size={188}
+          glow
+          label={`${tonight.name}, ${Math.round(tonight.illumination * 100)} percent lit`}
+        />
         <p className="mt-6 text-sm text-muted-foreground">
           Tonight's moon is a {tonight.name.toLowerCase()}, {Math.round(tonight.illumination * 100)}% lit
         </p>
-        <h1 className="type-display mt-8 text-[clamp(2.6rem,7.5vw,4.4rem)] text-balance">Find something to listen to</h1>
+        <h1 className="type-display mt-8 text-[clamp(2.6rem,7.5vw,4.4rem)] text-balance">
+          Find something to listen to
+        </h1>
       </div>
 
       <div className="mt-10 w-full">
@@ -92,8 +108,15 @@ function Idle({ onSubmit, recent, onForget }: { onSubmit: (q: string) => void; r
         <div className="mt-6 flex w-full flex-wrap items-center gap-2 px-1">
           <span className="mr-1 text-sm text-muted-foreground">Recent</span>
           {recent.map((query) => (
-            <span key={recentLabel(query) ?? query} className="group flex items-center rounded-full border bg-card/50 text-sm transition-colors hover:bg-accent">
-              <button type="button" onClick={() => onSubmit(query)} className="rounded-l-full py-1.5 pr-1 pl-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <span
+              key={recentLabel(query) ?? query}
+              className="group flex items-center rounded-full border bg-card/50 text-sm transition-colors hover:bg-accent"
+            >
+              <button
+                type="button"
+                onClick={() => onSubmit(query)}
+                className="rounded-l-full py-1.5 pr-1 pl-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 {query}
               </button>
               <button
@@ -154,7 +177,8 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
 
   const availableFormats = useMemo(() => {
     const counts = new Map<Codec, number>()
-    for (const c of search.candidates) if (c.quality) counts.set(c.quality.codec, (counts.get(c.quality.codec) ?? 0) + 1)
+    for (const c of search.candidates)
+      if (c.quality) counts.set(c.quality.codec, (counts.get(c.quality.codec) ?? 0) + 1)
     return [...counts.entries()].sort((a, b) => b[1] - a[1])
   }, [search.candidates])
 
@@ -166,9 +190,7 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
   }, [pool, readyOnly])
 
   const visible = useMemo(() => {
-    const filtered = pool.filter(
-      (c) => (tier === "all" || tierOf(c.quality) === tier) && (!readyOnly || c.free_slot),
-    )
+    const filtered = pool.filter((c) => (tier === "all" || tierOf(c.quality) === tier) && (!readyOnly || c.free_slot))
     const compare = SORTS[sort].compare(typicalTracks(search.candidates))
     // Folders that match the pasted link come first, whatever the sort.
     const link = search.resolved
@@ -192,7 +214,10 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
   const accent = useAccentColour(heroArt.data?.thumb)
 
   return (
-    <div className="relative" style={accent ? ({ "--primary": accent, "--ring": accent } as React.CSSProperties) : undefined}>
+    <div
+      className="relative"
+      style={accent ? ({ "--primary": accent, "--ring": accent } as React.CSSProperties) : undefined}
+    >
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-[520px] transition-opacity duration-700"
         style={{
@@ -374,11 +399,17 @@ function KeepLooking({ query }: { query: string }) {
   )
 }
 
+function sameWords(a: string, b: string) {
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
 function StatusLine({ search, visible, query }: { search: SearchState; visible: number; query: string }) {
   const total = search.candidates.length
   let text: string
   if (search.status === "running" && !search.searchedFor && looksLikeLink(query)) {
     text = "Finding out what this link points to"
+  } else if (search.status === "running" && !total && search.searchedFor && !sameWords(search.searchedFor, query)) {
+    text = `Nothing yet, so trying fewer words: “${search.searchedFor}”`
   } else if (search.status === "running") {
     text = total
       ? `Listening for answers. ${plural(total, "release")} from ${plural(search.peers, "person", "people")} so far`
@@ -386,12 +417,19 @@ function StatusLine({ search, visible, query }: { search: SearchState; visible: 
   } else if (search.status === "done") {
     text = `${plural(total, "release")} from ${plural(search.peers, "person", "people")}`
     if (visible !== total) text += `, ${visible.toLocaleString()} shown`
-    if (search.resolved && search.searchedFor) text += `, searched for “${search.searchedFor}”`
+    if (search.searchedFor && (search.resolved || !sameWords(search.searchedFor, query))) {
+      text += `, searched for “${search.searchedFor}”`
+    }
   } else {
     text = ""
   }
   return (
-    <p className={cn("mt-1.5 text-[15px] text-muted-foreground", search.status === "running" && "animate-pulse [animation-duration:2.4s]")}>
+    <p
+      className={cn(
+        "mt-1.5 text-[15px] text-muted-foreground",
+        search.status === "running" && "animate-pulse [animation-duration:2.4s]",
+      )}
+    >
       {text}
     </p>
   )

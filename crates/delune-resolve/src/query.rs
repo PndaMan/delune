@@ -110,6 +110,33 @@ pub fn search_query(artist: Option<&str>, title: &str) -> String {
         .join(" ")
 }
 
+/// Words so common that requiring them rarely narrows a search but often misses
+/// folders that leave them out ("Dark Side of the Moon" vs "Dark Side Moon").
+const FILLER: &[&str] = &["the", "a", "an", "and", "of", "to", "in", "on", "at", "for", "vol", "vol.", "pt", "pt."];
+
+/// Broader searches to try, in order, when `query` finds nothing: the query
+/// without edition noise, then without filler words and punctuation. Soulseek
+/// requires every word, so each step drops words that shared folders often lack.
+/// At most two, none equal to `query` or each other, none shorter than 3 characters.
+#[must_use]
+pub fn broader_queries(query: &str) -> Vec<String> {
+    let cleaned = search_query(None, query);
+    let bare = cleaned
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+        .filter(|w| !w.is_empty() && !FILLER.contains(&w.to_lowercase().as_str()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut out: Vec<String> = Vec::new();
+    for candidate in [cleaned, bare] {
+        let differs = candidate.to_lowercase() != query.trim().to_lowercase();
+        if differs && candidate.chars().count() >= 3 && !out.contains(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out
+}
+
 /// Split a video title like "Radiohead - No Surprises (Official Video)" into artist
 /// and title, using the channel name to decide which side is the artist.
 ///
@@ -135,6 +162,18 @@ pub fn split_video_title(title: &str, channel: &str) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn broader_queries_drop_noise_then_filler() {
+        assert_eq!(
+            broader_queries("Pink Floyd The Dark Side of the Moon (2011 Remaster)"),
+            ["Pink Floyd The Dark Side of the Moon", "Pink Floyd Dark Side Moon"]
+        );
+        assert_eq!(broader_queries("Daft Punk - Discovery"), ["Daft Punk Discovery"]);
+        assert!(broader_queries("burial untrue").is_empty());
+        assert!(broader_queries("The The").is_empty(), "nothing useful left");
+        assert_eq!(broader_queries("Sigur Rós: ()"), ["Sigur Rós:", "Sigur Rós"]);
+    }
 
     #[test]
     fn strips_edition_noise_but_keeps_real_titles() {
