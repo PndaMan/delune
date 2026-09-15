@@ -10,9 +10,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::convert::Infallible;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -33,6 +32,7 @@ use tokio::sync::broadcast;
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::store::Database;
 
 const KEEP_PRIVATE: usize = 500;
 const KEEP_ROOM: usize = 300;
@@ -40,7 +40,7 @@ const MAX_MESSAGE_CHARS: usize = 2_000;
 
 #[derive(Debug)]
 pub struct Chat {
-    store: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     state: Mutex<History>,
     ids: AtomicU64,
     updates: broadcast::Sender<ChatUpdate>,
@@ -91,10 +91,9 @@ impl Default for Chat {
 
 impl Chat {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let store = data_dir.join("chat.json");
-        let state: History =
-            std::fs::read(&store).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+    pub fn open(db: &Arc<Database>) -> Self {
+        let store = db.clone();
+        let state: History = store.load("chat").unwrap_or_default();
         let next_id = state.conversations.values().flat_map(|c| c.messages.iter().map(|m| m.id)).max().unwrap_or(0) + 1;
         Self { store: Some(store), state: Mutex::new(state), ids: AtomicU64::new(next_id), ..Self::default() }
     }
@@ -104,11 +103,8 @@ impl Chat {
     }
 
     fn save(&self, state: &History) {
-        let Some(path) = &self.store else { return };
-        let Ok(json) = serde_json::to_vec(state) else { return };
-        let tmp = path.with_extension("json.tmp");
-        if let Err(error) = std::fs::write(&tmp, json).and_then(|()| std::fs::rename(&tmp, path)) {
-            tracing::warn!(%error, "couldn't save chat history");
+        if let Some(db) = &self.store {
+            db.save("chat", state);
         }
     }
 

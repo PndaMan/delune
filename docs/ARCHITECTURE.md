@@ -94,7 +94,7 @@ Navidrome.
 5. **Download**: `POST /api/v1/downloads` creates a job for a folder (or some of its
    files); every file is queued with the peer at once through
    `delune-soulseek::transfer` into `<data dir>/staging/<job>/`, resuming from
-   `.part` files. Jobs survive restarts (`jobs.json`) and can be stopped and resumed.
+   `.part` files. Jobs survive restarts (saved in `delune.db`, see below) and can be stopped and resumed.
 6. **Verify and plan**: every file is decoded end to end and checked for transcodes
    (`delune_library::verify`); tags and the naming template decide where each file
    goes (`delune_library::import::plan`), and conflicts are found before anything moves.
@@ -108,6 +108,22 @@ Beside the main flow: the **wishlist** repeats searches on Soulseek's wishlist
 interval; **automation** follows artists and looks for quality upgrades; **sharing**
 indexes the library, answers searches (including from the distributed network) and
 serves uploads; **chat** keeps private messages and rooms.
+
+## Storage
+
+Everything delune keeps lives in its data directory:
+
+- `delune.db`: one SQLite database (WAL mode, readable only by delune). Each part of
+  the server saves its state as a JSON document under its own key (`jobs`,
+  `accounts`, `wishlist`, `requests`, `notifications`, settings…), written in one
+  transaction. A `peers` table records how downloads from each Soulseek user went,
+  which breaks ties when ranking results. JSON files from before the database are
+  imported on first start and kept as `*.json.imported`.
+- `config.toml`: connections set from the web UI (library folder, Navidrome,
+  Soulseek); flags and `DELUNE_*` variables override it.
+- `staging/<job>/`: downloads waiting for review.
+- `avatars/`, `share-cache.json`: profile pictures, and a cache of audio properties
+  that makes re-indexing the library for sharing fast.
 
 ## API
 

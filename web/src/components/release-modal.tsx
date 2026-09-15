@@ -17,7 +17,7 @@ import { useLayoutEffect, useRef, useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { Button } from "@/components/ui/button"
-import type { Candidate, CandidateFile } from "@/lib/api"
+import type { Candidate, CandidateFile, PeerHistory } from "@/lib/api"
 import { useAccentColour, useArtwork } from "@/lib/artwork"
 import { describeJob, jobForCandidate, useDownloads, useStartDownload } from "@/lib/downloads"
 import { coverStatus, type LibraryMatch, type Ownership, ownership, useLibraryAlbum } from "@/lib/library"
@@ -157,6 +157,7 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
             </dd>
           </div>
         </dl>
+        {c.peer && <TrackRecord peer={c.peer} username={c.username} />}
 
         {owned && <LibraryNote owned={owned} library={library.data} />}
 
@@ -618,6 +619,22 @@ function HideSharer({ username }: { username: string }) {
     >
       {isHidden ? `Show ${username}'s results again` : `Hide results from ${username}`}
     </button>
+  )
+}
+
+/** How downloading from this person has gone before. */
+function TrackRecord({ peer, username }: { peer: PeerHistory; username: string }) {
+  const total = peer.files_done + peer.files_failed
+  const flaky = peer.files_failed > peer.files_done
+  const speed = formatSpeed(peer.average_speed)
+  return (
+    <p className={cn("mt-3 text-[13px]", flaky ? "text-destructive" : "text-muted-foreground")}>
+      {flaky
+        ? `Most downloads from ${username} failed before (${peer.files_failed} of ${total} files).`
+        : `You've downloaded ${plural(peer.files_done, "file")} from ${username} before${
+            peer.files_failed ? `, ${peer.files_failed} failed` : ""
+          }${speed ? `, at about ${speed}` : ""}.`}
+    </p>
   )
 }
 

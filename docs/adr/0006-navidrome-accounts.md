@@ -20,7 +20,7 @@ import without a look from an admin.
    stores the password.
 2. **delune issues its own sessions.** A random 256-bit token, sent to browsers as an
    `HttpOnly`, `SameSite=Lax` cookie and to the TUI as a bearer token. Only its
-   SHA-256 hash is saved, in `accounts.json` (mode 0600). Sessions end after 30 days
+   SHA-256 hash is saved, in the database (`delune.db`, mode 0600; `accounts.json` before it). Sessions end after 30 days
    unused, or on sign-out.
 3. **Navidrome admins are delune admins,** re-read at every sign-in, and can do
    everything. Everyone else starts with search and download, and an admin can change

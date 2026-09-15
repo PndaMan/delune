@@ -6,8 +6,7 @@
 //! name, and characters that aren't allowed in file names. Saved settings live in
 //! `<data dir>/naming.json` and override the template given at startup.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use axum::{
     Json,
@@ -23,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::accounts::CurrentUser;
 use crate::review::{DEFAULT_TEMPLATE, LibrarySettings};
+use crate::store::Database;
 
 /// Audio files read when detecting a library's layout.
 const DETECT_SAMPLE: usize = 300;
@@ -37,28 +37,25 @@ pub struct NamingSettings {
 /// The naming settings in force.
 #[derive(Debug)]
 pub struct Naming {
-    path: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     current: Mutex<(Template, NamingOptions)>,
 }
 
 impl Default for Naming {
     fn default() -> Self {
         let template = Template::parse(DEFAULT_TEMPLATE).expect("default template is valid");
-        Self { path: None, current: Mutex::new((template, NamingOptions::default())) }
+        Self { store: None, current: Mutex::new((template, NamingOptions::default())) }
     }
 }
 
 impl Naming {
-    /// Saved settings from `data_dir`, or the startup ones in `library`.
+    /// Saved settings, or the startup ones in `library`.
     #[must_use]
-    pub fn open(data_dir: &Path, library: &LibrarySettings) -> Self {
-        let path = data_dir.join("naming.json");
-        let saved = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<NamingSettings>(&bytes).ok())
-            .and_then(|s| Template::parse(&s.template).ok().map(|t| (t, s.options)));
+    pub fn open(db: &Arc<Database>, library: &LibrarySettings) -> Self {
+        let saved =
+            db.load::<NamingSettings>("naming").and_then(|s| Template::parse(&s.template).ok().map(|t| (t, s.options)));
         let current = saved.unwrap_or_else(|| (library.template.clone(), library.options.clone()));
-        Self { path: Some(path), current: Mutex::new(current) }
+        Self { store: Some(db.clone()), current: Mutex::new(current) }
     }
 
     #[must_use]
@@ -108,11 +105,8 @@ pub async fn update(State(app): State<AppState>, user: CurrentUser, Json(setting
     }
     *app.naming.current.lock().unwrap_or_else(PoisonError::into_inner) = (template, options);
     let saved = app.naming.settings();
-    if let Some(path) = &app.naming.path
-        && let Err(e) =
-            serde_json::to_vec_pretty(&saved).map_err(std::io::Error::other).and_then(|json| std::fs::write(path, json))
-    {
-        tracing::warn!(error = %e, "couldn't save naming settings");
+    if let Some(db) = &app.naming.store {
+        db.save("naming", &saved);
     }
     tracing::info!(by = %user.username, template = %saved.template, "naming settings changed");
     crate::downloads::recheck_reviews(&app);

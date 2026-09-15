@@ -239,7 +239,10 @@ pub async fn folder(
     };
     let candidates: Vec<Candidate> = crate::search::candidates(&response);
     match candidates.into_iter().next() {
-        Some(candidate) => Json(candidate).into_response(),
+        Some(mut candidate) => {
+            candidate.peer = app.db.peers(&[username.as_str()]).remove(&username);
+            Json(candidate).into_response()
+        }
         None => error(StatusCode::NOT_FOUND, "no-audio", "That folder has no music in it."),
     }
 }

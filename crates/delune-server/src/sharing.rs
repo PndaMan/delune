@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::store::Database;
 
 const SCHEDULE_CHECK_EVERY: Duration = Duration::from_secs(30);
 const RESCAN_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
@@ -36,7 +37,7 @@ const EXTRAS: &[&str] = &["jpg", "jpeg", "png", "webp", "cue", "log", "m3u", "m3
 
 #[derive(Debug, Default)]
 pub struct Sharing {
-    settings_path: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     cache_path: Option<PathBuf>,
     state: Mutex<Inner>,
 }
@@ -70,14 +71,12 @@ fn now() -> u64 {
 
 impl Sharing {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let settings_path = data_dir.join("sharing.json");
-        let settings = std::fs::read(&settings_path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+    /// Saved settings from `db`; the index cache stays a file in `data_dir`, since
+    /// it's large and can always be rebuilt.
+    pub fn open(db: &Arc<Database>, data_dir: &Path) -> Self {
+        let settings = db.load("sharing").unwrap_or_default();
         Self {
-            settings_path: Some(settings_path),
+            store: Some(db.clone()),
             cache_path: Some(data_dir.join("share-cache.json")),
             state: Mutex::new(Inner { settings, ..Inner::default() }),
         }
@@ -107,11 +106,8 @@ impl Sharing {
     }
 
     fn save_settings(&self, settings: &SharingSettings) {
-        let Some(path) = &self.settings_path else { return };
-        if let Ok(json) = serde_json::to_vec_pretty(settings)
-            && let Err(error) = std::fs::write(path, json)
-        {
-            tracing::warn!(%error, "couldn't save sharing settings");
+        if let Some(db) = &self.store {
+            db.save("sharing", settings);
         }
     }
 }
@@ -449,7 +445,7 @@ pub async fn uploads(State(app): State<AppState>, user: CurrentUser) -> Response
 /// Transfer totals that survive restarts: what was saved, plus this run's counters.
 #[derive(Debug, Default)]
 pub struct Totals {
-    path: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     saved: Mutex<SavedTotals>,
 }
 
@@ -461,10 +457,9 @@ struct SavedTotals {
 
 impl Totals {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let path = data_dir.join("stats.json");
-        let saved = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Self { path: Some(path), saved: Mutex::new(saved) }
+    pub fn open(db: &Arc<Database>) -> Self {
+        let saved = db.load("stats").unwrap_or_default();
+        Self { store: Some(db.clone()), saved: Mutex::new(saved) }
     }
 
     fn current(&self, client: Option<&delune_soulseek::Client>) -> (u64, u64) {
@@ -486,10 +481,8 @@ impl Totals {
                     downloaded_bytes: base.downloaded_bytes + down,
                     uploaded_bytes: base.uploaded_bytes + up,
                 };
-                if let Some(path) = &app.totals.path
-                    && let Ok(json) = serde_json::to_vec(&totals)
-                {
-                    let _ = std::fs::write(path, json);
+                if let Some(db) = &app.totals.store {
+                    db.save("stats", &totals);
                 }
             }
         });

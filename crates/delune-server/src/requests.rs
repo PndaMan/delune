@@ -7,8 +7,7 @@
 //! their Downloads and Review. The request's status follows that download until the
 //! album is in the library. Kept in `<data dir>/requests.json`.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -24,13 +23,14 @@ use delune_core::api::{
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::store::Database;
 
 /// Requests kept, pending or not.
 const MAX_REQUESTS: usize = 2000;
 
 #[derive(Debug, Default)]
 pub struct Requests {
-    store: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     items: Mutex<Vec<MusicRequest>>,
 }
 
@@ -40,20 +40,16 @@ fn now() -> u64 {
 
 impl Requests {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let store = data_dir.join("requests.json");
-        let items = std::fs::read(&store).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Self { store: Some(store), items: Mutex::new(items) }
+    pub fn open(db: &Arc<Database>) -> Self {
+        let items = db.load("requests").unwrap_or_default();
+        Self { store: Some(db.clone()), items: Mutex::new(items) }
     }
 
     fn with<R>(&self, change: impl FnOnce(&mut Vec<MusicRequest>) -> R) -> R {
         let mut items = self.items.lock().unwrap_or_else(PoisonError::into_inner);
         let result = change(&mut items);
-        if let Some(path) = &self.store
-            && let Ok(json) = serde_json::to_vec(&*items)
-            && let Err(error) = std::fs::write(path, json)
-        {
-            tracing::warn!(%error, "couldn't save requests");
+        if let Some(db) = &self.store {
+            db.save("requests", &*items);
         }
         result
     }

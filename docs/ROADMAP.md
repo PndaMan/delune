@@ -15,7 +15,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] TUI and web UI shells connected to the server
 - [x] TUI vertical slice: search, download for review, downloads (stop, resume, remove), review and import
 - [x] Configuration file and first-run setup (Navidrome URL, music folder, Soulseek account), checked before saving
-- [ ] SQLite persistence (settings, jobs, peer history)
+- [x] SQLite persistence (settings, jobs, peer history), importing the JSON files from before
 - [x] Login with Navidrome credentials; sessions
 - [x] TypeScript types generated from the API types, checked against the web UI at compile time and in CI
 - [ ] OpenAPI description of the routes
@@ -40,7 +40,7 @@ Navidrome, from both the web UI and the TUI.
 
 **Downloads**
 - [x] Download jobs: one folder, every file queued at once, staged under the data directory
-- [x] Persist jobs across restarts (JSON for now; SQLite with accounts)
+- [x] Persist jobs across restarts
 
 **Getting it into the library**
 - [x] Naming template engine

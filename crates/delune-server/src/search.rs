@@ -159,9 +159,14 @@ async fn run(
         };
         let Some(response) = response else { break };
         peers += 1;
-        let items = candidates(&response);
+        let mut items = candidates(&response);
         if items.is_empty() {
             continue;
+        }
+        if let Some(history) = app.db.peers(&[response.username.as_str()]).remove(&response.username) {
+            for item in &mut items {
+                item.peer = Some(history.clone());
+            }
         }
         total += u32::try_from(items.len()).unwrap_or(u32::MAX);
         tx.send(SearchEvent::Candidates { items }).await.ok()?;
@@ -242,6 +247,7 @@ pub fn candidates(response: &SearchResponse) -> Vec<Candidate> {
                 free_slot: response.free_slot,
                 avg_speed: response.avg_speed,
                 queue_length: response.queue_length,
+                peer: None,
                 files: entries,
             })
         })

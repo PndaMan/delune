@@ -63,6 +63,16 @@ export type CandidateFile = {
   duration_secs: number | null
 }
 
+/** How downloads from one Soulseek user have gone before. */
+export type PeerHistory = {
+  files_done: number
+  files_failed: number
+  bytes: number
+  /** Bytes per second. */
+  average_speed: number
+  last_seen: number
+}
+
 export type Candidate = {
   id: string
   username: string
@@ -81,6 +91,8 @@ export type Candidate = {
   free_slot: boolean
   avg_speed: number
   queue_length: number
+  /** How downloading from this user has gone before, if delune has. */
+  peer: PeerHistory | null
 }
 
 export type FileStatus =

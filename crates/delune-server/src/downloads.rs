@@ -32,6 +32,7 @@ use crate::AppState;
 use crate::accounts::CurrentUser;
 use crate::naming::Naming;
 use crate::review::{self, Checked, LibrarySettings};
+use crate::store::Database;
 
 /// All jobs plus the cancel switches of the ones still running.
 #[derive(Debug)]
@@ -39,7 +40,7 @@ pub struct Downloads {
     jobs: Mutex<Vec<Entry>>,
     counter: AtomicU32,
     /// Where jobs are saved; `None` keeps them in memory only (tests).
-    store: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     dirty: AtomicBool,
     /// Jobs downloading at once; 0 means no limit.
     slots: AtomicUsize,
@@ -81,18 +82,11 @@ enum Slot {
 }
 
 impl Downloads {
-    /// Load saved jobs from `data_dir`. Jobs that were mid-download come back as
-    /// queued, and reviews that were in progress will be redone.
+    /// Load saved jobs. Jobs that were mid-download come back as queued, and reviews
+    /// that were in progress will be redone.
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let store = data_dir.join("jobs.json");
-        let jobs: Vec<DownloadJob> = match std::fs::read(&store) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-                tracing::warn!(%error, path = %store.display(), "couldn't read saved downloads; starting fresh");
-                Vec::new()
-            }),
-            Err(_) => Vec::new(),
-        };
+    pub fn open(db: &Arc<Database>) -> Self {
+        let jobs: Vec<DownloadJob> = db.load("jobs").unwrap_or_default();
         let entries = jobs
             .into_iter()
             .map(|mut job| {
@@ -120,7 +114,7 @@ impl Downloads {
         Self {
             jobs: Mutex::new(entries),
             counter: AtomicU32::new(0),
-            store: Some(store),
+            store: Some(db.clone()),
             dirty: AtomicBool::new(false),
             slots: AtomicUsize::new(0),
             slot_freed: Notify::new(),
@@ -223,23 +217,13 @@ impl Downloads {
         true
     }
 
-    /// Write jobs to disk if anything changed since the last save.
+    /// Save jobs if anything changed since the last save.
     pub fn save_if_changed(&self) {
-        let Some(store) = &self.store else { return };
+        let Some(db) = &self.store else { return };
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;
         }
-        let jobs = self.list();
-        let result = serde_json::to_vec_pretty(&jobs).map_err(std::io::Error::other).and_then(|bytes| {
-            if let Some(parent) = store.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let tmp = store.with_extension("json.tmp");
-            std::fs::write(&tmp, bytes)?;
-            std::fs::rename(&tmp, store)
-        });
-        if let Err(error) = result {
-            tracing::warn!(%error, "couldn't save downloads");
+        if !db.save("jobs", &self.list()) {
             self.dirty.store(true, Ordering::Relaxed);
         }
     }
@@ -604,18 +588,41 @@ async fn run_job(
         let (downloads, id) = (downloads.clone(), id.to_owned());
         tasks.spawn(async move {
             let mut state = download.state();
+            // Timed from the first byte, so waiting in the peer's queue doesn't count.
+            let mut transferring_since = None;
             loop {
                 let current = state.borrow_and_update().clone();
                 downloads.update(&id, |job| apply(&mut job.files[index], &current));
+                if matches!(current, DownloadState::Transferring { .. }) && transferring_since.is_none() {
+                    transferring_since = Some(std::time::Instant::now());
+                }
                 if current.is_finished() || state.changed().await.is_err() {
-                    break;
+                    let elapsed = transferring_since.map_or(0, |at| at.elapsed().as_secs().max(1));
+                    return match current {
+                        DownloadState::Completed { bytes } => Outcome::Done { bytes, seconds: elapsed },
+                        DownloadState::Failed { .. } => Outcome::Failed,
+                        _ => Outcome::Other,
+                    };
                 }
             }
         });
     }
 
+    let mut peer = (0u32, 0u32, 0u64, 0u64);
     tokio::select! {
-        () = async { while tasks.join_next().await.is_some() {} } => {}
+        () = async {
+            while let Some(outcome) = tasks.join_next().await {
+                match outcome {
+                    Ok(Outcome::Done { bytes, seconds }) => {
+                        peer.0 += 1;
+                        peer.2 += bytes;
+                        peer.3 += seconds;
+                    }
+                    Ok(Outcome::Failed) => peer.1 += 1,
+                    _ => {}
+                }
+            }
+        } => {}
         _ = cancel.changed() => {
             for download in &handles {
                 download.cancel();
@@ -627,6 +634,16 @@ async fn run_job(
     }
     let status = downloads.lock().iter().find(|e| e.job.id == id).map(|e| e.job.status);
     tracing::info!(id, ?status, "download job finished");
+    if let (Some(db), true) = (&downloads.store, peer.0 + peer.1 > 0) {
+        db.record_peer(&username, peer.0, peer.1, peer.2, peer.3);
+    }
+}
+
+/// How one file's download ended, for the peer's history.
+enum Outcome {
+    Done { bytes: u64, seconds: u64 },
+    Failed,
+    Other,
 }
 
 fn apply(file: &mut JobFile, state: &DownloadState) {
@@ -724,7 +741,8 @@ mod tests {
         }];
         std::fs::write(dir.join("jobs.json"), serde_json::to_vec(&saved).unwrap()).unwrap();
 
-        let downloads = Downloads::open(&dir);
+        let db = Arc::new(Database::open(&dir).unwrap());
+        let downloads = Downloads::open(&db);
         let job = &downloads.list()[0];
         let statuses: Vec<_> = job.files.iter().map(|f| f.status).collect();
         assert_eq!(statuses, [FileStatus::Done, FileStatus::Waiting, FileStatus::Waiting]);
@@ -735,7 +753,9 @@ mod tests {
         // Changes are saved and read back.
         downloads.update("job1", |job| job.files[1].status = FileStatus::Done);
         downloads.save_if_changed();
-        assert_eq!(Downloads::open(&dir).list()[0].files[1].status, FileStatus::Done);
+        drop(db);
+        let reopened = Arc::new(Database::open(&dir).unwrap());
+        assert_eq!(Downloads::open(&reopened).list()[0].files[1].status, FileStatus::Done);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -5,8 +5,7 @@
 //! a hundred per person. The web UI polls for them and shows an unread count.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -20,13 +19,14 @@ use serde::Deserialize;
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::store::Database;
 
 /// Notifications kept per person.
 const KEEP: usize = 100;
 
 #[derive(Debug, Default)]
 pub struct Notifier {
-    store: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     inboxes: Mutex<BTreeMap<String, Vec<Notification>>>,
     counter: Mutex<u64>,
 }
@@ -37,10 +37,9 @@ fn now() -> u64 {
 
 impl Notifier {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let store = data_dir.join("notifications.json");
-        let inboxes = std::fs::read(&store).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Self { store: Some(store), inboxes: Mutex::new(inboxes), counter: Mutex::default() }
+    pub fn open(db: &Arc<Database>) -> Self {
+        let inboxes = db.load("notifications").unwrap_or_default();
+        Self { store: Some(db.clone()), inboxes: Mutex::new(inboxes), counter: Mutex::default() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Vec<Notification>>> {
@@ -48,11 +47,8 @@ impl Notifier {
     }
 
     fn save(&self, inboxes: &BTreeMap<String, Vec<Notification>>) {
-        let Some(path) = &self.store else { return };
-        if let Ok(json) = serde_json::to_vec(inboxes)
-            && let Err(error) = std::fs::write(path, json)
-        {
-            tracing::warn!(%error, "couldn't save notifications");
+        if let Some(db) = &self.store {
+            db.save("notifications", inboxes);
         }
     }
 

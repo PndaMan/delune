@@ -82,6 +82,10 @@ export type Candidate = {
    */
   avg_speed: number
   queue_length: number
+  /**
+   * How downloading from this user has gone before, if delune has.
+   */
+  peer: PeerHistory | null
 }
 
 export type CandidateFile = {
@@ -346,6 +350,20 @@ export type NotificationKind =
   "request-new" | "request-approved" | "request-declined" | "review-ready" | "download-failed" | "imported"
 
 export type Notifications = { unread: number; items: Array<Notification> }
+
+export type PeerHistory = {
+  files_done: number
+  files_failed: number
+  bytes: number
+  /**
+   * Bytes per second, over everything downloaded from them.
+   */
+  average_speed: number
+  /**
+   * Unix seconds.
+   */
+  last_seen: number
+}
 
 export type People = {
   /**

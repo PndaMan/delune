@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::AppState;
+use crate::store::Database;
 
 pub const COOKIE: &str = "delune_session";
 /// Sessions end after this long without being used.
@@ -41,7 +42,7 @@ pub const OPEN_MODE_USER: &str = "admin";
 #[derive(Debug)]
 pub struct Accounts {
     navidrome_url: Option<String>,
-    store: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     avatars: Option<PathBuf>,
     state: Mutex<Stored>,
     failures: Mutex<HashMap<String, (u32, Instant)>>,
@@ -167,23 +168,17 @@ fn new_token() -> String {
 }
 
 impl Accounts {
-    /// Load accounts from `data_dir`. `navidrome_url` switches sign-in on.
+    /// Load accounts from `db`; profile pictures live in `data_dir`. `navidrome_url`
+    /// switches sign-in on.
     #[must_use]
-    pub fn open(data_dir: &Path, navidrome_url: Option<String>) -> Self {
-        let store = data_dir.join("accounts.json");
-        let state = match std::fs::read(&store) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-                tracing::warn!(%error, path = %store.display(), "couldn't read accounts; everyone will need to sign in again");
-                Stored::default()
-            }),
-            Err(_) => Stored::default(),
-        };
+    pub fn open(db: &Arc<Database>, data_dir: &Path, navidrome_url: Option<String>) -> Self {
+        let state = db.load("accounts").unwrap_or_default();
         if navidrome_url.is_none() {
             tracing::warn!("no Navidrome configured: anyone who can reach delune can use it as an admin");
         }
         Self {
             navidrome_url,
-            store: Some(store),
+            store: Some(db.clone()),
             avatars: Some(data_dir.join("avatars")),
             state: Mutex::new(state),
             failures: Mutex::default(),
@@ -206,26 +201,10 @@ impl Accounts {
     }
 
     fn save(&self, state: &mut Stored) {
-        let Some(path) = &self.store else { return };
+        let Some(db) = &self.store else { return };
         let cutoff = now().saturating_sub(SESSION_IDLE.as_secs());
         state.sessions.retain(|_, s| s.last_seen >= cutoff);
-        let Ok(json) = serde_json::to_vec_pretty(&*state) else { return };
-        let tmp = path.with_extension("json.tmp");
-        let written = (|| {
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            std::fs::write(&tmp, &json)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
-            }
-            std::fs::rename(&tmp, path)
-        })();
-        if let Err(error) = written {
-            tracing::warn!(%error, path = %path.display(), "couldn't save accounts");
-        }
+        db.save("accounts", &*state);
     }
 
     fn current(record: &UserRecord, require_approval: bool) -> CurrentUser {

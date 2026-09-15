@@ -619,6 +619,7 @@ mod tests {
             free_slot: true,
             avg_speed: 1,
             queue_length: 0,
+            peer: None,
         }
     }
 

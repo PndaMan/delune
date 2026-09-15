@@ -9,8 +9,7 @@
 //!
 //! Items live in `<data dir>/wishlist.json`.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -27,13 +26,14 @@ use delune_soulseek::SessionState;
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::store::Database;
 
 const MAX_ITEMS: usize = 500;
 const FIRST_RUN_AFTER: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Default)]
 pub struct Wishlist {
-    store: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     items: Mutex<Vec<WishlistItem>>,
 }
 
@@ -43,10 +43,9 @@ fn now() -> u64 {
 
 impl Wishlist {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let store = data_dir.join("wishlist.json");
-        let items = std::fs::read(&store).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Self { store: Some(store), items: Mutex::new(items) }
+    pub fn open(db: &Arc<Database>) -> Self {
+        let items = db.load("wishlist").unwrap_or_default();
+        Self { store: Some(db.clone()), items: Mutex::new(items) }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<WishlistItem>> {
@@ -54,11 +53,8 @@ impl Wishlist {
     }
 
     fn save(&self, items: &[WishlistItem]) {
-        let Some(path) = &self.store else { return };
-        if let Ok(json) = serde_json::to_vec(items)
-            && let Err(error) = std::fs::write(path, json)
-        {
-            tracing::warn!(%error, "couldn't save the wishlist");
+        if let Some(db) = &self.store {
+            db.save("wishlist", items);
         }
     }
 
@@ -386,6 +382,7 @@ mod tests {
             free_slot: true,
             avg_speed: 1,
             queue_length: 0,
+            peer: None,
         }
     }
 

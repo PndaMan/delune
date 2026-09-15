@@ -6,8 +6,8 @@
 //! after the files have moved, so an import never waits on it, and Navidrome is asked
 //! to rescan once it's done so it picks up the lyrics too.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use axum::{Json, extract::State, response::IntoResponse, response::Response};
@@ -17,6 +17,7 @@ use serde_json::Value;
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::store::Database;
 
 const LRCLIB: &str = "https://lrclib.net/api/search";
 const USER_AGENT: &str = concat!("delune/", env!("CARGO_PKG_VERSION"), " (https://github.com/PndaMan/delune)");
@@ -36,16 +37,15 @@ impl Default for ImportOptions {
 
 #[derive(Debug, Default)]
 pub struct Finishing {
-    path: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     options: Mutex<ImportOptions>,
 }
 
 impl Finishing {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let path = data_dir.join("import-options.json");
-        let options = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Self { path: Some(path), options: Mutex::new(options) }
+    pub fn open(db: &Arc<Database>) -> Self {
+        let options = db.load("import-options").unwrap_or_default();
+        Self { store: Some(db.clone()), options: Mutex::new(options) }
     }
 
     #[must_use]
@@ -164,10 +164,8 @@ pub async fn set_options(
         return denied;
     }
     *app.finishing.options.lock().unwrap_or_else(PoisonError::into_inner) = options;
-    if let Some(path) = &app.finishing.path
-        && let Ok(json) = serde_json::to_vec_pretty(&options)
-    {
-        let _ = std::fs::write(path, json);
+    if let Some(db) = &app.finishing.store {
+        db.save("import-options", &options);
     }
     Json(options).into_response()
 }

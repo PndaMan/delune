@@ -118,6 +118,19 @@ pub struct CandidateFile {
     pub duration_secs: Option<u32>,
 }
 
+/// How downloads from one Soulseek user have gone before.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PeerHistory {
+    pub files_done: u32,
+    pub files_failed: u32,
+    pub bytes: u64,
+    /// Bytes per second, over everything downloaded from them.
+    pub average_speed: u64,
+    /// Unix seconds.
+    pub last_seen: u64,
+}
+
 /// A folder shared by one peer that looks like a release: the unit users choose
 /// between in search results.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,6 +162,9 @@ pub struct Candidate {
     /// Bytes per second.
     pub avg_speed: u32,
     pub queue_length: u32,
+    /// How downloading from this user has gone before, if delune has.
+    #[serde(default)]
+    pub peer: Option<PeerHistory>,
 }
 
 /// Broad quality band, compared before exact resolution: any complete lossless album
@@ -191,7 +207,9 @@ impl Candidate {
     /// 2. Complete-looking folders over fragments.
     /// 3. Hi-res over CD quality, then exact resolution.
     /// 4. Consistent quality over mixed.
-    /// 5. Whoever can start sending soonest and fastest.
+    /// 5. People downloads have gone well from before, over strangers, over people
+    ///    whose downloads mostly failed.
+    /// 6. Whoever can start sending soonest and fastest.
     #[must_use]
     pub fn compare_in(a: &Self, b: &Self, typical_tracks: u32) -> Ordering {
         let lossless = |c: &Self| QualityTier::of(c.quality) >= QualityTier::Lossless;
@@ -200,10 +218,21 @@ impl Candidate {
             .then(b.looks_complete(typical_tracks).cmp(&a.looks_complete(typical_tracks)))
             .then(b.quality_rank.cmp(&a.quality_rank))
             .then(a.mixed_quality.cmp(&b.mixed_quality))
+            .then(b.track_record().cmp(&a.track_record()))
             .then(b.free_slot.cmp(&a.free_slot))
             .then(a.queue_length.cmp(&b.queue_length))
             .then(b.avg_speed.cmp(&a.avg_speed))
             .then(a.id.cmp(&b.id))
+    }
+
+    /// 2 for someone whose downloads have gone well, 0 for someone whose mostly
+    /// failed, 1 otherwise (including strangers).
+    fn track_record(&self) -> u8 {
+        match &self.peer {
+            Some(p) if p.files_failed > p.files_done => 0,
+            Some(p) if p.files_done >= 3 && p.files_failed.saturating_mul(5) <= p.files_done => 2,
+            _ => 1,
+        }
     }
 
     /// Ordering without search context: every folder counts as complete.
@@ -1217,6 +1246,7 @@ mod tests {
             free_slot: true,
             avg_speed: 0,
             queue_length: 0,
+            peer: None,
         }
     }
 
@@ -1231,6 +1261,14 @@ mod tests {
         let cd_free =
             Candidate { avg_speed: 5_000_000, ..candidate("c", Some(Quality::lossless(Codec::Flac, 16, 44_100))) };
         let cd_mixed = Candidate { mixed_quality: true, ..cd_free.clone() };
+        let history = |done, failed| {
+            Some(PeerHistory { files_done: done, files_failed: failed, bytes: 0, average_speed: 0, last_seen: 0 })
+        };
+        let cd_trusted = Candidate { peer: history(20, 1), ..cd_free.clone() };
+        let cd_flaky = Candidate { id: "flaky".into(), peer: history(2, 9), ..cd_free.clone() };
+        let mut trust = vec![cd_flaky.clone(), cd_free.clone(), cd_trusted.clone()];
+        Candidate::rank(&mut trust);
+        assert_eq!(trust, [cd_trusted, cd_free.clone(), cd_flaky], "track record breaks ties");
         let mp3 = candidate("d", Some(Quality::lossy(Codec::Mp3, 320)));
         let unknown = candidate("e", None);
 

@@ -11,8 +11,7 @@
 //! Nothing here imports anything: everything still stops at review.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -28,6 +27,7 @@ use serde_json::Value;
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
+use crate::store::Database;
 
 const DEEZER: &str = "https://api.deezer.com";
 const CHECK_FOLLOWS_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -36,7 +36,7 @@ const UPGRADE_EVERY: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Debug, Default)]
 pub struct Automation {
-    path: Option<PathBuf>,
+    store: Option<Arc<Database>>,
     state: Mutex<Stored>,
     http: reqwest::Client,
 }
@@ -61,10 +61,9 @@ fn now() -> u64 {
 
 impl Automation {
     #[must_use]
-    pub fn open(data_dir: &Path) -> Self {
-        let path = data_dir.join("automation.json");
-        let state = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Self { path: Some(path), state: Mutex::new(state), http: reqwest::Client::new() }
+    pub fn open(db: &Arc<Database>) -> Self {
+        let state = db.load("automation").unwrap_or_default();
+        Self { store: Some(db.clone()), state: Mutex::new(state), http: reqwest::Client::new() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Stored> {
@@ -72,11 +71,8 @@ impl Automation {
     }
 
     fn save(&self, state: &Stored) {
-        let Some(path) = &self.path else { return };
-        if let Ok(json) = serde_json::to_vec(state)
-            && let Err(error) = std::fs::write(path, json)
-        {
-            tracing::warn!(%error, "couldn't save automation settings");
+        if let Some(db) = &self.store {
+            db.save("automation", state);
         }
     }
 

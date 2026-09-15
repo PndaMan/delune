@@ -22,6 +22,7 @@ pub mod review;
 pub mod search;
 pub mod setup;
 pub mod sharing;
+pub mod store;
 pub mod users;
 mod web;
 pub mod wishlist;
@@ -101,6 +102,8 @@ pub struct AppState {
     pub locked: setup::Locked,
     pub notifications: Arc<notifications::Notifier>,
     pub requests: Arc<requests::Requests>,
+    /// Where everything above is saved.
+    pub db: Arc<store::Database>,
     pub nat: Arc<nat::Nat>,
     /// Nudged when the port-mapping setting changes.
     pub nat_wake: Arc<tokio::sync::watch::Sender<u64>>,
@@ -133,6 +136,7 @@ impl Default for AppState {
             locked: setup::Locked::default(),
             notifications: Arc::default(),
             requests: Arc::default(),
+            db: Arc::default(),
             nat: Arc::default(),
             nat_wake: Arc::new(tokio::sync::watch::channel(0).0),
         }
@@ -141,20 +145,26 @@ impl Default for AppState {
 
 impl AppState {
     /// Start background services described by `config`. Needs a Tokio runtime.
-    #[must_use]
-    pub fn start(config: ServerConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// When delune's database can't be opened.
+    pub fn start(config: ServerConfig) -> std::io::Result<Self> {
+        let db = Arc::new(store::Database::open(&config.data_dir).map_err(|e| {
+            std::io::Error::other(format!("couldn't open the database in {}: {e}", config.data_dir.display()))
+        })?);
         let navidrome_url = config.navidrome.as_ref().map(|(url, _)| url.clone());
         let navidrome_account = config.navidrome.as_ref().map(|(url, c)| (url.clone(), c.username.clone()));
-        let accounts = Arc::new(accounts::Accounts::open(&config.data_dir, navidrome_url));
-        let chat = Arc::new(chat::Chat::open(&config.data_dir));
-        let sharing = Arc::new(sharing::Sharing::open(&config.data_dir));
-        let wishlist = Arc::new(wishlist::Wishlist::open(&config.data_dir));
-        let totals = Arc::new(sharing::Totals::open(&config.data_dir));
-        let automation = Arc::new(automation::Automation::open(&config.data_dir));
-        let finishing = Arc::new(finishing::Finishing::open(&config.data_dir));
-        let naming = Arc::new(naming::Naming::open(&config.data_dir, &config.library));
-        let notifications = Arc::new(notifications::Notifier::open(&config.data_dir));
-        let requests = Arc::new(requests::Requests::open(&config.data_dir));
+        let accounts = Arc::new(accounts::Accounts::open(&db, &config.data_dir, navidrome_url));
+        let chat = Arc::new(chat::Chat::open(&db));
+        let sharing = Arc::new(sharing::Sharing::open(&db, &config.data_dir));
+        let wishlist = Arc::new(wishlist::Wishlist::open(&db));
+        let totals = Arc::new(sharing::Totals::open(&db));
+        let automation = Arc::new(automation::Automation::open(&db));
+        let finishing = Arc::new(finishing::Finishing::open(&db));
+        let naming = Arc::new(naming::Naming::open(&db, &config.library));
+        let notifications = Arc::new(notifications::Notifier::open(&db));
+        let requests = Arc::new(requests::Requests::open(&db));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -163,7 +173,7 @@ impl AppState {
                     None
                 }
             });
-        let downloads = Arc::new(downloads::Downloads::open(&config.data_dir));
+        let downloads = Arc::new(downloads::Downloads::open(&db));
         downloads.set_slots(sharing.settings().downloads_at_once);
         let mut state = Self {
             downloads: downloads.clone(),
@@ -182,6 +192,7 @@ impl AppState {
             locked: config.locked,
             notifications,
             requests,
+            db,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -205,7 +216,7 @@ impl AppState {
         wishlist::start(&state);
         sharing::Totals::start(&state);
         automation::start(&state);
-        state
+        Ok(state)
     }
 }
 
@@ -408,7 +419,7 @@ pub async fn serve(addr: SocketAddr, config: ServerConfig) -> std::io::Result<()
     if config.soulseek.is_none() {
         tracing::warn!("no Soulseek account configured; search is disabled");
     }
-    let state = AppState::start(config);
+    let state = AppState::start(config)?;
     axum::serve(listener, router(state)).with_graceful_shutdown(shutdown_signal()).await
 }
 
@@ -494,7 +505,8 @@ mod tests {
         let library = dir.join("music");
         let album = library.join("Radiohead").join("1997 - OK Computer");
         std::fs::create_dir_all(&album).unwrap();
-        let naming = Arc::new(naming::Naming::open(&dir, &review::LibrarySettings::default()));
+        let db = Arc::new(store::Database::open(&dir).unwrap());
+        let naming = Arc::new(naming::Naming::open(&db, &review::LibrarySettings::default()));
         let app = router(AppState {
             naming: naming.clone(),
             library: Arc::new(review::LibrarySettings { library_dir: Some(library), ..Default::default() }),
@@ -524,7 +536,7 @@ mod tests {
                 .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(naming.current().0.as_str(), "{artist}/{title}");
-        let reopened = naming::Naming::open(&dir, &review::LibrarySettings::default());
+        let reopened = naming::Naming::open(&db, &review::LibrarySettings::default());
         assert_eq!(reopened.current().0.as_str(), "{artist}/{title}", "saved across restarts");
 
         // An empty library has nothing to detect.
