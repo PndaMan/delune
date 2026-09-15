@@ -84,14 +84,17 @@ Navidrome. Steps marked *(planned)* are not built yet.
 3. **Check the library** *(planned)* — `search3` against Navidrome by MusicBrainz ID
    and by title. Owned at the same or better quality stops here with "Already in
    library".
-4. **Search** *(planned)* — `SourcePolicy::search_order()` decides which sources are
+4. **Search** — `SourcePolicy::search_order()` decides which sources are
    asked, and in what order. Soulseek is always first; this is enforced in one
-   tested function rather than by convention.
-5. **Rank** *(planned)* — candidates are grouped by folder, matched against the
-   tracklist, and sorted by match confidence, completeness, `Quality::rank`, and
-   peer availability. See [ADR 0004](adr/0004-quality-ranking.md).
-6. **Download and verify** *(planned)* — files land in a staging folder, are decoded
-   end to end, and checked for transcodes (fake FLAC).
+   tested function rather than by convention. `GET /api/v1/search` streams results
+   over Server-Sent Events as peers answer.
+5. **Rank** — responses are grouped into one candidate per folder and sorted by
+   lossless-first, completeness, `Quality::rank` and peer availability
+   (`Candidate::rank`). Matching against the resolved tracklist is *(planned)*. See [ADR 0004](adr/0004-quality-ranking.md).
+6. **Download** — `POST /api/v1/downloads` creates a job for one folder; files
+   download in sequence through `delune-soulseek::transfer` into
+   `<data dir>/staging/<job>/`, resuming from `.part` files after drops.
+   **Verify** *(planned)* — files are decoded end to end and checked for transcodes.
 7. **Prepare** *(planned)* — tags, artwork, synced lyrics and file names according
    to settings.
 8. **Review** *(planned)* — the job waits in the requester's review inbox, and in the
@@ -102,7 +105,7 @@ Navidrome. Steps marked *(planned)* are not built yet.
 ## API
 
 - REST under `/api/v1`, JSON bodies, versioned by path.
-- Long-running work streams progress over Server-Sent Events *(planned)*.
+- Search streams over Server-Sent Events; download progress is polled.
 - Authentication with Navidrome credentials, exchanged for a session *(planned)*.
 - The OpenAPI document will be generated from the Rust handlers (utoipa), and the
   web client's TypeScript types generated from that. Until then,
@@ -115,8 +118,8 @@ React 19, Vite, TanStack Query, Tailwind CSS v4 and shadcn/ui components on Base
 Built into `web/dist` and embedded into the binary with `rust-embed`; unknown paths
 fall back to `index.html` for client-side routing, unknown `/api/*` paths return 404.
 
-Design rules: dense and keyboard-first (⌘K / `/` focus search), one accent colour
-that album artwork will override, Hanken Grotesk with tabular figures, designed
+Design rules (full detail in [design/web-ui.md](design/web-ui.md)): dense and keyboard-first (⌘K / `/` focus search), one accent colour
+taken from album artwork, IBM Plex Sans with tabular figures, designed
 empty and error states, and correct at 400px wide.
 
 ## Terminal UI

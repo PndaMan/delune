@@ -64,6 +64,8 @@ impl ApiError {
 /// One file inside a [`Candidate`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidateFile {
+    /// Full path as the peer shares it; what a download request names.
+    pub path: String,
     pub name: String,
     pub size: u64,
     pub audio: bool,
@@ -182,6 +184,98 @@ impl Candidate {
     }
 }
 
+/// A file to download, as listed in a [`Candidate`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestedFile {
+    pub path: String,
+    pub size: u64,
+}
+
+/// `POST /api/v1/downloads`: fetch these files from one folder of one peer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownloadJobRequest {
+    pub username: String,
+    pub folder: String,
+    pub title: String,
+    pub parent: Option<String>,
+    pub files: Vec<RequestedFile>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobStatus {
+    /// Waiting for an earlier file or for the peer.
+    Queued,
+    Downloading,
+    /// Every file arrived; waiting in the review inbox.
+    Ready,
+    /// Some files couldn't be downloaded. The rest are kept.
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FileStatus {
+    Waiting,
+    Connecting,
+    /// In the peer's upload queue.
+    Queued,
+    Starting,
+    Transferring,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobFile {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub status: FileStatus,
+    pub bytes: u64,
+    pub place_in_queue: Option<u32>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownloadJob {
+    pub id: String,
+    pub username: String,
+    pub folder: String,
+    pub title: String,
+    pub parent: Option<String>,
+    /// Unix time in seconds.
+    pub created_at: u64,
+    pub status: JobStatus,
+    pub files: Vec<JobFile>,
+    pub bytes: u64,
+    pub total_bytes: u64,
+}
+
+impl DownloadJob {
+    /// Recompute `status` and byte totals from the files.
+    pub fn refresh(&mut self) {
+        self.bytes = self.files.iter().map(|f| f.bytes).sum();
+        self.total_bytes = self.files.iter().map(|f| f.size).sum();
+        if self.status == JobStatus::Cancelled {
+            return;
+        }
+        let all = |pred: fn(FileStatus) -> bool| self.files.iter().all(|f| pred(f.status));
+        let any = |pred: fn(FileStatus) -> bool| self.files.iter().any(|f| pred(f.status));
+        self.status = if all(|s| s == FileStatus::Done) {
+            JobStatus::Ready
+        } else if all(|s| matches!(s, FileStatus::Done | FileStatus::Failed)) {
+            JobStatus::Failed
+        } else if any(|s| matches!(s, FileStatus::Transferring | FileStatus::Starting | FileStatus::Done)) {
+            JobStatus::Downloading
+        } else {
+            JobStatus::Queued
+        };
+    }
+}
+
 /// Events streamed by `GET /api/v1/search` (Server-Sent Events, JSON data).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -273,6 +367,42 @@ mod tests {
         assert_eq!(QualityTier::of(Some(Quality::lossless(Codec::Alac, 16, 44_100))), QualityTier::Lossless);
         assert_eq!(QualityTier::of(Some(Quality::lossy(Codec::Opus, 256))), QualityTier::Lossy);
         assert_eq!(QualityTier::of(None), QualityTier::Unknown);
+    }
+
+    #[test]
+    fn job_status_follows_files() {
+        let file = |status, bytes| JobFile {
+            path: String::new(),
+            name: String::new(),
+            size: 10,
+            status,
+            bytes,
+            place_in_queue: None,
+            error: None,
+        };
+        let mut job = DownloadJob {
+            id: "j".into(),
+            username: "u".into(),
+            folder: String::new(),
+            title: String::new(),
+            parent: None,
+            created_at: 0,
+            status: JobStatus::Queued,
+            files: vec![file(FileStatus::Queued, 0), file(FileStatus::Waiting, 0)],
+            bytes: 0,
+            total_bytes: 0,
+        };
+        job.refresh();
+        assert_eq!((job.status, job.total_bytes), (JobStatus::Queued, 20));
+        job.files[0] = file(FileStatus::Transferring, 4);
+        job.refresh();
+        assert_eq!((job.status, job.bytes), (JobStatus::Downloading, 4));
+        job.files = vec![file(FileStatus::Done, 10), file(FileStatus::Failed, 0)];
+        job.refresh();
+        assert_eq!(job.status, JobStatus::Failed);
+        job.files[1] = file(FileStatus::Done, 10);
+        job.refresh();
+        assert_eq!(job.status, JobStatus::Ready);
     }
 
     #[test]

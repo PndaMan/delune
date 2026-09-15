@@ -1,0 +1,271 @@
+//! Download jobs.
+//!
+//! A job is one folder from one peer: the release someone picked from search
+//! results. Its files download one at a time (peers usually give each user a single
+//! upload slot) into a staging folder of its own, `<data dir>/staging/<job id>/`.
+//! Nothing touches the music library here; a finished job waits for review.
+//!
+//! Jobs live in memory for now and are lost on restart; persistence arrives with
+//! the database.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use axum::{
+    Json,
+    extract::{Path as UrlPath, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use delune_core::api::{ApiError, DownloadJob, DownloadJobRequest, FileStatus, JobFile, JobStatus};
+use delune_soulseek::{DownloadRequest, DownloadState};
+use tokio::sync::watch;
+
+use crate::AppState;
+
+/// All jobs plus the cancel switches of the ones still running.
+#[derive(Debug, Default)]
+pub struct Downloads {
+    jobs: Mutex<Vec<Entry>>,
+    counter: AtomicU32,
+}
+
+#[derive(Debug)]
+struct Entry {
+    job: DownloadJob,
+    cancel: watch::Sender<bool>,
+}
+
+impl Downloads {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Entry>> {
+        self.jobs.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn new_id(&self) -> String {
+        let millis = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
+        format!("{millis:x}{:04x}", self.counter.fetch_add(1, Ordering::Relaxed) & 0xffff)
+    }
+
+    fn update(&self, id: &str, f: impl FnOnce(&mut DownloadJob)) {
+        if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
+            f(&mut entry.job);
+            entry.job.refresh();
+        }
+    }
+
+    #[must_use]
+    pub fn list(&self) -> Vec<DownloadJob> {
+        let mut jobs: Vec<DownloadJob> = self.lock().iter().map(|e| e.job.clone()).collect();
+        jobs.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
+        jobs
+    }
+}
+
+/// `GET /api/v1/downloads`
+pub async fn list(State(app): State<AppState>) -> Json<Vec<DownloadJob>> {
+    Json(app.downloads.list())
+}
+
+/// `POST /api/v1/downloads`
+pub async fn create(State(app): State<AppState>, Json(request): Json<DownloadJobRequest>) -> Response {
+    let Some(client) = app.soulseek.clone() else {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "soulseek-not-configured",
+            "Soulseek isn't set up, so nothing can be downloaded.",
+        );
+    };
+    if request.files.is_empty() {
+        return error(StatusCode::BAD_REQUEST, "no-files", "Choose at least one file to download.");
+    }
+    if let Some(stray) = request.files.iter().find(|f| folder_of(&f.path) != request.folder) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "file-outside-folder",
+            &format!("{} isn't in the folder being downloaded.", stray.path),
+        );
+    }
+
+    let id = app.downloads.new_id();
+    let staging = app.data_dir.join("staging").join(&id);
+    let job = DownloadJob {
+        id: id.clone(),
+        username: request.username.clone(),
+        folder: request.folder.clone(),
+        title: request.title,
+        parent: request.parent,
+        created_at: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+        status: JobStatus::Queued,
+        files: request
+            .files
+            .iter()
+            .map(|f| JobFile {
+                path: f.path.clone(),
+                name: safe_file_name(&f.path),
+                size: f.size,
+                status: FileStatus::Waiting,
+                bytes: 0,
+                place_in_queue: None,
+                error: None,
+            })
+            .collect(),
+        bytes: 0,
+        total_bytes: request.files.iter().map(|f| f.size).sum(),
+    };
+    let (cancel, cancel_rx) = watch::channel(false);
+    app.downloads.lock().push(Entry { job: job.clone(), cancel });
+    tracing::info!(%id, username = %request.username, folder = %request.folder, files = job.files.len(), "download job created");
+
+    let downloads = app.downloads.clone();
+    tokio::spawn(run_job(downloads, client, id, request.username, job.files.clone(), staging, cancel_rx));
+    (StatusCode::CREATED, Json(job)).into_response()
+}
+
+/// `DELETE /api/v1/downloads/{id}`: cancel if running, remove staged files, forget the job.
+pub async fn remove(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+    let removed = {
+        let mut jobs = app.downloads.lock();
+        jobs.iter().position(|e| e.job.id == id).map(|i| jobs.remove(i))
+    };
+    let Some(entry) = removed else {
+        return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
+    };
+    let _ = entry.cancel.send(true);
+    // Job ids are generated here, so this path can't escape the staging folder.
+    let staging = app.data_dir.join("staging").join(&entry.job.id);
+    if let Err(error) = tokio::fs::remove_dir_all(&staging).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(%error, path = %staging.display(), "couldn't remove staged files");
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn run_job(
+    downloads: Arc<Downloads>,
+    client: delune_soulseek::Client,
+    id: String,
+    username: String,
+    files: Vec<JobFile>,
+    staging: PathBuf,
+    mut cancel: watch::Receiver<bool>,
+) {
+    for (index, file) in files.iter().enumerate() {
+        if *cancel.borrow() {
+            break;
+        }
+        let download = client.download(DownloadRequest {
+            username: username.clone(),
+            filename: file.path.clone(),
+            destination: staging.join(&file.name),
+        });
+        let mut state = download.state();
+        loop {
+            let current = state.borrow_and_update().clone();
+            downloads.update(&id, |job| apply(&mut job.files[index], &current));
+            if current.is_finished() {
+                break;
+            }
+            tokio::select! {
+                changed = state.changed() => if changed.is_err() { break },
+                _ = cancel.changed() => {
+                    download.cancel();
+                    downloads.update(&id, |job| job.status = JobStatus::Cancelled);
+                    return;
+                }
+            }
+        }
+    }
+    let status = downloads.lock().iter().find(|e| e.job.id == id).map(|e| e.job.status);
+    tracing::info!(%id, ?status, "download job finished");
+}
+
+fn apply(file: &mut JobFile, state: &DownloadState) {
+    file.place_in_queue = None;
+    match state {
+        DownloadState::Connecting => file.status = FileStatus::Connecting,
+        DownloadState::Queued { place } => {
+            file.status = FileStatus::Queued;
+            file.place_in_queue = *place;
+        }
+        DownloadState::Starting { .. } => file.status = FileStatus::Starting,
+        DownloadState::Transferring { bytes, .. } => {
+            file.status = FileStatus::Transferring;
+            file.bytes = *bytes;
+        }
+        DownloadState::Completed { bytes } => {
+            file.status = FileStatus::Done;
+            file.bytes = *bytes;
+        }
+        DownloadState::Failed { reason } => {
+            file.status = FileStatus::Failed;
+            file.error = Some(reason.clone());
+        }
+        DownloadState::Cancelled => file.status = FileStatus::Cancelled,
+    }
+}
+
+fn folder_of(path: &str) -> &str {
+    path.rfind(['\\', '/']).map_or("", |i| &path[..i])
+}
+
+/// The last path component, made safe to use as a file name in the staging folder.
+fn safe_file_name(path: &str) -> String {
+    let name = path.rsplit(['\\', '/']).next().unwrap_or_default();
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') { '_' } else { c })
+        .collect();
+    let trimmed = cleaned.trim().trim_start_matches('.');
+    if trimmed.is_empty() { "file".to_owned() } else { trimmed.to_owned() }
+}
+
+fn error(status: StatusCode, code: &str, message: &str) -> Response {
+    (status, Json(ApiError::new(code, message))).into_response()
+}
+
+/// Where staged files for `job_id` live.
+#[must_use]
+pub fn staging_dir(data_dir: &Path, job_id: &str) -> PathBuf {
+    data_dir.join("staging").join(job_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_names_cannot_escape_staging() {
+        assert_eq!(safe_file_name(r"@@moon\Music\Album\01 - Airbag.flac"), "01 - Airbag.flac");
+        assert_eq!(safe_file_name(r"@@moon\Music\..\.."), "file");
+        assert_eq!(safe_file_name("a/b/.hidden.flac"), "hidden.flac");
+        assert_eq!(safe_file_name(r"x\What?: yes.mp3"), "What__ yes.mp3");
+    }
+
+    #[test]
+    fn folders() {
+        assert_eq!(folder_of(r"@@moon\Music\Album\01.flac"), r"@@moon\Music\Album");
+        assert_eq!(folder_of("01.flac"), "");
+    }
+
+    #[test]
+    fn download_states_map_to_file_statuses() {
+        let mut file = JobFile {
+            path: String::new(),
+            name: String::new(),
+            size: 100,
+            status: FileStatus::Waiting,
+            bytes: 0,
+            place_in_queue: None,
+            error: None,
+        };
+        apply(&mut file, &DownloadState::Queued { place: Some(4) });
+        assert_eq!((file.status, file.place_in_queue), (FileStatus::Queued, Some(4)));
+        apply(&mut file, &DownloadState::Transferring { bytes: 40, size: 100 });
+        assert_eq!((file.status, file.bytes, file.place_in_queue), (FileStatus::Transferring, 40, None));
+        apply(&mut file, &DownloadState::Failed { reason: "nope".into() });
+        assert_eq!((file.status, file.error.as_deref()), (FileStatus::Failed, Some("nope")));
+    }
+}

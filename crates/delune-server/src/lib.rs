@@ -8,18 +8,20 @@
 //! scans) streams progress over Server-Sent Events rather than being polled.
 
 pub mod artwork;
+pub mod downloads;
 pub mod naming;
 pub mod search;
 mod web;
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
     Json, Router,
     extract::{Query, State},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use delune_core::{
     Provider, ProviderRole, SourcePolicy,
@@ -31,10 +33,18 @@ use serde::{Deserialize, Serialize};
 use tower_http::trace::TraceLayer;
 
 /// Everything needed to start the server.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ServerConfig {
     /// Soulseek account. Without one, search is unavailable but the server still runs.
     pub soulseek: Option<delune_soulseek::Config>,
+    /// Where delune keeps its own files: staged downloads and, later, its database.
+    pub data_dir: PathBuf,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self { soulseek: None, data_dir: PathBuf::from("delune-data") }
+    }
 }
 
 /// Shared state handed to every request handler.
@@ -44,6 +54,8 @@ pub struct AppState {
     pub soulseek_username: Option<String>,
     pub search_timeout: Duration,
     pub artwork: Arc<artwork::ArtworkService>,
+    pub downloads: Arc<downloads::Downloads>,
+    pub data_dir: PathBuf,
 }
 
 impl Default for AppState {
@@ -53,6 +65,8 @@ impl Default for AppState {
             soulseek_username: None,
             search_timeout: Duration::from_secs(20),
             artwork: artwork::service(),
+            downloads: Arc::default(),
+            data_dir: PathBuf::from("delune-data"),
         }
     }
 }
@@ -61,7 +75,7 @@ impl AppState {
     /// Start background services described by `config`. Needs a Tokio runtime.
     #[must_use]
     pub fn start(config: ServerConfig) -> Self {
-        let mut state = Self::default();
+        let mut state = Self { data_dir: config.data_dir, ..Self::default() };
         if let Some(slsk) = config.soulseek {
             state.soulseek_username = Some(slsk.username.clone());
             state.search_timeout = slsk.search_timeout;
@@ -80,6 +94,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/sources", get(sources))
         .route("/api/v1/soulseek", get(soulseek_status))
         .route("/api/v1/search", get(search::stream))
+        .route("/api/v1/downloads", get(downloads::list).post(downloads::create))
+        .route("/api/v1/downloads/{id}", delete(downloads::remove))
         .route("/api/v1/artwork", get(artwork::lookup))
         .route("/api/v1/artwork/image", get(artwork::image))
         .route("/api/v1/naming/tokens", get(naming::tokens))
@@ -191,7 +207,7 @@ async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
 /// Bind and serve until the process receives Ctrl+C / SIGTERM.
 pub async fn serve(addr: SocketAddr, config: ServerConfig) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!(address = %listener.local_addr()?, "delune server listening");
+    tracing::info!(address = %listener.local_addr()?, data_dir = %config.data_dir.display(), "delune server listening");
     if config.soulseek.is_none() {
         tracing::warn!("no Soulseek account configured; search is disabled");
     }

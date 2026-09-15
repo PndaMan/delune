@@ -23,7 +23,8 @@ Navidrome, from both the web UI and the TUI.
 - [x] Server session: login, keepalive, reconnect with backoff
 - [x] Listening port, peer connections, firewall piercing
 - [x] Search with rate limiting; results streamed to clients (API + TUI)
-- [ ] Transfers: queueing, download, resume, patience/cancel
+- [x] Transfers: queueing, download, resume, retry, cancel
+- [ ] NAT traversal help: UPnP/NAT-PMP port mapping, clear guidance when port 2234 isn't reachable
 - [ ] Share index of the music folder; answering searches; uploads with slot limits
 
 **Finding the right release**
@@ -33,6 +34,10 @@ Navidrome, from both the web UI and the TUI.
 - [x] Folder grouping and quality/availability ranking
 - [ ] Tracklist matching against the resolved release
 - [ ] Automatic retry with fewer words when the network returns nothing
+
+**Downloads**
+- [x] Download jobs: one folder, files in sequence, staged under the data directory
+- [ ] Persist jobs across restarts (SQLite)
 
 **Getting it into the library**
 - [x] Naming template engine
@@ -52,7 +57,8 @@ Navidrome, from both the web UI and the TUI.
 
 - [x] Complete visual redesign of the web UI (identity, typography, colour, motion)
 - [x] Live search results with artwork, release view, settings with naming editor
-- [ ] Review and downloads screens (need downloads first)
+- [x] Downloads screen with live progress; ready jobs listed in Review
+- [ ] Review screen actions: approve, reject, import
 
 ## After v0.1
 

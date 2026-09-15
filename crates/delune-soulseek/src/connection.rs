@@ -284,7 +284,10 @@ async fn run_peer(username: String, conn: PeerStream, shared: Arc<Shared>, _perm
                 continue;
             }
             match PeerMessage::decode(message_code, body) {
-                Ok(Some(message)) => shared.transfers.on_peer_message(&username, message, &tx),
+                Ok(Some(message)) => {
+                    tracing::debug!(%username, ?message, "peer message");
+                    shared.transfers.on_peer_message(&username, message, &tx);
+                }
                 Ok(None) => tracing::trace!(%username, message_code, "unhandled peer message"),
                 Err(error) => tracing::debug!(%username, message_code, %error, "bad peer message"),
             }

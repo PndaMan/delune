@@ -24,6 +24,9 @@ enum Command {
         /// Address to listen on.
         #[arg(long, env = "DELUNE_BIND", default_value = "0.0.0.0:7474")]
         bind: SocketAddr,
+        /// Where delune keeps staged downloads and its own data.
+        #[arg(long, env = "DELUNE_DATA_DIR", default_value = "delune-data")]
+        data_dir: std::path::PathBuf,
         #[command(flatten)]
         soulseek: SoulseekArgs,
     },
@@ -65,9 +68,9 @@ impl SoulseekArgs {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve { bind, soulseek } => {
+        Command::Serve { bind, data_dir, soulseek } => {
             init_logging();
-            let config = delune_server::ServerConfig { soulseek: soulseek.into_config() };
+            let config = delune_server::ServerConfig { soulseek: soulseek.into_config(), data_dir };
             delune_server::serve(bind, config).await?;
         }
         // No logging to stdout here: it would corrupt the terminal UI.

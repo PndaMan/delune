@@ -16,6 +16,13 @@ use delune_soulseek::{Client, Config, DownloadRequest, DownloadState, SessionSta
 
 #[tokio::main]
 async fn main() {
+    // DELUNE_LOG=delune_soulseek=trace shows every protocol step.
+    if let Ok(filter) = std::env::var("DELUNE_LOG") {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_writer(std::io::stderr)
+            .init();
+    }
     let mut args = std::env::args().skip(1);
     let out = PathBuf::from(args.next().expect("usage: download <dir> <query>"));
     let query = args.collect::<Vec<_>>().join(" ");

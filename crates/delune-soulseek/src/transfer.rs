@@ -234,6 +234,7 @@ pub(crate) async fn accept_file_connection(conn: PeerStream, shared: &Shared) {
         }
     }
     let token = buffered.get_u32_le();
+    tracing::debug!(token, buffered = buffered.len(), "file connection ready");
     shared.transfers.on_file_connection(token, FileConnection { stream, buffered });
 }
 

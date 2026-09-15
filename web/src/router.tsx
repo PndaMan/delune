@@ -1,7 +1,8 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router"
 
 import { AppShell } from "@/components/app-shell"
-import { DownloadsPage, ReviewPage } from "@/pages/placeholder-pages"
+import { DownloadsPage } from "@/pages/downloads-page"
+import { ReviewPage } from "@/pages/placeholder-pages"
 import { SearchPage } from "@/pages/search-page"
 import { SettingsPage } from "@/pages/settings-page"
 

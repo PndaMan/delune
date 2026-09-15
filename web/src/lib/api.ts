@@ -45,6 +45,7 @@ export type Quality = {
 }
 
 export type CandidateFile = {
+  path: string
   name: string
   size: number
   audio: boolean
@@ -71,6 +72,40 @@ export type Candidate = {
   free_slot: boolean
   avg_speed: number
   queue_length: number
+}
+
+export type FileStatus = "waiting" | "connecting" | "queued" | "starting" | "transferring" | "done" | "failed" | "cancelled"
+export type JobStatus = "queued" | "downloading" | "ready" | "failed" | "cancelled"
+
+export type JobFile = {
+  path: string
+  name: string
+  size: number
+  status: FileStatus
+  bytes: number
+  place_in_queue: number | null
+  error: string | null
+}
+
+export type DownloadJob = {
+  id: string
+  username: string
+  folder: string
+  title: string
+  parent: string | null
+  created_at: number
+  status: JobStatus
+  files: JobFile[]
+  bytes: number
+  total_bytes: number
+}
+
+export type DownloadJobRequest = {
+  username: string
+  folder: string
+  title: string
+  parent: string | null
+  files: { path: string; size: number }[]
 }
 
 export type ApiErrorBody = { code: string; message: string }
@@ -140,6 +175,20 @@ export const api = {
   sources: (signal?: AbortSignal) => get<SourceInfo[]>("/sources", signal),
   soulseek: (signal?: AbortSignal) => get<SoulseekStatus>("/soulseek", signal),
   classify: (q: string, signal?: AbortSignal) => get<Classification>(`/classify?q=${encodeURIComponent(q)}`, signal),
+  downloads: (signal?: AbortSignal) => get<DownloadJob[]>("/downloads", signal),
+  startDownload: async (request: DownloadJobRequest): Promise<DownloadJob> => {
+    const res = await fetch("/api/v1/downloads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    })
+    if (!res.ok) throw await toApiError(res)
+    return res.json() as Promise<DownloadJob>
+  },
+  removeDownload: async (id: string): Promise<void> => {
+    const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}`, { method: "DELETE" })
+    if (!res.ok && res.status !== 404) throw await toApiError(res)
+  },
   namingTokens: (signal?: AbortSignal) => get<TokenInfo[]>("/naming/tokens", signal),
   namingPreview: async (template: string, options: NamingOptions, signal?: AbortSignal): Promise<NamingPreview> => {
     const res = await fetch("/api/v1/naming/preview", {

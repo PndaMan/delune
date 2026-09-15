@@ -121,6 +121,7 @@ pub fn candidates(response: &SearchResponse) -> Vec<Candidate> {
                 .map(|f| {
                     let quality = f.quality();
                     CandidateFile {
+                        path: f.path.clone(),
                         name: f.file_name().to_owned(),
                         size: f.size,
                         audio: quality.is_some(),

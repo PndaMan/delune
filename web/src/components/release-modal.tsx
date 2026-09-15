@@ -1,9 +1,12 @@
 import { Dialog } from "@base-ui/react/dialog"
-import { FileImage, File as FileIcon, TriangleAlert, X } from "lucide-react"
+import { Link } from "@tanstack/react-router"
+import { ArrowDownToLine, Check, FileImage, File as FileIcon, LoaderCircle, TriangleAlert, X } from "lucide-react"
 
 import { Cover } from "@/components/cover"
+import { Button } from "@/components/ui/button"
 import type { Candidate } from "@/lib/api"
 import { useAccentColour, useArtwork } from "@/lib/artwork"
+import { useStartDownload } from "@/lib/downloads"
 import { formatBytes, formatRuntime, formatSpeed, formatTrackTime, plural } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
 import { parseTrackName } from "@/lib/track-name"
@@ -97,6 +100,8 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
           <Stat label="Shared by" value={c.username} />
         </dl>
 
+        <DownloadAction candidate={c} />
+
         {c.mixed_quality && (
           <div className="mt-6 flex gap-3 rounded-xl border border-q-hires/25 bg-q-hires/8 px-4 py-3 text-sm">
             <TriangleAlert className="mt-0.5 size-4 shrink-0 text-q-hires" />
@@ -112,16 +117,13 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
           {other.length > 0 && `, ${plural(other.length, "other file")}`}
         </h3>
         <ol>
-          {tracks.map(({ file, number, disc, title, extension }, i) => (
+          {tracks.map(({ file, position, title, extension }, i) => (
             <li
               key={file.name}
               className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-x-4 rounded-xl px-4 py-2.5 transition-colors hover:bg-accent/50 sm:grid-cols-[32px_minmax(0,1fr)_auto_auto_auto]"
               title={file.name}
             >
-              <span className="text-right text-[14px] text-muted-foreground/70">
-                {disc ? `${disc}-` : ""}
-                {number ?? i + 1}
-              </span>
+              <span className="text-right text-[14px] text-muted-foreground/70">{position ?? i + 1}</span>
               <span className="min-w-0">
                 <span className="block truncate text-[15px]">{title}</span>
                 <span className="block truncate text-[12.5px] text-muted-foreground/70 sm:hidden">
@@ -153,16 +155,45 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
             ))}
           </ul>
         )}
-        <div className="mx-4 mt-8 rounded-xl border bg-background/40 px-4 py-3.5">
-          <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-            Downloading is delune's next milestone. When it lands, you'll send a release from here to be checked, tagged and
-            held for your review.
-          </p>
-          <p className="mt-2 truncate text-[12.5px] text-muted-foreground/60" title={c.folder}>
-            {c.folder}
-          </p>
-        </div>
+        <p className="mx-4 mt-6 truncate text-[12.5px] text-muted-foreground/60" title={c.folder}>
+          {c.folder}
+        </p>
       </section>
+    </div>
+  )
+}
+
+function DownloadAction({ candidate }: { candidate: Candidate }) {
+  const start = useStartDownload()
+
+  if (start.isSuccess) {
+    return (
+      <div className="mt-8 flex flex-wrap items-center gap-3 rounded-xl border border-q-lossless/25 bg-q-lossless/8 px-4 py-3">
+        <Check className="size-4 text-q-lossless" />
+        <p className="flex-1 text-[14px]">Downloading. It'll wait in Review when every file has arrived.</p>
+        <Button variant="outline" size="sm" render={<Link to="/downloads" />}>
+          See progress
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-8">
+      <Button
+        size="lg"
+        className="h-12 w-full rounded-xl text-[15px] font-semibold sm:w-auto sm:px-6"
+        disabled={start.isPending}
+        onClick={() => start.mutate(candidate)}
+      >
+        {start.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowDownToLine />}
+        Download for review
+      </Button>
+      <p className="mt-2.5 text-[13px] text-muted-foreground">
+        {start.isError
+          ? start.error.message
+          : `${plural(candidate.files.length, "file")} from ${candidate.username}. Nothing reaches your library until you approve it.`}
+      </p>
     </div>
   )
 }
