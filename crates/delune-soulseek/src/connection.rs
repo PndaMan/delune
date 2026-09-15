@@ -110,6 +110,8 @@ pub(crate) struct Shared {
     pub uploads: Uploads,
     /// Private messages and room activity, for whoever is listening.
     pub chat: broadcast::Sender<ChatEvent>,
+    /// Seconds between wishlist searches, as the server says.
+    pub wishlist_interval: AtomicU32,
     /// Rooms to be in, rejoined after every reconnect.
     pub rooms: Mutex<std::collections::BTreeSet<String>>,
 }
@@ -138,6 +140,7 @@ impl Shared {
             uploads: Uploads::default(),
             chat: broadcast::channel(512).0,
             rooms: Mutex::default(),
+            wishlist_interval: AtomicU32::new(12 * 60),
         }
     }
 

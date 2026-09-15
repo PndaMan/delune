@@ -1,5 +1,5 @@
-import { getRouteApi } from "@tanstack/react-router"
-import { RotateCw, X } from "lucide-react"
+import { getRouteApi, Link } from "@tanstack/react-router"
+import { RotateCw, Sparkles, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { EmptyState } from "@/components/empty-state"
@@ -17,6 +17,7 @@ import { plural } from "@/lib/format"
 import { moonPhase } from "@/lib/moon-phase"
 import { SORTS, type SortKey, tierOf, typicalTracks } from "@/lib/quality"
 import { useRecentSearches } from "@/lib/recent"
+import { useAddToWishlist } from "@/lib/wishlist"
 import { matchLink, relevance, ResolvedContext } from "@/lib/tracklist"
 import { type SearchState, useSearch } from "@/lib/use-search"
 import { cn } from "@/lib/utils"
@@ -227,9 +228,13 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
             {search.error}
           </EmptyState>
         ) : search.status === "done" && search.candidates.length === 0 ? (
-          <EmptyState illumination={0.08} title={`Nobody is sharing “${resolved?.title ?? query}” right now`}>
-            Try fewer words, or just the album title. The Soulseek network sometimes drops longer exact phrases, and
-            people come online throughout the day.
+          <EmptyState
+            illumination={0.08}
+            title={`Nobody is sharing “${resolved?.title ?? query}” right now`}
+            action={<KeepLooking query={search.searchedFor ?? query} />}
+          >
+            Try fewer words, or just the album title. People come online throughout the day, so delune can keep looking
+            and download the first lossless copy for you to review.
           </EmptyState>
         ) : (
           <>
@@ -292,6 +297,28 @@ function ResolvedHeading({ link }: { link: ResolvedLink }) {
 
 function looksLikeLink(query: string) {
   return /^(spotify:|https?:\/\/)/i.test(query) || (!/\s/.test(query) && /^[\w.-]+\.[a-z]{2,}\//i.test(query))
+}
+
+function KeepLooking({ query }: { query: string }) {
+  const add = useAddToWishlist()
+  if (add.isSuccess) {
+    return (
+      <p className="text-[15px] text-q-lossless">
+        On your wishlist.{" "}
+        <Link to="/downloads" className="underline underline-offset-4">
+          See the wishlist
+        </Link>
+      </p>
+    )
+  }
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <Button onClick={() => add.mutate({ query })} disabled={add.isPending}>
+        <Sparkles /> Keep looking for it
+      </Button>
+      {add.isError && <p className="text-sm text-destructive">{add.error.message}</p>}
+    </div>
+  )
 }
 
 function StatusLine({ search, visible, query }: { search: SearchState; visible: number; query: string }) {

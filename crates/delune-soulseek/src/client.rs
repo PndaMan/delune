@@ -222,6 +222,36 @@ impl Client {
         Ok(Search { token, rx, deadline: Instant::now() + self.inner.search_timeout, _guard: guard })
     }
 
+    /// Run a saved search. Wishlist searches don't use the normal search allowance;
+    /// send at most one per [`Client::wishlist_interval`].
+    ///
+    /// # Errors
+    ///
+    /// When offline or the query is empty.
+    pub fn wishlist_search(&self, query: &str) -> Result<Search, Error> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(Error::EmptyQuery);
+        }
+        self.ensure_online()?;
+        let shared = &self.inner.shared;
+        let token = shared.next_token();
+        let (tx, rx) = mpsc::channel(256);
+        shared.registry.insert(token, tx);
+        let guard = SearchGuard { token, shared: shared.clone() };
+        let server = shared.server().ok_or(Error::Closed)?;
+        server.try_send(ServerRequest::WishlistSearch { token, query: query.to_owned() }).map_err(|_| Error::Closed)?;
+        Ok(Search { token, rx, deadline: Instant::now() + self.inner.search_timeout, _guard: guard })
+    }
+
+    /// How often the server lets us run a wishlist search (usually 12 minutes).
+    #[must_use]
+    pub fn wishlist_interval(&self) -> Duration {
+        Duration::from_secs(u64::from(
+            self.inner.shared.wishlist_interval.load(std::sync::atomic::Ordering::Relaxed).max(60),
+        ))
+    }
+
     /// Download one file from a peer. Progress is reported through the returned
     /// [`Download`]; connection problems and dropped transfers are retried.
     #[must_use]
@@ -719,6 +749,9 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
         ServerEvent::UserJoinedRoom { room, member } => chat(ChatEvent::UserJoinedRoom { room, member }),
         ServerEvent::UserLeftRoom { room, username } => chat(ChatEvent::UserLeftRoom { room, username }),
         ServerEvent::RoomList(rooms) => chat(ChatEvent::RoomList(rooms)),
+        ServerEvent::WishlistInterval(seconds) => {
+            shared.wishlist_interval.store(seconds, std::sync::atomic::Ordering::Relaxed);
+        }
         ServerEvent::UserStatus { username, status, .. } => chat(ChatEvent::UserStatus { username, status }),
         other => tracing::trace!(?other, "server message"),
     }

@@ -180,22 +180,38 @@ pub async fn create(
     if let Some(denied) = user.refuse_unless(|p| p.download, "download") {
         return denied;
     }
+    match begin(&app, request, &user.username) {
+        Ok(job) => (StatusCode::CREATED, Json(job)).into_response(),
+        Err((status, code, message)) => error(status, code, &message),
+    }
+}
+
+/// Create and start a download job for `requested_by`.
+///
+/// # Errors
+///
+/// The status, code and message to report when the request can't be started.
+pub fn begin(
+    app: &AppState,
+    request: DownloadJobRequest,
+    requested_by: &str,
+) -> Result<DownloadJob, (StatusCode, &'static str, String)> {
     let Some(client) = app.soulseek.clone() else {
-        return error(
+        return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             "soulseek-not-configured",
-            "Soulseek isn't set up, so nothing can be downloaded.",
-        );
+            "Soulseek isn't set up, so nothing can be downloaded.".into(),
+        ));
     };
     if request.files.is_empty() {
-        return error(StatusCode::BAD_REQUEST, "no-files", "Choose at least one file to download.");
+        return Err((StatusCode::BAD_REQUEST, "no-files", "Choose at least one file to download.".into()));
     }
     if let Some(stray) = request.files.iter().find(|f| folder_of(&f.path) != request.folder) {
-        return error(
+        return Err((
             StatusCode::BAD_REQUEST,
             "file-outside-folder",
-            &format!("{} isn't in the folder being downloaded.", stray.path),
-        );
+            format!("{} isn't in the folder being downloaded.", stray.path),
+        ));
     }
 
     let id = app.downloads.new_id();
@@ -223,14 +239,14 @@ pub async fn create(
         bytes: 0,
         total_bytes: request.files.iter().map(|f| f.size).sum(),
         review: ReviewState::Waiting,
-        requested_by: Some(user.username.clone()),
+        requested_by: Some(requested_by.to_owned()),
     };
     let (cancel, cancel_rx) = watch::channel(false);
     app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None });
     app.downloads.changed();
     tracing::info!(%id, username = %request.username, folder = %request.folder, files = job.files.len(), "download job created");
-    start(&app, client, &job, cancel_rx);
-    (StatusCode::CREATED, Json(job)).into_response()
+    start(app, client, &job, cancel_rx);
+    Ok(job)
 }
 
 /// Download a job's remaining files, then check them for review.

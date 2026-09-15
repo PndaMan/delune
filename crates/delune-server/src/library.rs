@@ -70,30 +70,35 @@ fn unknown() -> LibraryMatch {
 
 /// `GET /api/v1/library/album?artist=…&album=…&context=…`
 pub async fn album(State(app): State<AppState>, Query(params): Query<AlbumParams>) -> Json<LibraryMatch> {
-    let Some(navidrome) = &app.navidrome else { return Json(unknown()) };
-    let (artist, album) = clean_names(params.artist.as_deref(), &params.album);
+    Json(lookup(&app, params.artist.as_deref(), &params.album, params.context.as_deref()).await)
+}
+
+/// Whether the library has an album, from a folder's artist and title as shared.
+pub async fn lookup(app: &AppState, artist: Option<&str>, album: &str, context: Option<&str>) -> LibraryMatch {
+    let Some(navidrome) = &app.navidrome else { return unknown() };
+    let (artist, album) = clean_names(artist, album);
     if album.is_empty() {
-        return Json(unknown());
+        return unknown();
     }
     let key = format!(
         "{}\u{1f}{}\u{1f}{}",
         normalize(artist.as_deref().unwrap_or("")),
         normalize(&album),
-        normalize(params.context.as_deref().unwrap_or(""))
+        normalize(context.unwrap_or(""))
     );
     if let Some(hit) = app.library_cache.get(&key) {
-        return Json(hit);
+        return hit;
     }
 
     let found = match navidrome.search(&album, 20, 0).await {
         Ok(results) => results,
         Err(error) => {
             tracing::debug!(%error, "library check failed");
-            return Json(unknown());
+            return unknown();
         }
     };
     let wanted = normalize(&album);
-    let context = params.context.as_deref().map(normalize).unwrap_or_default();
+    let context = context.map(normalize).unwrap_or_default();
     let matched = found.album.into_iter().find(|candidate| {
         let title_ok = names_match(&wanted, &normalize(&candidate.name));
         let found_artist = normalize(candidate.artist.as_deref().unwrap_or_default());
@@ -112,7 +117,7 @@ pub async fn album(State(app): State<AppState>, Query(params): Query<AlbumParams
         },
     };
     app.library_cache.put(key, result.clone());
-    Json(result)
+    result
 }
 
 fn describe(album: &AlbumWithSongs) -> LibraryMatch {

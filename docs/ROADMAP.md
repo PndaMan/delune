@@ -81,7 +81,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Browse a user's shared folders; download any folder from there
 - [x] User profiles: info, picture, shared counts, free slots, speed
 - [x] Private messages and chat rooms (for people who manage delune; rooms rejoin on reconnect)
-- [ ] Wishlist: saved searches re-run on a schedule, with auto-download when a match appears
+- [x] Wishlist: saved searches re-run on a schedule, with auto-download (for review) when a good enough match appears
 - [ ] Search filters (bitrate, format, size, free slot) and blocked users
 - [ ] Transfer controls: pause, retry, reorder, speed limits, bandwidth schedule
 - [ ] Distributed search network participation (parent/child) for better results

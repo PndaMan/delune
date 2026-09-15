@@ -600,6 +600,70 @@ pub struct Upload {
     pub speed: u64,
 }
 
+/// The least a wishlist match must be.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MinQuality {
+    Any,
+    #[default]
+    Lossless,
+    HiRes,
+}
+
+impl MinQuality {
+    #[must_use]
+    pub fn accepts(self, tier: QualityTier) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Lossless => matches!(tier, QualityTier::Lossless | QualityTier::HiRes),
+            Self::HiRes => tier == QualityTier::HiRes,
+        }
+    }
+}
+
+/// Something to keep looking for. `GET /api/v1/wishlist`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WishlistItem {
+    pub id: String,
+    pub query: String,
+    pub added_by: String,
+    /// Unix seconds.
+    pub added_at: u64,
+    /// Start a download (for review) as soon as a good enough copy turns up.
+    pub auto_download: bool,
+    pub min_quality: MinQuality,
+    pub paused: bool,
+    pub last_searched: Option<u64>,
+    /// Good enough copies found by the last search.
+    pub last_matches: u32,
+    /// The best of them.
+    pub best: Option<Candidate>,
+    /// The download started for this item, once one has been.
+    pub download_id: Option<String>,
+}
+
+/// `POST /api/v1/wishlist`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WishlistRequest {
+    pub query: String,
+    #[serde(default = "yes")]
+    pub auto_download: bool,
+    #[serde(default)]
+    pub min_quality: MinQuality,
+}
+
+const fn yes() -> bool {
+    true
+}
+
+/// `PATCH /api/v1/wishlist/{id}`
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WishlistUpdate {
+    pub auto_download: Option<bool>,
+    pub min_quality: Option<MinQuality>,
+    pub paused: Option<bool>,
+}
+
 /// A link someone pasted, resolved to the release or track it points at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedLink {

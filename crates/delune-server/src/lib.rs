@@ -18,6 +18,7 @@ pub mod search;
 pub mod sharing;
 pub mod users;
 mod web;
+pub mod wishlist;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -28,7 +29,7 @@ use axum::{
     Json, Router,
     extract::{Query, State},
     middleware,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use delune_core::{
     Provider, ProviderRole, SourcePolicy,
@@ -79,6 +80,7 @@ pub struct AppState {
     pub browse: Arc<users::BrowseCache>,
     pub chat: Arc<chat::Chat>,
     pub sharing: Arc<sharing::Sharing>,
+    pub wishlist: Arc<wishlist::Wishlist>,
 }
 
 impl Default for AppState {
@@ -98,6 +100,7 @@ impl Default for AppState {
             browse: Arc::default(),
             chat: Arc::default(),
             sharing: Arc::default(),
+            wishlist: Arc::default(),
         }
     }
 }
@@ -110,6 +113,7 @@ impl AppState {
         let accounts = Arc::new(accounts::Accounts::open(&config.data_dir, navidrome_url));
         let chat = Arc::new(chat::Chat::open(&config.data_dir));
         let sharing = Arc::new(sharing::Sharing::open(&config.data_dir));
+        let wishlist = Arc::new(wishlist::Wishlist::open(&config.data_dir));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -127,6 +131,7 @@ impl AppState {
             accounts,
             chat,
             sharing,
+            wishlist,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -144,6 +149,7 @@ impl AppState {
         downloads::resume(&state);
         chat::start(&state);
         sharing::start(&state);
+        wishlist::start(&state);
         state
     }
 }
@@ -167,6 +173,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/uploads/clear", post(sharing::clear_uploads))
         .route("/api/v1/soulseek/uploads/{id}", delete(sharing::cancel_upload))
         .route("/api/v1/sharing", get(sharing::status).put(sharing::update))
+        .route("/api/v1/wishlist", get(wishlist::list).post(wishlist::add))
+        .route("/api/v1/wishlist/{id}", patch(wishlist::update).delete(wishlist::remove))
         .route("/api/v1/sharing/rescan", post(sharing::rescan))
         .route("/api/v1/soulseek/chat", get(chat::overview))
         .route("/api/v1/soulseek/chat/events", get(chat::events))

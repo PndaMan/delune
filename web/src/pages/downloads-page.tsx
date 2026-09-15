@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
+import { WishlistSection } from "@/components/wishlist-section"
 import { Button } from "@/components/ui/button"
 import type { DownloadJob, JobFile } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
@@ -32,16 +33,17 @@ export function DownloadsPage() {
           title="Nothing downloading"
           action={<Button nativeButton={false} render={<Link to="/" search={{}} />}>Find an album</Button>}
         >
-          Open a release from search and choose Download for review. Its files arrive here one at a time and move to
-          Review once they're all in.
+          Open a release from search and choose Download for review. Its files arrive here and move to Review once
+          they're all in.
         </EmptyState>
       ) : (
-        <ul className="mt-6 space-y-3 pb-24">
+        <ul className="mt-6 space-y-3">
           {jobs.map((job) => (
             <JobCard key={job.id} job={job} />
           ))}
         </ul>
       )}
+      <WishlistSection />
     </PageFrame>
   )
 }

@@ -33,6 +33,8 @@ pub mod code {
     pub const MESSAGE_USER: u32 = 22;
     pub const MESSAGE_ACKED: u32 = 23;
     pub const ROOM_LIST: u32 = 64;
+    pub const WISHLIST_SEARCH: u32 = 103;
+    pub const WISHLIST_INTERVAL: u32 = 104;
     pub const SEND_UPLOAD_SPEED: u32 = 121;
     pub const GET_USER_STATS: u32 = 36;
     pub const CONNECT_TO_PEER: u32 = 18;
@@ -177,6 +179,12 @@ pub enum ServerRequest {
         message: String,
     },
     RoomList,
+    /// A saved search, sent at the server's wishlist interval instead of counting
+    /// against the normal search limits.
+    WishlistSearch {
+        token: u32,
+        query: String,
+    },
     /// Our average speed for a finished upload, for the server's stats.
     SendUploadSpeed {
         speed: u32,
@@ -257,6 +265,10 @@ impl ServerRequest {
                 code::SAY_CHATROOM
             }
             Self::RoomList => code::ROOM_LIST,
+            Self::WishlistSearch { token, query } => {
+                w.u32(*token).string(query);
+                code::WISHLIST_SEARCH
+            }
             Self::SendUploadSpeed { speed } => {
                 w.u32(*speed);
                 code::SEND_UPLOAD_SPEED
@@ -364,6 +376,8 @@ pub enum ServerEvent {
         username: String,
     },
     RoomList(Vec<RoomSummary>),
+    /// How often we may send a wishlist search.
+    WishlistInterval(u32),
     /// Phrases the network excludes from search results. Peers drop matching files,
     /// so searching for one of these returns nothing.
     ExcludedSearchPhrases(Vec<String>),
@@ -422,6 +436,7 @@ impl ServerEvent {
             code::USER_LEFT_ROOM => Self::UserLeftRoom { room: r.string()?, username: r.string()? },
             code::USER_JOINED_ROOM => decode_member_joined(&mut r)?,
             code::JOIN_ROOM => decode_joined_room(&mut r)?,
+            code::WISHLIST_INTERVAL => Self::WishlistInterval(r.u32()?),
             code::ROOM_LIST => {
                 let names: Vec<String> = (0..r.count(4)?).map(|_| r.string()).collect::<Result<_, _>>()?;
                 let counts: Vec<u32> = (0..r.count(4)?).map(|_| r.u32()).collect::<Result<_, _>>()?;
