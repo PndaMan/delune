@@ -10,7 +10,7 @@ use delune_soulseek::peer::{PeerInit, PeerMessage, SharedFile, code as peer_code
 use delune_soulseek::server::code;
 use delune_soulseek::shares::{SharedDirectory, SharedFileList, UserInfo};
 use delune_soulseek::wire::{Reader, Writer};
-use delune_soulseek::{ChatEvent, PeerError, UserStatus};
+use delune_soulseek::{ChatEvent, IndexedFile, PeerError, ShareIndex, UserStatus};
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
@@ -143,7 +143,13 @@ async fn reports_presence_from_the_server() {
 #[tokio::test]
 async fn answers_people_browsing_us() {
     let (client, _server, port) = online_client().await;
-    client.set_shares(shares());
+    let files = shares()
+        .directories
+        .into_iter()
+        .flat_map(|d| d.files)
+        .map(|file| IndexedFile { disk_path: std::path::PathBuf::from("/nowhere"), file })
+        .collect();
+    client.set_share_index(ShareIndex::new(files));
 
     let mut browser = framed(TcpStream::connect(("127.0.0.1", port)).await.unwrap());
     browser.send(PeerInit::PeerInit { username: "curious".into(), kind: "P".into(), token: 0 }.encode()).await.unwrap();

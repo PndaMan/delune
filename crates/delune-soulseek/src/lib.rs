@@ -15,8 +15,9 @@
 //! - [`client`] — the running client: session supervision and searches.
 //! - [`transfer`] — downloads: queueing, file connections, resuming and retrying.
 //!
-//! Still to come: share indexing, answering other people's searches and uploads,
-//! and the distributed search network.
+//! - [`sharing`] and [`upload`] — what we share, answering searches, and uploads.
+//!
+//! Still to come: the distributed search network.
 //!
 //! ```no_run
 //! # async fn demo() -> Result<(), delune_soulseek::client::Error> {
@@ -43,14 +44,18 @@ pub mod limiter;
 pub mod peer;
 pub mod server;
 pub mod shares;
+pub mod sharing;
 pub mod transfer;
+pub mod upload;
 pub mod wire;
 
 pub use client::{ChatEvent, Client, Config, Search, SessionState, StopReason};
 pub use connection::PeerError;
 pub use server::{RoomMember, RoomSummary, Status as UserStatus, UserPresence};
 pub use shares::{FolderContents, SharedDirectory, SharedFileList, UserInfo};
+pub use sharing::{IndexedFile, ShareIndex};
 pub use transfer::{Download, DownloadRequest, DownloadState};
+pub use upload::{UploadInfo, UploadLimits, UploadState};
 
 /// Default Soulseek server address.
 pub const DEFAULT_SERVER: &str = "server.slsknet.org:2242";

@@ -33,6 +33,7 @@ pub mod code {
     pub const MESSAGE_USER: u32 = 22;
     pub const MESSAGE_ACKED: u32 = 23;
     pub const ROOM_LIST: u32 = 64;
+    pub const SEND_UPLOAD_SPEED: u32 = 121;
     pub const GET_USER_STATS: u32 = 36;
     pub const CONNECT_TO_PEER: u32 = 18;
     pub const FILE_SEARCH: u32 = 26;
@@ -176,6 +177,10 @@ pub enum ServerRequest {
         message: String,
     },
     RoomList,
+    /// Our average speed for a finished upload, for the server's stats.
+    SendUploadSpeed {
+        speed: u32,
+    },
     ConnectToPeer {
         token: u32,
         username: String,
@@ -252,6 +257,10 @@ impl ServerRequest {
                 code::SAY_CHATROOM
             }
             Self::RoomList => code::ROOM_LIST,
+            Self::SendUploadSpeed { speed } => {
+                w.u32(*speed);
+                code::SEND_UPLOAD_SPEED
+            }
             Self::ConnectToPeer { token, username, kind } => {
                 w.u32(*token).string(username).string(kind.as_str());
                 code::CONNECT_TO_PEER

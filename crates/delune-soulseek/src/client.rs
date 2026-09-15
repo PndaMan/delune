@@ -46,7 +46,9 @@ use crate::server::{
     ConnectionType, LoginRejection, RoomMember, RoomSummary, ServerEvent, ServerRequest, Status, UserPresence,
 };
 use crate::shares::{FolderContents, SharedFileList, UserInfo};
+use crate::sharing::ShareIndex;
 use crate::transfer::{self, Download, DownloadRequest};
+use crate::upload::{self, UploadInfo, UploadLimits};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const PING_INTERVAL: Duration = Duration::from_secs(300);
@@ -174,6 +176,7 @@ impl Client {
             shared: shared.clone(),
             search_timeout: config.search_timeout,
         });
+        tokio::spawn(upload::schedule(shared.clone()));
         tokio::spawn(supervise(config, command_rx, state_tx, shared));
         Self { inner }
     }
@@ -369,9 +372,50 @@ impl Client {
         self.to_server(ServerRequest::RoomList)
     }
 
-    /// Replace what we answer to people browsing us.
-    pub fn set_shares(&self, shares: SharedFileList) {
-        *self.inner.shared.own_shares.lock().unwrap_or_else(PoisonError::into_inner) = Arc::new(shares);
+    /// Share these files: answer browsing and searches from them, and upload them to
+    /// whoever asks. An empty index shares nothing.
+    pub fn set_share_index(&self, index: ShareIndex) {
+        let (folders, files) = (index.folder_count(), index.file_count());
+        self.inner.shared.uploads.set_index(Arc::new(index));
+        // Tell the server, so other people see our share counts.
+        if let Some(server) = self.inner.shared.server() {
+            let _ = server.try_send(ServerRequest::SharedFoldersFiles {
+                folders: u32::try_from(folders).unwrap_or(u32::MAX),
+                files: u32::try_from(files).unwrap_or(u32::MAX),
+            });
+        }
+    }
+
+    /// Change upload slots, per-person queue size and speed cap.
+    pub fn set_upload_limits(&self, limits: UploadLimits) {
+        self.inner.shared.uploads.set_limits(limits);
+    }
+
+    /// People whose requests are refused.
+    pub fn set_banned(&self, usernames: std::collections::HashSet<String>) {
+        self.inner.shared.uploads.set_banned(usernames);
+    }
+
+    /// Every upload: queued, running and recently finished.
+    #[must_use]
+    pub fn uploads(&self) -> Vec<UploadInfo> {
+        self.inner.shared.uploads.snapshot()
+    }
+
+    /// Changes whenever an upload does.
+    #[must_use]
+    pub fn uploads_changed(&self) -> watch::Receiver<u64> {
+        self.inner.shared.uploads.changed.subscribe()
+    }
+
+    /// Stop an upload, or take it out of the queue. False if it had already finished.
+    #[must_use]
+    pub fn cancel_upload(&self, id: u64) -> bool {
+        self.inner.shared.uploads.cancel(id)
+    }
+
+    pub fn clear_finished_uploads(&self) {
+        self.inner.shared.uploads.clear_finished();
     }
 
     fn ensure_online(&self) -> Result<(), Error> {
@@ -572,8 +616,12 @@ async fn run_session(
         }
     };
 
+    let sharing = shared.uploads.index();
     let mut greeting = vec![
-        ServerRequest::SharedFoldersFiles { folders: 0, files: 0 },
+        ServerRequest::SharedFoldersFiles {
+            folders: u32::try_from(sharing.folder_count()).unwrap_or(u32::MAX),
+            files: u32::try_from(sharing.file_count()).unwrap_or(u32::MAX),
+        },
         ServerRequest::HaveNoParent(true),
         ServerRequest::SetStatus(Status::Online),
         ServerRequest::RoomList,
@@ -651,6 +699,7 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
             }
         }
         ServerEvent::Relogged => return Some(SessionEnd::Stopped(StopReason::LoggedInElsewhere)),
+        ServerEvent::FileSearch { username, token, query } => upload::answer_search(shared, username, token, &query),
         ServerEvent::WatchedUser(presence) => {
             let username = presence.username.clone();
             shared.presences.deliver(&username, presence);

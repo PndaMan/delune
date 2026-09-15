@@ -35,6 +35,7 @@ use crate::peer::{PeerInit, PeerMessage, SearchResponse, code};
 use crate::server::{ConnectionType, ServerRequest, UserPresence};
 use crate::shares::{FolderContents, SharedFileList, UserInfo};
 use crate::transfer::{self, Transfers};
+use crate::upload::{self, Uploads};
 
 const PEER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Close a peer connection after this long without a message.
@@ -105,8 +106,8 @@ pub(crate) struct Shared {
     pub user_infos: Waiters<String, UserInfo>,
     pub folders: Waiters<u32, Arc<FolderContents>>,
     pub presences: Waiters<String, UserPresence>,
-    /// What we share, as answered to browse requests.
-    pub own_shares: Mutex<Arc<SharedFileList>>,
+    /// What we share, who's downloading it, and who's waiting.
+    pub uploads: Uploads,
     /// Private messages and room activity, for whoever is listening.
     pub chat: broadcast::Sender<ChatEvent>,
     /// Rooms to be in, rejoined after every reconnect.
@@ -134,7 +135,7 @@ impl Shared {
             user_infos: Waiters::default(),
             folders: Waiters::default(),
             presences: Waiters::default(),
-            own_shares: Mutex::default(),
+            uploads: Uploads::default(),
             chat: broadcast::channel(512).0,
             rooms: Mutex::default(),
         }
@@ -217,7 +218,10 @@ async fn handle_incoming(stream: TcpStream, addr: SocketAddr, shared: Arc<Shared
                 tracing::trace!(%addr, %username, "peer answered our indirect request");
                 run_peer(username, conn, shared, permit).await;
             } else {
-                tracing::trace!(%addr, token, "PierceFirewall with unknown token");
+                let parts = conn.into_parts();
+                if !upload::on_pierced_file_connection(&shared, token, parts.io, parts.read_buf) {
+                    tracing::trace!(%addr, token, "PierceFirewall with unknown token");
+                }
             }
         }
         // Distributed search connections aren't supported yet.
@@ -253,6 +257,16 @@ pub(crate) async fn pierce(addr: SocketAddr, token: u32, username: String, kind:
         (ConnectionType::File, _) => transfer::accept_file_connection(conn, &shared).await,
         _ => {}
     }
+}
+
+/// Ask the server where `username` listens. The answer arrives on the receiver.
+pub(crate) fn request_address(shared: &Shared, username: &str) -> oneshot::Receiver<SocketAddr> {
+    let (tx, rx) = oneshot::channel();
+    lock(&shared.address_waiters).entry(username.to_owned()).or_default().push(tx);
+    if let Some(server) = shared.server() {
+        let _ = server.try_send(ServerRequest::GetPeerAddress { username: username.to_owned() });
+    }
+    rx
 }
 
 /// Get a connection to `username`, reusing an open one or establishing a new one
@@ -357,7 +371,9 @@ async fn run_peer(username: String, conn: PeerStream, shared: Arc<Shared>, _perm
                 Ok(Some(message)) => {
                     tracing::debug!(%username, ?message, "peer message");
                     answer_browse_request(&shared, &message, &tx);
-                    shared.transfers.on_peer_message(&username, message, &tx);
+                    if !upload::on_peer_message(&shared, &username, &message, &tx) {
+                        shared.transfers.on_peer_message(&username, message, &tx);
+                    }
                 }
                 Ok(None) => tracing::trace!(%username, message_code, "unhandled peer message"),
                 Err(error) => tracing::debug!(%username, message_code, %error, "bad peer message"),
@@ -403,16 +419,17 @@ fn route_browse_reply(shared: &Shared, username: &str, message_code: u32, body: 
 /// Someone is browsing us or asking who we are.
 fn answer_browse_request(shared: &Shared, message: &PeerMessage, reply: &PeerSender) {
     let response = match message {
-        PeerMessage::SharedFileListRequest => lock(&shared.own_shares).encode(),
+        PeerMessage::SharedFileListRequest => shared.uploads.index().list().encode(),
         PeerMessage::FolderContentsRequest { token, folder } => {
-            let ours = lock(&shared.own_shares).clone();
+            let ours = shared.uploads.index().list();
             let prefix = format!("{folder}\\");
             let directories =
                 ours.directories.iter().filter(|d| d.path == *folder || d.path.starts_with(&prefix)).cloned().collect();
             FolderContents { token: *token, folder: folder.clone(), directories }.encode()
         }
         PeerMessage::UserInfoRequest => {
-            UserInfo { description: "delune".into(), slots_free: true, ..UserInfo::default() }.encode()
+            let (slots_free, queue_size) = shared.uploads.availability();
+            UserInfo { description: "delune".into(), slots_free, queue_size, ..UserInfo::default() }.encode()
         }
         _ => return,
     };
