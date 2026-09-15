@@ -60,6 +60,16 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
   const status = coverStatus(jobForCandidate(downloads.data ?? [], c), owned)
   const linkMatch = matchLink(c, useResolved())
   const linkedTrack = linkMatch?.kind === "track" ? linkMatch.file : undefined
+  // Every track is picked by default; untick any you don't want.
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const toggle = (path: string) =>
+    setExcluded((current) => {
+      const next = new Set(current)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  const picked = excluded.size ? audio.filter((f) => !excluded.has(f.path)) : null
 
   return (
     <div className={cn("relative flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[minmax(320px,36%)_minmax(0,1fr)] lg:overflow-hidden", sheetScroll)}>
@@ -135,12 +145,12 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
         )}
 
         <div className="hidden lg:mt-auto lg:block lg:pt-6">
-          <DownloadAction candidate={c} owned={owned} />
+          <DownloadAction candidate={c} owned={owned} picked={picked} onPickAll={() => setExcluded(new Set())} />
         </div>
       </aside>
 
       <section className="relative flex shrink-0 flex-col px-3 lg:min-h-0 lg:shrink pt-2 pb-5 sm:px-6 lg:pt-[72px]">
-        <Tracklist files={audio} owned={owned} highlight={linkedTrack?.path} />
+        <Tracklist files={audio} owned={owned} highlight={linkedTrack?.path} excluded={excluded} onToggle={toggle} />
         {other.length > 0 && (
           <ul className="mx-3 mt-3 flex flex-wrap gap-2 border-t pt-4">
             {other.map((f) => (
@@ -156,7 +166,7 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
 
       {/* Phones: the one action stays in reach while the tracklist scrolls. */}
       <div className="sticky bottom-0 z-10 mt-auto border-t bg-card/90 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md lg:hidden">
-        <DownloadAction candidate={c} owned={owned} />
+        <DownloadAction candidate={c} owned={owned} picked={picked} onPickAll={() => setExcluded(new Set())} />
       </div>
     </div>
   )
@@ -170,7 +180,19 @@ const MIN_COLUMN_WIDTH = 330
  * album shows at once instead of scrolling. Only beyond what fits in the widest
  * layout does it scroll, quietly, with a fade at the bottom.
  */
-function Tracklist({ files, owned, highlight }: { files: CandidateFile[]; owned: Ownership | null; highlight?: string }) {
+function Tracklist({
+  files,
+  owned,
+  highlight,
+  excluded,
+  onToggle,
+}: {
+  files: CandidateFile[]
+  owned: Ownership | null
+  highlight?: string
+  excluded: Set<string>
+  onToggle: (path: string) => void
+}) {
   const box = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({ columns: 1, rows: files.length, overflow: false })
 
@@ -215,15 +237,36 @@ function Tracklist({ files, owned, highlight }: { files: CandidateFile[]; owned:
         {files.map((file, i) => {
           const { position, title, extension } = parseTrackName(file.name)
           const have = owned !== null && !owned.missing.has(file.name)
+          const on = !excluded.has(file.path)
           return (
             <li
               key={file.path}
+              onClick={() => onToggle(file.path)}
               className={cn(
-                "grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-3 transition-colors hover:bg-accent/50",
+                "group grid cursor-pointer grid-cols-[20px_26px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-3 transition-colors select-none hover:bg-accent/50",
                 file.path === highlight && "bg-primary/12 ring-1 ring-primary/30 ring-inset",
+                !on && "opacity-45",
               )}
               title={have ? `${file.name} (already in your library)` : file.name}
             >
+              <span
+                role="checkbox"
+                aria-checked={on}
+                aria-label={`Download ${title}`}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === " " || e.key === "Enter") {
+                    e.preventDefault()
+                    onToggle(file.path)
+                  }
+                }}
+                className={cn(
+                  "flex size-[18px] items-center justify-center rounded-md border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  on ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40",
+                )}
+              >
+                {on && <Check className="size-3" strokeWidth={3} />}
+              </span>
               <span className="text-right text-[13px] text-muted-foreground/70">{position ?? i + 1}</span>
               <span className={cn("flex min-w-0 items-center gap-2 text-[14.5px]", have && "text-muted-foreground")}>
                 <span className="truncate">{title}</span>
@@ -261,15 +304,31 @@ function LibraryNote({ owned, library }: { owned: Ownership; library: LibraryMat
   )
 }
 
-function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Ownership | null }) {
+function DownloadAction({
+  candidate,
+  owned,
+  picked,
+  onPickAll,
+}: {
+  candidate: Candidate
+  owned: Ownership | null
+  /** The tracks chosen, when not all of them are. */
+  picked: CandidateFile[] | null
+  onPickAll: () => void
+}) {
   const [confirming, setConfirming] = useState<CandidateFile[] | "folder" | null>(null)
   const start = useStartDownload()
   const match = matchLink(candidate, useResolved())
   const track = match?.kind === "track" ? match.file : undefined
   // A pasted track link downloads just that track, with the folder's artwork.
-  const trackFiles = track ? [track, ...candidate.files.filter((f) => !f.audio && /\.(jpe?g|png|webp)$/i.test(f.name))] : undefined
+  const extras = candidate.files.filter((f) => !f.audio)
+  const trackFiles = picked ? [...picked, ...extras] : track ? [track, ...extras.filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name))] : undefined
   const begin = (files: CandidateFile[] | undefined) => {
-    const alreadyOwned = files ? owned !== null && !!track && !owned.missing.has(track.name) : owned?.complete
+    const alreadyOwned = picked
+      ? owned !== null && picked.every((f) => !owned.missing.has(f.name))
+      : files
+        ? owned !== null && !!track && !owned.missing.has(track.name)
+        : owned?.complete
     if (alreadyOwned) return setConfirming(files ?? "folder")
     start.mutate({ candidate, files })
   }
@@ -304,7 +363,9 @@ function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Own
         <p className="text-[14px]">
           {confirming === "folder"
             ? "You already have every track on this album. Download another copy anyway?"
-            : "You already have this track. Download another copy anyway?"}
+            : picked && picked.length > 1
+              ? "You already have these tracks. Download another copy anyway?"
+              : "You already have this track. Download another copy anyway?"}
         </p>
         <div className="mt-3 flex gap-2">
           <Button
@@ -328,15 +389,32 @@ function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Own
     <div>
       <Button
         size="lg"
-        variant={owned?.complete && !track ? "outline" : "default"}
+        variant={owned?.complete && !track && !picked ? "outline" : "default"}
         className="h-12 w-full rounded-xl text-[15px] font-semibold"
-        disabled={start.isPending}
+        disabled={start.isPending || picked?.length === 0}
         onClick={() => begin(trackFiles)}
       >
         {start.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowDownToLine />}
-        {track ? `Download “${parseTrackName(track.name).title}”` : "Download for review"}
+        {picked
+          ? picked.length === 0
+            ? "Pick at least one track"
+            : picked.length === 1
+              ? `Download “${parseTrackName(picked[0].name).title}”`
+              : `Download ${picked.length} of ${candidate.audio_files} tracks`
+          : track
+            ? `Download “${parseTrackName(track.name).title}”`
+            : "Download for review"}
       </Button>
-      {track && candidate.audio_files > 1 && (
+      {picked && (
+        <button
+          type="button"
+          onClick={onPickAll}
+          className="mt-2 w-full rounded-lg py-1.5 text-[13.5px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Pick every track again
+        </button>
+      )}
+      {!picked && track && candidate.audio_files > 1 && (
         <button
           type="button"
           disabled={start.isPending}
