@@ -296,7 +296,7 @@ pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>,
             ]
             .contains(&n.as_str())
     };
-    let mut artist = artist.filter(|a| !generic(a)).map(|a| strip_brackets(a).trim().to_owned());
+    let mut artist = artist.filter(|a| !generic(a)).map(|a| uninvert(strip_brackets(a).trim()));
     let mut album = strip_brackets(album);
 
     // "CD1 - Kid A" / "Disc 2 - Amnesiac"
@@ -317,12 +317,16 @@ pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>,
     // "Artist - Album" folder names, with or without a matching parent folder.
     if let Some((head, tail)) = album.split_once(" - ") {
         let head_is_year = head.trim().len() == 4 && head.trim().chars().all(|c| c.is_ascii_digit());
-        // Otherwise the folder names its own artist, which beats a parent folder that
-        // is often just a category like "failed_imports".
-        if !head_is_year {
+        let head_is_parent = artist.as_deref().is_some_and(|a| names_match(&normalize(a), &normalize(head)));
+        if head_is_year || head_is_parent {
+            album = tail.to_owned();
+        } else if artist.is_none() {
+            // The folder names its own artist.
             artist = Some(head.trim().to_owned());
+            album = tail.to_owned();
         }
-        album = tail.to_owned();
+        // Otherwise the parent folder already names the artist, so the dash is part of
+        // the title: "Yoshimi Wins - Live Radio Sessions".
     }
 
     // "Pink Floyd - 1973 - The Dark Side Of The Moon": a year left over after the artist.
@@ -342,6 +346,16 @@ pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>,
     }
 
     (artist, album.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// "Flaming Lips, The" → "The Flaming Lips", as libraries sort them.
+fn uninvert(name: &str) -> String {
+    for article in ["The", "A", "An"] {
+        if let Some(rest) = name.strip_suffix(&format!(", {article}")) {
+            return format!("{article} {rest}");
+        }
+    }
+    name.to_owned()
 }
 
 fn is_disc_label(s: &str) -> bool {
@@ -441,6 +455,14 @@ mod tests {
             (Some("Boards of Canada".into()), "Music Has The Right To Children".into())
         );
         assert_eq!(clean(Some("Dr. Dre"), "2001"), (Some("Dr. Dre".into()), "2001".into()));
+        assert_eq!(
+            clean(Some("Flaming Lips, The"), "(2002) Yoshimi Wins - Live Radio Sessions [flac-16bit-44.1khz]"),
+            (Some("The Flaming Lips".into()), "Yoshimi Wins - Live Radio Sessions".into())
+        );
+        assert_eq!(
+            clean(Some("Radiohead"), "Radiohead - OK Computer"),
+            (Some("Radiohead".into()), "OK Computer".into())
+        );
     }
 
     #[test]

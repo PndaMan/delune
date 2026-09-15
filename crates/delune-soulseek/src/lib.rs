@@ -10,6 +10,7 @@
 //! - [`frame`] — turning TCP byte streams into length-prefixed frames, with size limits.
 //! - [`server`] — messages to and from the central server (login, search, peer lookup).
 //! - [`peer`] — peer-to-peer messages: connection init and compressed search responses.
+//! - [`shares`] — browsing: share lists, folder contents and user profiles.
 //! - [`limiter`] — the search rate limiter.
 //! - [`client`] — the running client: session supervision and searches.
 //! - [`transfer`] — downloads: queueing, file connections, resuming and retrying.
@@ -41,11 +42,14 @@ pub mod frame;
 pub mod limiter;
 pub mod peer;
 pub mod server;
+pub mod shares;
 pub mod transfer;
 pub mod wire;
 
 pub use client::{Client, Config, Search, SessionState, StopReason};
 pub use connection::PeerError;
+pub use server::{Status as UserStatus, UserPresence};
+pub use shares::{FolderContents, SharedDirectory, SharedFileList, UserInfo};
 pub use transfer::{Download, DownloadRequest, DownloadState};
 
 /// Default Soulseek server address.

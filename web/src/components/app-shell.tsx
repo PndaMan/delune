@@ -1,5 +1,5 @@
 import { Link, Outlet } from "@tanstack/react-router"
-import { ArrowDownToLine, Inbox, Search, SlidersHorizontal } from "lucide-react"
+import { ArrowDownToLine, Earth, Inbox, Search, SlidersHorizontal } from "lucide-react"
 
 import { Moon } from "@/components/moon"
 import { ProfileMenu } from "@/components/profile-menu"
@@ -13,6 +13,7 @@ const NAV = [
   { to: "/", label: "Search", icon: Search },
   { to: "/downloads", label: "Downloads", icon: ArrowDownToLine },
   { to: "/review", label: "Review", icon: Inbox },
+  { to: "/soulseek", label: "Soulseek", icon: Earth },
   { to: "/settings", label: "Settings", icon: SlidersHorizontal },
 ] as const
 
@@ -54,7 +55,7 @@ function SignedIn() {
                   render={
                     <Link
                       to={to}
-                      activeOptions={{ exact: true, includeSearch: false }}
+                      activeOptions={{ exact: to === "/", includeSearch: false }}
                       className="group relative flex size-11 items-center justify-center rounded-xl text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-accent data-[status=active]:text-foreground"
                       aria-label={label}
                     />
@@ -85,7 +86,7 @@ function SignedIn() {
           <Link
             key={to}
             to={to}
-            activeOptions={{ exact: true, includeSearch: false }}
+            activeOptions={{ exact: to === "/", includeSearch: false }}
             className="flex min-w-16 flex-col items-center gap-1 rounded-lg px-3 py-1.5 text-[11.5px] text-muted-foreground data-[status=active]:text-foreground"
           >
             <Icon className="size-5" strokeWidth={1.8} />

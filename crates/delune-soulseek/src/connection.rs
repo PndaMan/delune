@@ -32,7 +32,8 @@ use tokio_util::codec::Framed;
 use crate::client::Registry;
 use crate::frame::{FrameCodec, MAX_PEER_FRAME, split_code};
 use crate::peer::{PeerInit, PeerMessage, SearchResponse, code};
-use crate::server::{ConnectionType, ServerRequest};
+use crate::server::{ConnectionType, ServerRequest, UserPresence};
+use crate::shares::{FolderContents, SharedFileList, UserInfo};
 use crate::transfer::{self, Transfers};
 
 const PEER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -51,6 +52,38 @@ pub enum PeerError {
     Offline,
     #[error("couldn't connect to {0}; they may be offline or behind a firewall")]
     Unreachable(String),
+    #[error("{0} didn't answer in time")]
+    TimedOut(String),
+    #[error("there's no Soulseek user called {0}")]
+    NoSuchUser(String),
+}
+
+/// Callers waiting for an answer keyed by `K` (a username or a token).
+#[derive(Debug)]
+pub(crate) struct Waiters<K, V>(Mutex<HashMap<K, Vec<oneshot::Sender<V>>>>);
+
+impl<K, V> Default for Waiters<K, V> {
+    fn default() -> Self {
+        Self(Mutex::default())
+    }
+}
+
+impl<K: std::hash::Hash + Eq, V: Clone> Waiters<K, V> {
+    pub fn register(&self, key: K) -> oneshot::Receiver<V> {
+        let (tx, rx) = oneshot::channel();
+        lock(&self.0).entry(key).or_default().push(tx);
+        rx
+    }
+
+    /// Hand `value` to everyone waiting on `key`. Returns whether anyone was.
+    pub fn deliver(&self, key: &K, value: V) -> bool {
+        let waiting = lock(&self.0).remove(key).unwrap_or_default();
+        let any = !waiting.is_empty();
+        for tx in waiting {
+            let _ = tx.send(value.clone());
+        }
+        any
+    }
 }
 
 /// State shared by the session, every connection task and every transfer.
@@ -68,6 +101,12 @@ pub(crate) struct Shared {
     /// Tokens we sent in `ConnectToPeer`, awaiting a `PierceFirewall` from that user.
     pending_indirect: Mutex<HashMap<u32, String>>,
     address_waiters: Mutex<HashMap<String, Vec<oneshot::Sender<SocketAddr>>>>,
+    pub share_lists: Waiters<String, Arc<SharedFileList>>,
+    pub user_infos: Waiters<String, UserInfo>,
+    pub folders: Waiters<u32, Arc<FolderContents>>,
+    pub presences: Waiters<String, UserPresence>,
+    /// What we share, as answered to browse requests.
+    pub own_shares: Mutex<Arc<SharedFileList>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -87,6 +126,11 @@ impl Shared {
             peer_waiters: Mutex::default(),
             pending_indirect: Mutex::default(),
             address_waiters: Mutex::default(),
+            share_lists: Waiters::default(),
+            user_infos: Waiters::default(),
+            folders: Waiters::default(),
+            presences: Waiters::default(),
+            own_shares: Mutex::default(),
         }
     }
 
@@ -290,6 +334,9 @@ async fn run_peer(username: String, conn: PeerStream, shared: Arc<Shared>, _perm
     let reader = async {
         while let Ok(Some(Ok(frame))) = timeout(PEER_IDLE_TIMEOUT, stream.next()).await {
             let Ok((message_code, body)) = split_code(&frame) else { break };
+            if route_browse_reply(&shared, &username, message_code, body) {
+                continue;
+            }
             if message_code == code::SEARCH_RESPONSE {
                 match SearchResponse::decode(body) {
                     Ok(response) => {
@@ -303,6 +350,7 @@ async fn run_peer(username: String, conn: PeerStream, shared: Arc<Shared>, _perm
             match PeerMessage::decode(message_code, body) {
                 Ok(Some(message)) => {
                     tracing::debug!(%username, ?message, "peer message");
+                    answer_browse_request(&shared, &message, &tx);
                     shared.transfers.on_peer_message(&username, message, &tx);
                 }
                 Ok(None) => tracing::trace!(%username, message_code, "unhandled peer message"),
@@ -316,4 +364,51 @@ async fn run_peer(username: String, conn: PeerStream, shared: Arc<Shared>, _perm
         () = reader => {},
     }
     shared.unregister_peer(&username, &tx);
+}
+
+/// Answers to our browse and profile requests. Returns whether `message_code` was one.
+fn route_browse_reply(shared: &Shared, username: &str, message_code: u32, body: &[u8]) -> bool {
+    match message_code {
+        code::SHARED_FILE_LIST_RESPONSE => match SharedFileList::decode(body) {
+            Ok(list) => {
+                tracing::debug!(%username, files = list.file_count(), "share list");
+                shared.share_lists.deliver(&username.to_owned(), Arc::new(list));
+            }
+            Err(error) => tracing::debug!(%username, %error, "bad share list"),
+        },
+        code::USER_INFO_RESPONSE => match UserInfo::decode(body) {
+            Ok(info) => {
+                shared.user_infos.deliver(&username.to_owned(), info);
+            }
+            Err(error) => tracing::debug!(%username, %error, "bad user info"),
+        },
+        code::FOLDER_CONTENTS_RESPONSE => match FolderContents::decode(body) {
+            Ok(contents) => {
+                let token = contents.token;
+                shared.folders.deliver(&token, Arc::new(contents));
+            }
+            Err(error) => tracing::debug!(%username, %error, "bad folder contents"),
+        },
+        _ => return false,
+    }
+    true
+}
+
+/// Someone is browsing us or asking who we are.
+fn answer_browse_request(shared: &Shared, message: &PeerMessage, reply: &PeerSender) {
+    let response = match message {
+        PeerMessage::SharedFileListRequest => lock(&shared.own_shares).encode(),
+        PeerMessage::FolderContentsRequest { token, folder } => {
+            let ours = lock(&shared.own_shares).clone();
+            let prefix = format!("{folder}\\");
+            let directories =
+                ours.directories.iter().filter(|d| d.path == *folder || d.path.starts_with(&prefix)).cloned().collect();
+            FolderContents { token: *token, folder: folder.clone(), directories }.encode()
+        }
+        PeerMessage::UserInfoRequest => {
+            UserInfo { description: "delune".into(), slots_free: true, ..UserInfo::default() }.encode()
+        }
+        _ => return,
+    };
+    let _ = reply.try_send(response);
 }

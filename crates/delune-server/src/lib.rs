@@ -14,6 +14,7 @@ pub mod library;
 pub mod naming;
 pub mod review;
 pub mod search;
+pub mod users;
 mod web;
 
 use std::net::SocketAddr;
@@ -73,6 +74,7 @@ pub struct AppState {
     pub library_cache: Arc<library::LibraryCache>,
     pub resolver: Arc<delune_resolve::Resolver>,
     pub accounts: Arc<accounts::Accounts>,
+    pub browse: Arc<users::BrowseCache>,
 }
 
 impl Default for AppState {
@@ -89,6 +91,7 @@ impl Default for AppState {
             library_cache: Arc::default(),
             resolver: Arc::default(),
             accounts: Arc::new(accounts::Accounts::in_memory(None)),
+            browse: Arc::default(),
         }
     }
 }
@@ -144,6 +147,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/classify", get(classify_input))
         .route("/api/v1/sources", get(sources))
         .route("/api/v1/soulseek", get(soulseek_status))
+        .route("/api/v1/soulseek/users/{username}", get(users::user))
+        .route("/api/v1/soulseek/users/{username}/picture", get(users::picture))
+        .route("/api/v1/soulseek/users/{username}/shares", get(users::share_tree))
+        .route("/api/v1/soulseek/users/{username}/folder", get(users::folder))
         .route("/api/v1/search", get(search::stream))
         .route("/api/v1/downloads", get(downloads::list).post(downloads::create))
         .route("/api/v1/downloads/{id}", delete(downloads::remove))

@@ -411,6 +411,61 @@ pub struct People {
     pub people: Vec<Person>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Presence {
+    Online,
+    Away,
+    Offline,
+}
+
+/// `GET /api/v1/soulseek/users/{username}`: another Soulseek user.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SoulseekUser {
+    pub username: String,
+    /// False when no account has that name.
+    pub exists: bool,
+    pub presence: Presence,
+    /// Upload speed in bytes per second, as the server measured it.
+    pub avg_speed: u32,
+    pub files: u32,
+    pub folders: u32,
+    pub country: Option<String>,
+    /// From the user themselves; absent when they couldn't be reached.
+    pub profile: Option<SoulseekProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SoulseekProfile {
+    pub description: String,
+    pub has_picture: bool,
+    pub queue_size: u32,
+    pub slots_free: bool,
+    pub total_uploads: u32,
+}
+
+/// One folder in `GET /api/v1/soulseek/users/{username}/shares`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShareFolder {
+    /// Virtual path, `\`-separated.
+    pub path: String,
+    pub files: u32,
+    pub audio_files: u32,
+    pub bytes: u64,
+    /// Quality of the folder's weakest audio file.
+    pub quality_label: Option<String>,
+    pub quality_rank: u32,
+}
+
+/// `GET /api/v1/soulseek/users/{username}/shares`: every folder a user shares.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShareTree {
+    pub username: String,
+    pub folders: Vec<ShareFolder>,
+    /// Folders only their buddies can download from.
+    pub private_folders: u32,
+}
+
 /// A link someone pasted, resolved to the release or track it points at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedLink {

@@ -112,7 +112,14 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
             tone={c.free_slot ? "good" : undefined}
           />
           <Stat label="Speed" value={formatSpeed(c.avg_speed) ?? "—"} />
-          <Stat label="From" value={c.username} />
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted-foreground">From</dt>
+            <dd className="truncate text-[14.5px]">
+              <Link to="/soulseek/users/$username" params={{ username: c.username }} className="underline-offset-4 hover:underline" title={`Browse everything ${c.username} shares`}>
+                {c.username}
+              </Link>
+            </dd>
+          </div>
         </dl>
 
         {owned && <LibraryNote owned={owned} library={library.data} />}

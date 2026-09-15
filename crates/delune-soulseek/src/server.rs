@@ -22,6 +22,10 @@ pub mod code {
     pub const LOGIN: u32 = 1;
     pub const SET_WAIT_PORT: u32 = 2;
     pub const GET_PEER_ADDRESS: u32 = 3;
+    pub const WATCH_USER: u32 = 5;
+    pub const UNWATCH_USER: u32 = 6;
+    pub const GET_USER_STATUS: u32 = 7;
+    pub const GET_USER_STATS: u32 = 36;
     pub const CONNECT_TO_PEER: u32 = 18;
     pub const FILE_SEARCH: u32 = 26;
     pub const SET_STATUS: u32 = 28;
@@ -39,6 +43,32 @@ pub enum Status {
     Offline = 0,
     Away = 1,
     Online = 2,
+}
+
+impl Status {
+    const fn from_u32(value: u32) -> Self {
+        match value {
+            1 => Self::Away,
+            2 => Self::Online,
+            _ => Self::Offline,
+        }
+    }
+}
+
+/// What the server knows about another user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserPresence {
+    pub username: String,
+    /// False when no account has that name.
+    pub exists: bool,
+    pub status: Status,
+    /// Average upload speed in bytes per second, as measured by the server.
+    pub avg_speed: u32,
+    pub upload_count: u32,
+    pub files: u32,
+    pub folders: u32,
+    /// Uppercase country code, when the user is online.
+    pub country: Option<String>,
 }
 
 /// The kind of peer connection being requested.
@@ -76,15 +106,42 @@ impl ConnectionType {
 /// Messages we send to the server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerRequest {
-    Login { username: String, password: String },
-    SetWaitPort { port: u32 },
+    Login {
+        username: String,
+        password: String,
+    },
+    SetWaitPort {
+        port: u32,
+    },
     SetStatus(Status),
-    SharedFoldersFiles { folders: u32, files: u32 },
+    SharedFoldersFiles {
+        folders: u32,
+        files: u32,
+    },
     HaveNoParent(bool),
-    GetPeerAddress { username: String },
-    ConnectToPeer { token: u32, username: String, kind: ConnectionType },
-    FileSearch { token: u32, query: String },
-    CantConnectToPeer { token: u32, username: String },
+    GetPeerAddress {
+        username: String,
+    },
+    /// Get a user's status and stats now, and status changes from then on.
+    WatchUser {
+        username: String,
+    },
+    UnwatchUser {
+        username: String,
+    },
+    ConnectToPeer {
+        token: u32,
+        username: String,
+        kind: ConnectionType,
+    },
+    FileSearch {
+        token: u32,
+        query: String,
+    },
+    CantConnectToPeer {
+        token: u32,
+        username: String,
+    },
     Ping,
 }
 
@@ -117,6 +174,14 @@ impl ServerRequest {
             Self::GetPeerAddress { username } => {
                 w.string(username);
                 code::GET_PEER_ADDRESS
+            }
+            Self::WatchUser { username } => {
+                w.string(username);
+                code::WATCH_USER
+            }
+            Self::UnwatchUser { username } => {
+                w.string(username);
+                code::UNWATCH_USER
             }
             Self::ConnectToPeer { token, username, kind } => {
                 w.u32(*token).string(username).string(kind.as_str());
@@ -175,6 +240,21 @@ pub enum ServerEvent {
     },
     /// The same account logged in somewhere else, and the server disconnected us.
     Relogged,
+    /// Answer to `WatchUser`.
+    WatchedUser(UserPresence),
+    /// A watched user went away, came back or went offline.
+    UserStatus {
+        username: String,
+        status: Status,
+        privileged: bool,
+    },
+    UserStats {
+        username: String,
+        avg_speed: u32,
+        upload_count: u32,
+        files: u32,
+        folders: u32,
+    },
     /// Phrases the network excludes from search results. Peers drop matching files,
     /// so searching for one of these returns nothing.
     ExcludedSearchPhrases(Vec<String>),
@@ -214,6 +294,45 @@ impl ServerEvent {
             }
             code::FILE_SEARCH => Self::FileSearch { username: r.string()?, token: r.u32()?, query: r.string()? },
             code::RELOGGED => Self::Relogged,
+            code::WATCH_USER => {
+                let username = r.string()?;
+                let exists = r.bool()?;
+                let mut presence = UserPresence {
+                    username,
+                    exists,
+                    status: Status::Offline,
+                    avg_speed: 0,
+                    upload_count: 0,
+                    files: 0,
+                    folders: 0,
+                    country: None,
+                };
+                if exists {
+                    presence.status = Status::from_u32(r.u32()?);
+                    presence.avg_speed = r.u32()?;
+                    presence.upload_count = r.u32()?;
+                    let _unknown = r.u32()?;
+                    presence.files = r.u32()?;
+                    presence.folders = r.u32()?;
+                    if presence.status != Status::Offline && r.remaining() >= 4 {
+                        presence.country = Some(r.string()?).filter(|c| !c.is_empty());
+                    }
+                }
+                Self::WatchedUser(presence)
+            }
+            code::GET_USER_STATUS => {
+                let username = r.string()?;
+                let status = Status::from_u32(r.u32()?);
+                let privileged = r.remaining() > 0 && r.bool()?;
+                Self::UserStatus { username, status, privileged }
+            }
+            code::GET_USER_STATS => {
+                let username = r.string()?;
+                let avg_speed = r.u32()?;
+                let upload_count = r.u32()?;
+                let _unknown = r.u32()?;
+                Self::UserStats { username, avg_speed, upload_count, files: r.u32()?, folders: r.u32()? }
+            }
             code::EXCLUDED_SEARCH_PHRASES => {
                 let count = r.count(4)?;
                 Self::ExcludedSearchPhrases((0..count).map(|_| r.string()).collect::<Result<_, _>>()?)
@@ -289,6 +408,33 @@ mod tests {
             ServerEvent::decode(code::EXCLUDED_SEARCH_PHRASES, &w.into_body()).unwrap(),
             ServerEvent::ExcludedSearchPhrases(vec!["some artist".into(), "another phrase".into()])
         );
+    }
+
+    #[test]
+    fn decodes_watched_users() {
+        let mut w = Writer::new();
+        w.string("alice").bool(true).u32(2).u32(125_000).u32(40).u32(0).u32(12_000).u32(900).string("NZ");
+        assert_eq!(
+            ServerEvent::decode(code::WATCH_USER, &w.into_body()).unwrap(),
+            ServerEvent::WatchedUser(UserPresence {
+                username: "alice".into(),
+                exists: true,
+                status: Status::Online,
+                avg_speed: 125_000,
+                upload_count: 40,
+                files: 12_000,
+                folders: 900,
+                country: Some("NZ".into()),
+            })
+        );
+
+        let mut missing = Writer::new();
+        missing.string("nobody").bool(false);
+        let ServerEvent::WatchedUser(presence) = ServerEvent::decode(code::WATCH_USER, &missing.into_body()).unwrap()
+        else {
+            panic!("expected a watched user")
+        };
+        assert!(!presence.exists);
     }
 
     #[test]

@@ -24,7 +24,13 @@ pub mod code {
     pub const PIERCE_FIREWALL: u8 = 0;
     /// Peer init: sent first on a connection we opened directly.
     pub const PEER_INIT: u8 = 1;
+    pub const SHARED_FILE_LIST_REQUEST: u32 = 4;
+    pub const SHARED_FILE_LIST_RESPONSE: u32 = 5;
     pub const SEARCH_RESPONSE: u32 = 9;
+    pub const USER_INFO_REQUEST: u32 = 15;
+    pub const USER_INFO_RESPONSE: u32 = 16;
+    pub const FOLDER_CONTENTS_REQUEST: u32 = 36;
+    pub const FOLDER_CONTENTS_RESPONSE: u32 = 37;
     pub const TRANSFER_REQUEST: u32 = 40;
     pub const TRANSFER_RESPONSE: u32 = 41;
     pub const QUEUE_UPLOAD: u32 = 43;
@@ -45,6 +51,15 @@ pub mod direction {
 /// Messages on a peer ("P") connection, other than search responses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeerMessage {
+    /// Ask for everything the peer shares ("browse").
+    SharedFileListRequest,
+    /// Ask for the peer's profile: description, picture, slots.
+    UserInfoRequest,
+    /// Ask for one folder and its subfolders.
+    FolderContentsRequest {
+        token: u32,
+        folder: String,
+    },
     /// Ask the peer to put `filename` in its upload queue.
     QueueUpload {
         filename: String,
@@ -88,6 +103,9 @@ impl PeerMessage {
     pub fn decode(message_code: u32, body: &[u8]) -> Result<Option<Self>, DecodeError> {
         let mut r = Reader::new(body);
         Ok(Some(match message_code {
+            code::SHARED_FILE_LIST_REQUEST => Self::SharedFileListRequest,
+            code::USER_INFO_REQUEST => Self::UserInfoRequest,
+            code::FOLDER_CONTENTS_REQUEST => Self::FolderContentsRequest { token: r.u32()?, folder: r.string()? },
             code::QUEUE_UPLOAD => Self::QueueUpload { filename: r.string()? },
             code::TRANSFER_REQUEST => {
                 let direction = r.u32()?;
@@ -114,6 +132,12 @@ impl PeerMessage {
     pub fn encode(&self) -> BytesMut {
         let mut w = Writer::new();
         let message_code = match self {
+            Self::SharedFileListRequest => code::SHARED_FILE_LIST_REQUEST,
+            Self::UserInfoRequest => code::USER_INFO_REQUEST,
+            Self::FolderContentsRequest { token, folder } => {
+                w.u32(*token).string(folder);
+                code::FOLDER_CONTENTS_REQUEST
+            }
             Self::QueueUpload { filename } => {
                 w.string(filename);
                 code::QUEUE_UPLOAD
@@ -334,7 +358,7 @@ impl PeerInit {
     }
 }
 
-fn read_files(r: &mut Reader<'_>) -> Result<Vec<SharedFile>, DecodeError> {
+pub(crate) fn read_files(r: &mut Reader<'_>) -> Result<Vec<SharedFile>, DecodeError> {
     // Smallest possible entry: code(1) + empty path(4) + size(8) + ext(4) + attrs(4).
     let count = r.count(21)?;
     let mut files = Vec::with_capacity(count);
@@ -369,7 +393,7 @@ fn read_files(r: &mut Reader<'_>) -> Result<Vec<SharedFile>, DecodeError> {
     Ok(files)
 }
 
-fn write_files(w: &mut Writer, files: &[SharedFile]) {
+pub(crate) fn write_files(w: &mut Writer, files: &[SharedFile]) {
     w.u32(u32::try_from(files.len()).unwrap_or(u32::MAX));
     for f in files {
         let attrs: Vec<(u32, u32)> = [
@@ -494,6 +518,9 @@ mod tests {
     #[test]
     fn peer_messages_round_trip() {
         let messages = [
+            PeerMessage::SharedFileListRequest,
+            PeerMessage::UserInfoRequest,
+            PeerMessage::FolderContentsRequest { token: 3, folder: r"@@moon\Album".into() },
             PeerMessage::QueueUpload { filename: r"@@moon\Album\01.flac".into() },
             PeerMessage::TransferRequest {
                 direction: direction::UPLOAD,

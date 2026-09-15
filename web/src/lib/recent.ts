@@ -1,11 +1,10 @@
 import { useCallback, useState } from "react"
 
-const KEY = "delune.recent-searches"
 const LIMIT = 6
 
-function load(): string[] {
+function load(key: string): string[] {
   try {
-    const value = JSON.parse(localStorage.getItem(KEY) ?? "[]")
+    const value = JSON.parse(localStorage.getItem(key) ?? "[]")
     return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string").slice(0, LIMIT) : []
   } catch {
     return []
@@ -13,32 +12,35 @@ function load(): string[] {
 }
 
 /** Recent searches, remembered in this browser only. */
-export function useRecentSearches() {
-  const [recent, setRecent] = useState(load)
+export const useRecentSearches = () => useRecentList("delune.recent-searches")
+
+/** A short most-recent-first list kept in this browser's storage under `key`. */
+export function useRecentList(key: string) {
+  const [recent, setRecent] = useState(() => load(key))
 
   const remember = useCallback((query: string) => {
     setRecent((current) => {
       const next = [query, ...current.filter((q) => q.toLowerCase() !== query.toLowerCase())].slice(0, LIMIT)
       try {
-        localStorage.setItem(KEY, JSON.stringify(next))
+        localStorage.setItem(key, JSON.stringify(next))
       } catch {
         // Storage can be unavailable (private windows); recent searches are a nicety.
       }
       return next
     })
-  }, [])
+  }, [key])
 
   const forget = useCallback((query: string) => {
     setRecent((current) => {
       const next = current.filter((q) => q !== query)
       try {
-        localStorage.setItem(KEY, JSON.stringify(next))
+        localStorage.setItem(key, JSON.stringify(next))
       } catch {
         // See above.
       }
       return next
     })
-  }, [])
+  }, [key])
 
   return { recent, remember, forget }
 }

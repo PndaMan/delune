@@ -204,6 +204,28 @@ export type Me = {
 export type Person = { username: string; admin: boolean; permissions: Permissions; last_login: number }
 export type People = { require_approval: boolean; people: Person[] }
 
+export type SoulseekUser = {
+  username: string
+  exists: boolean
+  presence: "online" | "away" | "offline"
+  avg_speed: number
+  files: number
+  folders: number
+  country: string | null
+  profile: { description: string; has_picture: boolean; queue_size: number; slots_free: boolean; total_uploads: number } | null
+}
+
+export type ShareFolder = {
+  path: string
+  files: number
+  audio_files: number
+  bytes: number
+  quality_label: string | null
+  quality_rank: number
+}
+
+export type ShareTree = { username: string; folders: ShareFolder[]; private_folders: number }
+
 /** Fired whenever the server says the session is gone, so the app can show sign-in. */
 export const sessionEvents = new EventTarget()
 
@@ -255,6 +277,12 @@ export const api = {
   signIn: (username: string, password: string) => send<Me>("POST", "/session", { username, password }),
   signOut: () => send<void>("DELETE", "/session"),
   people: (signal?: AbortSignal) => get<People>("/users", signal),
+  soulseekUser: (username: string, signal?: AbortSignal) =>
+    get<SoulseekUser>(`/soulseek/users/${encodeURIComponent(username)}`, signal),
+  shareTree: (username: string, signal?: AbortSignal) =>
+    get<ShareTree>(`/soulseek/users/${encodeURIComponent(username)}/shares`, signal),
+  sharedFolder: (username: string, path: string, signal?: AbortSignal) =>
+    get<Candidate>(`/soulseek/users/${encodeURIComponent(username)}/folder?path=${encodeURIComponent(path)}`, signal),
   setPermissions: (username: string, permissions: Permissions) =>
     send<People>("PUT", `/users/${encodeURIComponent(username)}/permissions`, { permissions }),
   setRequireApproval: (require_approval: boolean) => send<People>("PUT", "/users/approval", { require_approval }),

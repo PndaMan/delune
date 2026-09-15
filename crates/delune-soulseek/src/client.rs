@@ -38,15 +38,18 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep, timeout};
 use tokio_util::codec::Framed;
 
-use crate::connection::{self, Shared};
+use crate::connection::{self, PeerError, Shared};
 use crate::frame::{FrameCodec, MAX_SERVER_FRAME, split_code};
 use crate::limiter::{DEFAULT_MAX_SEARCHES, DEFAULT_WINDOW, SearchLimiter};
-use crate::peer::SearchResponse;
-use crate::server::{ConnectionType, LoginRejection, ServerEvent, ServerRequest, Status};
+use crate::peer::{PeerMessage, SearchResponse};
+use crate::server::{ConnectionType, LoginRejection, ServerEvent, ServerRequest, Status, UserPresence};
+use crate::shares::{FolderContents, SharedFileList, UserInfo};
 use crate::transfer::{self, Download, DownloadRequest};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const PING_INTERVAL: Duration = Duration::from_secs(300);
+const BROWSE_TIMEOUT: Duration = Duration::from_secs(90);
+const USER_INFO_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -206,6 +209,89 @@ impl Client {
     #[must_use]
     pub fn download(&self, request: DownloadRequest) -> Download {
         transfer::start(self.inner.shared.clone(), request)
+    }
+
+    /// Everything `username` shares. Large libraries can take a minute to arrive.
+    ///
+    /// # Errors
+    ///
+    /// When we're offline, the user can't be reached, or they don't answer in time.
+    pub async fn browse(&self, username: &str) -> Result<Arc<SharedFileList>, PeerError> {
+        let shared = &self.inner.shared;
+        let answer = shared.share_lists.register(username.to_owned());
+        let peer = connection::connect_peer(shared, username).await?;
+        peer.send(PeerMessage::SharedFileListRequest.encode())
+            .await
+            .map_err(|_| PeerError::Unreachable(username.into()))?;
+        timeout(BROWSE_TIMEOUT, answer)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| PeerError::TimedOut(username.into()))
+    }
+
+    /// One folder of `username`'s shares, with its subfolders.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Client::browse`].
+    pub async fn folder_contents(&self, username: &str, folder: &str) -> Result<Arc<FolderContents>, PeerError> {
+        let shared = &self.inner.shared;
+        let token = shared.next_token();
+        let answer = shared.folders.register(token);
+        let peer = connection::connect_peer(shared, username).await?;
+        let request = PeerMessage::FolderContentsRequest { token, folder: folder.to_owned() };
+        peer.send(request.encode()).await.map_err(|_| PeerError::Unreachable(username.into()))?;
+        timeout(BROWSE_TIMEOUT, answer)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| PeerError::TimedOut(username.into()))
+    }
+
+    /// `username`'s profile: description, picture and upload slots.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Client::browse`].
+    pub async fn user_info(&self, username: &str) -> Result<UserInfo, PeerError> {
+        let shared = &self.inner.shared;
+        let answer = shared.user_infos.register(username.to_owned());
+        let peer = connection::connect_peer(shared, username).await?;
+        peer.send(PeerMessage::UserInfoRequest.encode()).await.map_err(|_| PeerError::Unreachable(username.into()))?;
+        timeout(USER_INFO_TIMEOUT, answer)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| PeerError::TimedOut(username.into()))
+    }
+
+    /// Whether `username` exists and is online, with the server's stats for them.
+    ///
+    /// # Errors
+    ///
+    /// When we're offline or the server doesn't answer.
+    pub async fn user_presence(&self, username: &str) -> Result<UserPresence, PeerError> {
+        let shared = &self.inner.shared;
+        let server = shared.server().ok_or(PeerError::Offline)?;
+        let answer = shared.presences.register(username.to_owned());
+        server
+            .send(ServerRequest::WatchUser { username: username.to_owned() })
+            .await
+            .map_err(|_| PeerError::Offline)?;
+        let presence = timeout(USER_INFO_TIMEOUT, answer)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| PeerError::TimedOut("The Soulseek server".into()))?;
+        // One answer is all we want; don't keep receiving their status changes.
+        let _ = server.send(ServerRequest::UnwatchUser { username: username.to_owned() }).await;
+        Ok(presence)
+    }
+
+    /// Replace what we answer to people browsing us.
+    pub fn set_shares(&self, shares: SharedFileList) {
+        *self.inner.shared.own_shares.lock().unwrap_or_else(PoisonError::into_inner) = Arc::new(shares);
     }
 
     fn ensure_online(&self) -> Result<(), Error> {
@@ -444,6 +530,10 @@ async fn run_session(
                             }
                         }
                         Some(ServerEvent::Relogged) => return SessionEnd::Stopped(StopReason::LoggedInElsewhere),
+                        Some(ServerEvent::WatchedUser(presence)) => {
+                            let username = presence.username.clone();
+                            shared.presences.deliver(&username, presence);
+                        }
                         Some(other) => tracing::trace!(?other, "server message"),
                         None => {}
                     }

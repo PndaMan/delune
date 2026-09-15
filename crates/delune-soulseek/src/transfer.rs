@@ -207,7 +207,11 @@ impl Transfers {
             PeerMessage::PlaceInQueueResponse { filename, place } => self.send(&key(filename), Event::Place(place)),
             PeerMessage::UploadDenied { filename, reason } => self.send(&key(filename), Event::Denied(reason)),
             PeerMessage::UploadFailed { filename } => self.send(&key(filename), Event::UploadFailed),
-            PeerMessage::TransferResponse { .. } | PeerMessage::PlaceInQueueRequest { .. } => {}
+            PeerMessage::TransferResponse { .. }
+            | PeerMessage::PlaceInQueueRequest { .. }
+            | PeerMessage::SharedFileListRequest
+            | PeerMessage::UserInfoRequest
+            | PeerMessage::FolderContentsRequest { .. } => {}
         }
     }
 
