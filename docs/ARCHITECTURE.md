@@ -13,7 +13,7 @@ flowchart TB
         server["delune serve<br>(axum HTTP API + embedded web UI)"]
         slsk["Soulseek client<br>delune-soulseek"]
         lib["Library<br>delune-library"]
-        db[("SQLite<br>jobs · settings · peers")]
+        db[("Data folder<br>jobs · accounts · settings (JSON)")]
         music[/"Music folder"/]
         nd["Navidrome"]
         server --> slsk
@@ -73,44 +73,52 @@ without networks or disks.
 ## The main flow
 
 What happens between typing into the search bar and a new album appearing in
-Navidrome. Steps marked *(planned)* are not built yet.
+Navidrome.
 
-1. **Classify input** — `delune_resolve::classify` decides whether the input is a
+1. **Classify input**: `delune_resolve::classify` decides whether the input is a
    link or text. Clients call `GET /api/v1/classify` as the user types so both UIs
    show the same "Spotify album" hint.
-2. **Resolve** *(planned)* — links become a canonical release: MusicBrainz URL
-   lookup first, then UPC (albums) and ISRC (tracks) to bridge services.
-   See [ADR 0003](adr/0003-link-resolution.md).
-3. **Check the library** *(planned)* — `search3` against Navidrome by MusicBrainz ID
-   and by title. Owned at the same or better quality stops here with "Already in
-   library".
-4. **Search** — `SourcePolicy::search_order()` decides which sources are
-   asked, and in what order. Soulseek is always first; this is enforced in one
-   tested function rather than by convention. `GET /api/v1/search` streams results
-   over Server-Sent Events as peers answer.
-5. **Rank** — responses are grouped into one candidate per folder and sorted by
-   lossless-first, completeness, `Quality::rank` and peer availability
-   (`Candidate::rank`). Matching against the resolved tracklist is *(planned)*. See [ADR 0004](adr/0004-quality-ranking.md).
-6. **Download** — `POST /api/v1/downloads` creates a job for one folder; files
-   download in sequence through `delune-soulseek::transfer` into
-   `<data dir>/staging/<job>/`, resuming from `.part` files after drops.
-   **Verify** *(planned)* — files are decoded end to end and checked for transcodes.
-7. **Prepare** *(planned)* — tags, artwork, synced lyrics and file names according
-   to settings.
-8. **Review** *(planned)* — the job waits in the requester's review inbox, and in the
-   admin inbox too if admin approval is required. See [ADR 0005](adr/0005-always-review.md).
-9. **Import** *(planned)* — an atomic move into the library, then a targeted
-   `startScan`.
+2. **Resolve**: links become a release or track from each service's public metadata
+   (`delune_resolve::Resolver`: Deezer and iTunes APIs, Spotify's embed page, oEmbed,
+   JSON-LD, Open Graph, MusicBrainz), cached for an hour. Playlists become a list of
+   songs to put on the wishlist. See [ADR 0003](adr/0003-link-resolution.md).
+3. **Search**: `SourcePolicy::search_order()` decides which sources are asked, in
+   what order; Soulseek is always first, enforced in one tested function.
+   `GET /api/v1/search` streams a `resolved` event for links, then results over
+   Server-Sent Events as peers answer.
+4. **Rank**: responses are grouped into one candidate per folder and sorted by
+   lossless-first, completeness, `Quality::rank` and availability (`Candidate::rank`).
+   For links, the web client ranks folders holding the linked tracklist first. See
+   [ADR 0004](adr/0004-quality-ranking.md). Library state (`/api/v1/library/album`)
+   marks what Navidrome already has.
+5. **Download**: `POST /api/v1/downloads` creates a job for a folder (or some of its
+   files); every file is queued with the peer at once through
+   `delune-soulseek::transfer` into `<data dir>/staging/<job>/`, resuming from
+   `.part` files. Jobs survive restarts (`jobs.json`) and can be stopped and resumed.
+6. **Verify and plan**: every file is decoded end to end and checked for transcodes
+   (`delune_library::verify`); tags and the naming template decide where each file
+   goes (`delune_library::import::plan`), and conflicts are found before anything moves.
+7. **Review**: the job waits for its requester; with approval required, for an admin.
+   See [ADR 0005](adr/0005-always-review.md).
+8. **Import**: files move into the library (copying across filesystems), then in the
+   background artwork is embedded, lyrics are fetched from LRCLIB, and Navidrome
+   rescans (`delune_server::finishing`).
+
+Beside the main flow: the **wishlist** repeats searches on Soulseek's wishlist
+interval; **automation** follows artists and looks for quality upgrades; **sharing**
+indexes the library, answers searches (including from the distributed network) and
+serves uploads; **chat** keeps private messages and rooms.
 
 ## API
 
 - REST under `/api/v1`, JSON bodies, versioned by path.
-- Search streams over Server-Sent Events; download progress is polled.
-- Authentication with Navidrome credentials, exchanged for a session *(planned)*.
-- The OpenAPI document will be generated from the Rust handlers (utoipa), and the
-  web client's TypeScript types generated from that. Until then,
-  `web/src/lib/api.ts` is hand-written and must be kept in step with
-  `delune-core::api` and `delune-server`.
+- Search and chat stream over Server-Sent Events; downloads and uploads are polled.
+- Sign-in checks Navidrome credentials and issues delune's own session: an
+  `HttpOnly` cookie for browsers, a bearer token for the TUI. See
+  [ADR 0006](adr/0006-navidrome-accounts.md). Every route except health and the
+  session needs one; permissions are checked per handler.
+- `web/src/lib/*.ts` types are hand-written and kept in step with `delune-core::api`.
+  Generating them (utoipa and an OpenAPI document) is planned.
 
 ## Web UI
 
@@ -126,12 +134,20 @@ empty and error states, and correct at 400px wide.
 
 ratatui with the standard single-state model: `App` holds state, `ui::draw` is a
 pure function of it, and background tasks talk to the event loop over a channel
-instead of touching the terminal. Album art via `ratatui-image` *(planned)*.
+instead of touching the terminal. Three screens (Search, Downloads, Review) cover
+the whole flow; destructive actions ask for confirmation. Album art via
+`ratatui-image` is planned.
 
 ## Testing
 
 - Unit tests live next to the code (`#[cfg(test)]`). Protocol and parser code is
   tested against byte-level fixtures and published test vectors.
 - Server routes are tested in-process with `tower::ServiceExt::oneshot`.
-- CI runs `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and the web
-  typecheck, lint and build on every push.
+- The Soulseek client is tested end to end against fake servers and peers over real
+  sockets: searching, downloading and resuming, browsing, chat, uploads, answering
+  searches and joining the distributed network.
+- Live tests (`cargo test -p delune-resolve --test live -- --ignored`) check link
+  resolution against the real services.
+- `nix flake check` boots a NixOS VM with the module and checks the service answers.
+- CI runs `cargo fmt --check`, `clippy -D warnings`, `cargo test`, rustdoc with
+  warnings denied, and the web typecheck, lint and build on every push.

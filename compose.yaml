@@ -1,11 +1,20 @@
-# Development example. A documented production setup ships with v0.1.
+# delune next to an existing Navidrome. Copy .env.example to .env and fill it in.
 services:
   delune:
     build: .
-    ports:
-      - "7474:7474"
-      - "2234:2234"
-    volumes:
-      # Mount the same music folder Navidrome uses, at the same path if you can.
-      - /path/to/music:/music
+    # image: ghcr.io/pndaman/delune:latest   (published images arrive with v0.1)
     restart: unless-stopped
+    env_file: .env
+    environment:
+      DELUNE_DATA_DIR: /data
+      DELUNE_LIBRARY_DIR: /music
+    ports:
+      - "7474:7474"   # web UI and API; put a reverse proxy with HTTPS in front
+      - "2234:2234"   # Soulseek, so peers can reach you
+    volumes:
+      - delune-data:/data
+      # The same music folder Navidrome scans.
+      - /path/to/music:/music
+
+volumes:
+  delune-data:

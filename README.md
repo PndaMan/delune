@@ -71,22 +71,43 @@ you can run `delune tui` from your laptop.
 
 ## Features
 
-| | Status |
-|---|---|
-| Paste links from Spotify, Apple Music, Tidal, Qobuz, Deezer, YouTube Music, SoundCloud, Bandcamp, MusicBrainz | Done: resolved, searched on Soulseek, ranked by tracklist match |
-| Native Soulseek client (no slskd needed) | Live search working: login, reconnect, firewall piercing, rate limiting |
-| Quality ranking (24/192 → 16/44.1 → lossy, with fake-FLAC detection) | Done |
-| Album artwork for results, accent colours from covers | Done |
-| Web UI: live results, filters, release view, naming editor | Done |
-| "Already in library" and missing-track checks against Navidrome | Done; "better copy available" planned |
-| File and folder naming templates with live preview | Template engine done |
-| Review inbox with optional admin approval | Done |
-| Sign in with your Navidrome account; per-person permissions | Done |
-| Installable web app (PWA) | Done |
-| Synced lyrics, embedded artwork, MP3/AAC transcoding | Planned for v0.1 |
-| Playlist import, watchlist | Planned |
-| Follow artists, automatic quality upgrades (off by default) | Planned |
-| Opt-in streaming providers | Planned |
+**Find**
+- Search Soulseek, or paste a link from Spotify, Apple Music, Tidal, Qobuz, Deezer,
+  YouTube Music, SoundCloud, Bandcamp or MusicBrainz. Links resolve to the release,
+  and results rank by how much of its tracklist each folder holds.
+- Paste a Spotify or Deezer playlist to put its songs, or their albums, on the wishlist.
+- Results ranked lossless first, complete before partial, then resolution and
+  availability, with artwork, "in library" and "N missing" badges, and filters.
+- A wishlist that keeps searching and downloads good copies for review.
+  Automation is off by default: following artists and upgrading lossy albums.
+
+**Soulseek, natively** (no slskd)
+- Searching, downloads with queue position, resume and retry, stop and resume.
+- Browse anyone's shares and profile; any folder opens like a search result.
+- Private messages and chat rooms.
+- Share your library (opt-in): uploads with slots, speed limits, per-person queues,
+  blocking, a leecher policy, and the distributed search network, so people find you.
+- Stats, with byte totals kept across restarts.
+
+**Check and import**
+- Every download waits for review. Each file is decoded, and transcodes posing as
+  FLAC are flagged.
+- Naming templates with live preview, matched to your library; imports land in the
+  Navidrome folder and trigger a scan.
+- Synced lyrics from LRCLIB (a sidecar `.lrc`, in the tags, or both) and embedded cover
+  art on every import.
+
+**People**
+- Sign in with Navidrome accounts; Navidrome admins are admins.
+- Per-person permissions and an optional admin approval step.
+- Profile pictures, themes (Night, Blue hour, Midnight, Forest) and accents.
+
+**Everywhere**
+- A web app that installs as a PWA and is designed for phones, not just shrunk to fit.
+- A TUI that does the whole flow: search, download, review, import.
+- Runs as one Rust binary; a NixOS module and a Docker image are included.
+
+Planned: transcoding options, and release binaries and packages. Streaming sources come last, and only if you opt in.
 
 ## Quick start (development)
 
@@ -129,8 +150,51 @@ cargo run -- serve
 Without Navidrome, delune runs in **open mode**: no sign-in, and whoever can reach
 it is an admin. Keep an open-mode server off the internet.
 
-Docker images, a NixOS module, release binaries and AUR/Homebrew packages come
-with v0.1. A development [`compose.yaml`](compose.yaml) is included.
+## Install
+
+### NixOS
+
+delune is a flake with a NixOS module:
+
+```nix
+{
+  inputs.delune.url = "github:PndaMan/delune";
+
+  outputs = { nixpkgs, delune, ... }: {
+    nixosConfigurations.server = nixpkgs.lib.nixosSystem {
+      modules = [
+        delune.nixosModules.default
+        {
+          services.delune = {
+            enable = true;
+            libraryDir = "/srv/music";               # the folder Navidrome scans
+            group = "navidrome";                     # so it can write there
+            soulseek.username = "your-name";
+            navidrome.url = "http://127.0.0.1:4533";
+            navidrome.username = "admin";
+            environmentFile = "/run/secrets/delune.env"; # DELUNE_SLSK_PASSWORD, DELUNE_NAVIDROME_PASSWORD
+            openFirewall = true;                     # the Soulseek port
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+The service listens on `127.0.0.1:7474`; put your reverse proxy in front of it.
+`nix build github:PndaMan/delune` builds just the binary.
+
+### Docker
+
+```sh
+cp .env.example .env   # fill in the Soulseek and Navidrome details
+docker compose up -d
+```
+
+[`compose.yaml`](compose.yaml) mounts your music folder at `/music` and keeps
+delune's own data in a volume. Release binaries and AUR/Homebrew packages come with
+v0.1.
 
 ## Project layout
 

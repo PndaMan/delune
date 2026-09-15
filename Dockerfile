@@ -15,14 +15,20 @@ COPY . .
 COPY --from=web /src/web/dist web/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked -p delune && cp target/release/delune /delune
+    # Two jobs keep memory in check on small build machines; thin LTO is memory hungry.
+    CARGO_BUILD_JOBS=2 cargo build --release --locked -p delune && cp target/release/delune /delune \
+    && mkdir /data
 
 # ---- Runtime ----------------------------------------------------------------
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=build /delune /usr/local/bin/delune
+# The data volume must belong to the unprivileged user the image runs as.
+COPY --from=build --chown=nonroot:nonroot /data /data
 ENV DELUNE_BIND=0.0.0.0:7474
 EXPOSE 7474
-# 2234 will be the Soulseek listening port once the client is connected.
+# Soulseek peers connect here.
 EXPOSE 2234
+VOLUME ["/data"]
+ENV DELUNE_DATA_DIR=/data
 ENTRYPOINT ["delune"]
 CMD ["serve"]
