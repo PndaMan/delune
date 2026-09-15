@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { api, type Candidate, type CandidateFile, type DownloadJob, type JobFile } from "@/lib/api"
+import { api, type Candidate, type CandidateFile, type DownloadJob, type JobFile, toApiError } from "@/lib/api"
 import { plural } from "@/lib/format"
 
 /** All download jobs, polled while anything is still moving. */
@@ -26,6 +26,18 @@ export function useStartDownload() {
         // Audio plus artwork, cue sheets and logs: everything a review might need.
         files: (files ?? candidate.files).map((f) => ({ path: f.path, size: f.size })),
       }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
+  })
+}
+
+/** Stop a running download (keeping what arrived) or resume a stopped or failed one. */
+export function useToggleDownload() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: "stop" | "resume" }) => {
+      const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}/${action}`, { method: "POST" })
+      if (!res.ok) throw await toApiError(res)
+    },
     onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
   })
 }
@@ -71,7 +83,7 @@ export function describeJob(job: DownloadJob): string {
         ? "All files arrived. Checking them now"
         : `All ${plural(job.files.length, "file")} arrived. Ready for review`
     case "cancelled":
-      return "Cancelled"
+      return "Stopped. Resume to carry on where it left off"
     case "imported":
       return "Imported into your library"
     case "failed": {

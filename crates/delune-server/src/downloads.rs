@@ -293,6 +293,56 @@ pub fn resume(app: &AppState) {
     }
 }
 
+/// `POST /api/v1/downloads/{id}/stop`: stop downloading but keep what arrived, to resume later.
+pub async fn stop(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    let stopped = {
+        let jobs = app.downloads.lock();
+        jobs.iter()
+            .find(|e| e.job.id == id && user.can_see(e.job.requested_by.as_deref()))
+            .filter(|e| matches!(e.job.status, JobStatus::Queued | JobStatus::Downloading))
+            .map(|e| e.cancel.send(true).is_ok())
+    };
+    match stopped {
+        Some(_) => StatusCode::NO_CONTENT.into_response(),
+        None => error(StatusCode::CONFLICT, "not-running", "That download isn't running."),
+    }
+}
+
+/// `POST /api/v1/downloads/{id}/resume`: start a stopped or failed download again,
+/// keeping finished files and resuming partial ones.
+pub async fn resume_one(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    let Some(client) = app.soulseek.clone() else {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "soulseek-not-configured", "Soulseek isn't set up.");
+    };
+    let restarted = {
+        let mut jobs = app.downloads.lock();
+        let Some(entry) = jobs.iter_mut().find(|e| e.job.id == id && user.can_see(e.job.requested_by.as_deref()))
+        else {
+            return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
+        };
+        if !matches!(entry.job.status, JobStatus::Failed | JobStatus::Cancelled) {
+            return error(StatusCode::CONFLICT, "not-stopped", "That download is already running or finished.");
+        }
+        for file in &mut entry.job.files {
+            if file.status != FileStatus::Done {
+                file.status = FileStatus::Waiting;
+                file.error = None;
+                file.place_in_queue = None;
+            }
+        }
+        entry.job.status = JobStatus::Queued;
+        entry.job.refresh();
+        let (cancel, cancel_rx) = watch::channel(false);
+        entry.cancel = cancel;
+        (entry.job.clone(), cancel_rx)
+    };
+    app.downloads.changed();
+    let (job, cancel_rx) = restarted;
+    tracing::info!(%id, by = %user.username, "download resumed");
+    start(&app, client, &job, cancel_rx);
+    Json(job).into_response()
+}
+
 /// `DELETE /api/v1/downloads/{id}`: cancel if running, remove staged files, forget the job.
 pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let removed = {

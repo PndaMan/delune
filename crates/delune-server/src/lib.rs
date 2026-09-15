@@ -185,6 +185,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/search", get(search::stream))
         .route("/api/v1/downloads", get(downloads::list).post(downloads::create))
         .route("/api/v1/downloads/{id}", delete(downloads::remove))
+        .route("/api/v1/downloads/{id}/stop", post(downloads::stop))
+        .route("/api/v1/downloads/{id}/resume", post(downloads::resume_one))
         .route("/api/v1/downloads/{id}/review", get(review::report))
         .route("/api/v1/downloads/{id}/import", post(review::import))
         .route("/api/v1/library/album", get(library::album))

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { ChevronDown, CircleAlert, CircleCheck, LoaderCircle, Trash2 } from "lucide-react"
+import { ChevronDown, CircleAlert, CircleCheck, LoaderCircle, Pause, Play, Search, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import { Cover } from "@/components/cover"
@@ -8,7 +8,7 @@ import { WishlistSection } from "@/components/wishlist-section"
 import { Button } from "@/components/ui/button"
 import type { DownloadJob, JobFile } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
-import { describeJob, useDownloads, useRemoveDownload } from "@/lib/downloads"
+import { describeJob, useDownloads, useRemoveDownload, useToggleDownload } from "@/lib/downloads"
 import { requesterLabel, useMe } from "@/lib/session"
 import { formatBytes } from "@/lib/format"
 import { parseTrackName } from "@/lib/track-name"
@@ -52,6 +52,8 @@ export function JobCard({ job }: { job: DownloadJob }) {
   const [open, setOpen] = useState(false)
   const artwork = useArtwork(job.parent, job.title)
   const remove = useRemoveDownload()
+  const toggle = useToggleDownload()
+  const stopped = job.status === "failed" || job.status === "cancelled"
   const progress = job.total_bytes ? job.bytes / job.total_bytes : 0
   const running = job.status === "queued" || job.status === "downloading"
   const requester = requesterLabel(useMe(), job.requested_by)
@@ -92,9 +94,35 @@ export function JobCard({ job }: { job: DownloadJob }) {
           </p>
         </div>
         <div className="flex items-center gap-1">
+          {stopped && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden sm:inline-flex"
+              nativeButton={false}
+              render={<Link to="/" search={{ q: [job.parent, job.title].filter(Boolean).join(" ") }} />}
+              aria-label="Find another copy"
+              title="Find another copy"
+            >
+              <Search />
+            </Button>
+          )}
+          {(running || stopped) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => toggle.mutate({ id: job.id, action: running ? "stop" : "resume" })}
+              disabled={toggle.isPending}
+              aria-label={running ? "Stop download" : "Resume download"}
+              title={running ? "Stop, keeping what's arrived" : "Resume"}
+            >
+              {running ? <Pause /> : <Play />}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
+            className="hidden sm:inline-flex"
             onClick={() => setOpen(!open)}
             aria-expanded={open}
             aria-label={open ? "Hide files" : "Show files"}
