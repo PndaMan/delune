@@ -9,6 +9,7 @@
 
 pub mod accounts;
 pub mod artwork;
+pub mod automation;
 pub mod chat;
 pub mod downloads;
 pub mod library;
@@ -82,6 +83,7 @@ pub struct AppState {
     pub sharing: Arc<sharing::Sharing>,
     pub wishlist: Arc<wishlist::Wishlist>,
     pub totals: Arc<sharing::Totals>,
+    pub automation: Arc<automation::Automation>,
 }
 
 impl Default for AppState {
@@ -103,6 +105,7 @@ impl Default for AppState {
             sharing: Arc::default(),
             wishlist: Arc::default(),
             totals: Arc::default(),
+            automation: Arc::default(),
         }
     }
 }
@@ -117,6 +120,7 @@ impl AppState {
         let sharing = Arc::new(sharing::Sharing::open(&config.data_dir));
         let wishlist = Arc::new(wishlist::Wishlist::open(&config.data_dir));
         let totals = Arc::new(sharing::Totals::open(&config.data_dir));
+        let automation = Arc::new(automation::Automation::open(&config.data_dir));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -136,6 +140,7 @@ impl AppState {
             sharing,
             wishlist,
             totals,
+            automation,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -155,6 +160,7 @@ impl AppState {
         sharing::start(&state);
         wishlist::start(&state);
         sharing::Totals::start(&state);
+        automation::start(&state);
         state
     }
 }
@@ -184,6 +190,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/sharing", get(sharing::status).put(sharing::update))
         .route("/api/v1/wishlist", get(wishlist::list).post(wishlist::add))
         .route("/api/v1/wishlist/batch", post(wishlist::add_many))
+        .route("/api/v1/automation", get(automation::settings).put(automation::update))
+        .route("/api/v1/follows", get(automation::follows).post(automation::follow))
+        .route("/api/v1/follows/{id}", delete(automation::unfollow))
         .route("/api/v1/wishlist/{id}", patch(wishlist::update).delete(wishlist::remove))
         .route("/api/v1/sharing/rescan", post(sharing::rescan))
         .route("/api/v1/soulseek/chat", get(chat::overview))

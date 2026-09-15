@@ -104,6 +104,14 @@ impl Client {
         body.into_result().map(|(_, b)| b.album)
     }
 
+    /// Albums in name order, a page at a time (`getAlbumList2`).
+    pub async fn albums(&self, offset: u32, size: u32) -> Result<Vec<Album>, Error> {
+        let (offset, size) = (offset.to_string(), size.min(500).to_string());
+        let params = [("type", "alphabeticalByName"), ("offset", offset.as_str()), ("size", size.as_str())];
+        let body: Envelope<AlbumListBody> = self.get("getAlbumList2", &params).await?;
+        body.into_result().map(|(_, b)| b.album_list2.album)
+    }
+
     pub async fn scan_status(&self) -> Result<ScanStatus, Error> {
         let body: Envelope<ScanBody> = self.get("getScanStatus", &[]).await?;
         body.into_result().map(|(_, b)| b.scan_status)
@@ -217,6 +225,19 @@ struct UserBody {
 pub struct SearchResult {
     pub album: Vec<Album>,
     pub song: Vec<Song>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlbumListBody {
+    #[serde(default)]
+    album_list2: AlbumList,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct AlbumList {
+    #[serde(default)]
+    album: Vec<Album>,
 }
 
 #[derive(Debug, Deserialize)]

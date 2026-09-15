@@ -10,6 +10,7 @@ import { Avatar } from "@/components/profile-menu"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { ACCENTS, avatarUrl, THEMES, useSetAppearance, useSetAvatar } from "@/lib/appearance"
+import { type AutomationSettings, useAutomation } from "@/lib/automation"
 import { useMe, useSignOut } from "@/lib/session"
 import { PageFrame } from "@/pages/placeholder-pages"
 import { api, type People, type Permissions, type Person } from "@/lib/api"
@@ -49,6 +50,15 @@ export function SettingsPage() {
         </Section>
         {me.permissions.manage && (
           <Section
+            id="automation"
+            title="Automation"
+            description="Things delune can do on its own. Everything it finds still waits for review."
+          >
+            <AutomationSettingsPanel />
+          </Section>
+        )}
+        {me.permissions.manage && (
+          <Section
             id="sharing"
             title="Sharing"
             description="Let other Soulseek users browse and download your library. Off until you turn it on."
@@ -78,7 +88,7 @@ function SectionNav({ manage }: { manage: boolean }) {
     ["appearance", "Appearance"],
     ...(manage ? [["people", "People"]] : []),
     ["sources", "Sources"],
-    ...(manage ? [["sharing", "Sharing"]] : []),
+    ...(manage ? [["automation", "Automation"], ["sharing", "Sharing"]] : []),
     ["soulseek", "Soulseek"],
     ["naming", "File naming"],
   ]
@@ -261,6 +271,57 @@ function AppearancePicker() {
         ))}
       </div>
       {set.isError && <p className="text-sm text-destructive">{set.error.message}</p>}
+    </div>
+  )
+}
+
+function AutomationSettingsPanel() {
+  const { settings, save } = useAutomation()
+  if (!settings.data) return <div className="h-32 animate-pulse rounded-xl bg-muted/50" />
+  const s = settings.data
+  const set = (patch: Partial<AutomationSettings>) => save.mutate({ ...s, ...patch })
+  const row = (title: string, description: string, checked: boolean, onChange: (v: boolean) => void) => (
+    <label className="flex cursor-pointer items-start gap-4 border-b px-5 py-4 last:border-b-0">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px]">{title}</span>
+        <span className="mt-1 block text-sm text-muted-foreground">{description}</span>
+      </span>
+      <Switch checked={checked} onCheckedChange={onChange} className="mt-1" />
+    </label>
+  )
+  return (
+    <div className="overflow-hidden rounded-2xl border bg-card/50">
+      {row(
+        "Follow artists",
+        "New albums and EPs from artists people follow go onto the wishlist. Follow an artist from any release.",
+        s.follow_artists,
+        (follow_artists) => set({ follow_artists }),
+      )}
+      {row(
+        "Quality upgrades",
+        "Slowly look through the library for lossy albums and search for better copies.",
+        s.quality_upgrades,
+        (quality_upgrades) => set({ quality_upgrades }),
+      )}
+      {s.quality_upgrades && (
+        <div className="flex items-center gap-3 border-b px-5 py-3 text-sm">
+          <span className="text-muted-foreground">Upgrade to</span>
+          <select
+            value={s.upgrade_to}
+            onChange={(e) => set({ upgrade_to: e.target.value as AutomationSettings["upgrade_to"] })}
+            className="h-9 rounded-lg border bg-background/50 px-2"
+          >
+            <option value="lossless">Lossless</option>
+            <option value="hi-res">Hi-res</option>
+          </select>
+        </div>
+      )}
+      {row(
+        "Download what it finds",
+        "Otherwise finds stay on the wishlist for someone to download.",
+        s.auto_download,
+        (auto_download) => set({ auto_download }),
+      )}
     </div>
   )
 }

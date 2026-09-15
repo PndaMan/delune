@@ -1,6 +1,6 @@
 import { Dialog } from "@base-ui/react/dialog"
 import { Link } from "@tanstack/react-router"
-import { ArrowDownToLine, Check, CircleCheck, FileImage, File as FileIcon, LoaderCircle, TriangleAlert, X } from "lucide-react"
+import { ArrowDownToLine, Bell, BellRing, Check, CircleCheck, FileImage, File as FileIcon, LoaderCircle, TriangleAlert, X } from "lucide-react"
 import { useLayoutEffect, useRef, useState } from "react"
 
 import { Cover } from "@/components/cover"
@@ -13,6 +13,7 @@ import { formatBytes, formatRuntime, formatSpeed, formatTrackTime, plural } from
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
 import { parseTrackName } from "@/lib/track-name"
 import { matchLink, useResolved } from "@/lib/tracklist"
+import { useFollow, useFollows, useUnfollow } from "@/lib/automation"
 import { useHiddenUsers } from "@/lib/hidden-users"
 import { cn } from "@/lib/utils"
 
@@ -135,7 +136,10 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
 
         {owned && <LibraryNote owned={owned} library={library.data} />}
 
-        <HideSharer username={c.username} />
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <FollowArtist artist={artwork.data?.artist ?? c.parent} />
+          <HideSharer username={c.username} />
+        </div>
 
         {c.mixed_quality && (
           <p className="mt-4 flex gap-2 text-[13px] text-q-hires">
@@ -431,6 +435,30 @@ function DownloadAction({
   )
 }
 
+/** Follow the artist, so new releases land on the wishlist. */
+function FollowArtist({ artist }: { artist: string | null | undefined }) {
+  const follows = useFollows()
+  const follow = useFollow()
+  const unfollow = useUnfollow()
+  if (!artist) return null
+  const existing = follows.data?.find((f) => f.artist.toLowerCase() === artist.toLowerCase())
+  return (
+    <button
+      type="button"
+      disabled={follow.isPending || unfollow.isPending}
+      onClick={() => (existing ? unfollow.mutate(existing.deezer_id) : follow.mutate(artist))}
+      className={cn(
+        "flex items-center gap-1.5 text-[12.5px] underline-offset-4 hover:underline",
+        existing ? "text-primary" : "text-muted-foreground/80 hover:text-foreground",
+      )}
+      title={follow.isError ? follow.error.message : undefined}
+    >
+      {existing ? <BellRing className="size-3.5" /> : <Bell className="size-3.5" />}
+      {existing ? `Following ${existing.artist}` : `Follow ${artist}`}
+    </button>
+  )
+}
+
 /** Hide someone's results for good, e.g. after a fake or a failed download. */
 function HideSharer({ username }: { username: string }) {
   const { hidden, hide, unhide } = useHiddenUsers()
@@ -439,7 +467,7 @@ function HideSharer({ username }: { username: string }) {
     <button
       type="button"
       onClick={() => (isHidden ? unhide(username) : hide(username))}
-      className="mt-3 self-start text-[12.5px] text-muted-foreground/70 underline-offset-4 hover:text-foreground hover:underline"
+      className="text-[12.5px] text-muted-foreground/70 underline-offset-4 hover:text-foreground hover:underline"
     >
       {isHidden ? `Show ${username}'s results again` : `Hide results from ${username}`}
     </button>

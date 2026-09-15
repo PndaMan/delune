@@ -71,6 +71,14 @@ impl Wishlist {
             .cloned()
     }
 
+    /// Change the list directly, saving afterwards.
+    pub(crate) fn with_items<R>(&self, change: impl FnOnce(&mut Vec<WishlistItem>) -> R) -> R {
+        let mut items = self.lock();
+        let result = change(&mut items);
+        self.save(&items);
+        result
+    }
+
     fn update(&self, id: &str, change: impl FnOnce(&mut WishlistItem)) {
         let mut items = self.lock();
         if let Some(item) = items.iter_mut().find(|i| i.id == id) {

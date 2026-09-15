@@ -114,6 +114,6 @@ Navidrome, from both the web UI and the TUI.
 - Settings screens with full naming, lyrics, artwork and transcoding options
 - Cover-art accent colours; theme presets; shared design tokens for web and TUI
 - Playlist import and watchlist
-- Followed artists and automatic quality upgrades (off by default)
+- [x] Followed artists and automatic quality upgrades (off by default)
 - Opt-in streaming providers: Qobuz, Tidal, Deezer, YouTube Music, SoundCloud, Bandcamp
 - Album art in the TUI (kitty, sixel, iTerm2)

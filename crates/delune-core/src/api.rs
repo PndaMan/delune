@@ -734,6 +734,40 @@ const fn yes() -> bool {
     true
 }
 
+/// `GET /api/v1/automation`: what delune does on its own. Both are off by default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutomationSettings {
+    /// Put new releases from followed artists on the wishlist.
+    pub follow_artists: bool,
+    /// Look for better copies of lossy albums in the library.
+    pub quality_upgrades: bool,
+    /// What an upgrade must be.
+    pub upgrade_to: MinQuality,
+    /// Download what automation finds (for review), or just list it.
+    pub auto_download: bool,
+}
+
+impl Default for AutomationSettings {
+    fn default() -> Self {
+        Self { follow_artists: false, quality_upgrades: false, upgrade_to: MinQuality::Lossless, auto_download: true }
+    }
+}
+
+/// An artist someone follows. `GET /api/v1/follows`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Follow {
+    pub artist: String,
+    pub deezer_id: u64,
+    pub picture: Option<String>,
+    pub added_by: String,
+    /// Unix seconds. Releases from before this aren't fetched.
+    pub since: u64,
+    pub last_checked: Option<u64>,
+    /// Releases already put on the wishlist.
+    #[serde(default)]
+    pub seen: Vec<u64>,
+}
+
 /// `PATCH /api/v1/wishlist/{id}`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WishlistUpdate {

@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router"
-import { Pause, Play, Plus, Sparkles, Trash2 } from "lucide-react"
+import { Pause, Play, Plus, Sparkles, Trash2, X } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { useFollows, useUnfollow } from "@/lib/automation"
 import { chatTime } from "@/lib/chat"
 import { plural } from "@/lib/format"
 import { requesterLabel, useMe } from "@/lib/session"
@@ -52,6 +53,7 @@ export function WishlistSection() {
         </Button>
       </form>
       {add.isError && <p className="mt-2 text-sm text-destructive">{add.error.message}</p>}
+      <Following />
       {items.length > 0 && (
         <ul className="mt-5 overflow-hidden rounded-2xl border bg-card/50">
           {items.map((item) => (
@@ -60,6 +62,36 @@ export function WishlistSection() {
         </ul>
       )}
     </section>
+  )
+}
+
+/** Artists whose new releases are watched for. */
+function Following() {
+  const follows = useFollows()
+  const unfollow = useUnfollow()
+  if (!follows.data?.length) return null
+  return (
+    <div className="mt-5 flex flex-wrap items-center gap-2">
+      <span className="text-sm text-muted-foreground">Following</span>
+      {follows.data.map((f) => (
+        <span key={`${f.deezer_id}-${f.added_by}`} className="flex items-center gap-2 rounded-full border bg-card/60 py-1 pr-1 pl-1">
+          {f.picture ? (
+            <img src={`/api/v1/artwork/image?src=${encodeURIComponent(f.picture)}`} alt="" className="size-6 rounded-full object-cover" />
+          ) : (
+            <span className="size-6 rounded-full bg-muted" />
+          )}
+          <span className="text-[13.5px]">{f.artist}</span>
+          <button
+            type="button"
+            onClick={() => unfollow.mutate(f.deezer_id)}
+            aria-label={`Stop following ${f.artist}`}
+            className="rounded-full p-1 text-muted-foreground hover:text-foreground"
+          >
+            <X className="size-3.5" />
+          </button>
+        </span>
+      ))}
+    </div>
   )
 }
 
