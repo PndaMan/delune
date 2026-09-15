@@ -1,0 +1,70 @@
+import { useQuery } from "@tanstack/react-query"
+
+import { toApiError } from "@/lib/api"
+
+export type SharingSettings = {
+  enabled: boolean
+  share_name: string
+  slots: number
+  queue_per_user: number
+  speed_limit_kib: number | null
+  banned: string[]
+}
+
+export type SharingStatus = {
+  settings: SharingSettings
+  library_dir: string | null
+  scanning: boolean
+  files: number
+  folders: number
+  last_scan: number | null
+  error: string | null
+}
+
+export type Upload = {
+  id: number
+  username: string
+  filename: string
+  size: number
+  bytes: number
+  status: "queued" | "connecting" | "transferring" | "completed" | "failed" | "cancelled"
+  reason: string | null
+  queued_at: number
+  speed: number
+}
+
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/v1${path}`, {
+    method,
+    headers: body === undefined ? { accept: "application/json" } : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw await toApiError(res)
+  return (res.status === 204 || res.status === 202 ? undefined : await res.json()) as T
+}
+
+export const sharingApi = {
+  status: () => call<SharingStatus>("GET", "/sharing"),
+  update: (settings: SharingSettings) => call<SharingStatus>("PUT", "/sharing", settings),
+  rescan: () => call<void>("POST", "/sharing/rescan"),
+  uploads: () => call<Upload[]>("GET", "/soulseek/uploads"),
+  cancel: (id: number) => call<void>("DELETE", `/soulseek/uploads/${id}`),
+  clear: () => call<void>("POST", "/soulseek/uploads/clear"),
+}
+
+export function useSharingStatus() {
+  return useQuery({
+    queryKey: ["sharing"],
+    queryFn: sharingApi.status,
+    refetchInterval: (query) => (query.state.data?.scanning ? 1_500 : 30_000),
+  })
+}
+
+export function useUploads() {
+  return useQuery({
+    queryKey: ["uploads"],
+    queryFn: sharingApi.uploads,
+    refetchInterval: (query) =>
+      query.state.data?.some((u) => u.status === "transferring" || u.status === "connecting") ? 1_000 : 5_000,
+  })
+}

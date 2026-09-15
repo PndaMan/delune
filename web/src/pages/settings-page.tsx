@@ -3,6 +3,7 @@ import { LogOut, Lock } from "lucide-react"
 import { useEffect } from "react"
 
 import { NamingEditor } from "@/components/naming-editor"
+import { SharingSettingsPanel } from "@/components/sharing-settings"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
 import { Moon } from "@/components/moon"
 import { Avatar } from "@/components/profile-menu"
@@ -16,13 +17,14 @@ import { cn } from "@/lib/utils"
 export function SettingsPage() {
   const me = useMe()
   useEffect(() => {
-    if (window.location.hash === "#people") document.getElementById("people")?.scrollIntoView({ block: "start" })
+    const target = window.location.hash.slice(1)
+    if (target) document.getElementById(target)?.scrollIntoView({ block: "start" })
   }, [])
   return (
     <PageFrame title="Settings" wide>
       <p className="max-w-[60ch] text-[15px] text-muted-foreground">
-        People and permissions save as you change them. The other sections show what delune uses today, and the file
-        naming editor previews exactly how your library will be named.
+        People, permissions and sharing save as you change them. The other sections show what delune uses today, and the
+        file naming editor previews exactly how your library will be named.
       </p>
       <div className="mt-10 divide-y border-t pb-24">
         <Section title="Your account" description="delune uses your Navidrome account. Admins in Navidrome are admins here.">
@@ -40,6 +42,15 @@ export function SettingsPage() {
         <Section title="Sources" description="Where delune looks for music, in order. Soulseek always comes first.">
           <Sources />
         </Section>
+        {me.permissions.manage && (
+          <Section
+            id="sharing"
+            title="Sharing"
+            description="Let other Soulseek users browse and download your library. Off until you turn it on."
+          >
+            <SharingSettingsPanel />
+          </Section>
+        )}
         <Section title="Soulseek account" description="delune connects to Soulseek itself; no separate client needed.">
           <SoulseekAccount />
         </Section>

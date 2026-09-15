@@ -45,6 +45,33 @@ pub enum InspectError {
     Read(String),
 }
 
+/// Just the audio properties, skipping tags and artwork: fast enough to index a
+/// whole library for sharing.
+///
+/// # Errors
+///
+/// When the file isn't audio delune understands, or can't be read.
+pub fn properties(path: &Path) -> Result<(Quality, u32), InspectError> {
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+    let mut codec = Codec::from_extension(extension).ok_or(InspectError::Unsupported)?;
+    let options = lofty::config::ParseOptions::new().read_tags(false).read_cover_art(false);
+    let file = lofty::probe::Probe::open(path)
+        .and_then(|probe| probe.options(options).read())
+        .map_err(|e| InspectError::Read(e.to_string()))?;
+    let props = file.properties();
+    if codec == Codec::Aac && props.bit_depth().is_some() {
+        codec = Codec::Alac;
+    }
+    let quality = Quality {
+        codec,
+        bit_depth: props.bit_depth().filter(|_| codec.is_lossless()),
+        sample_rate: props.sample_rate(),
+        bitrate_kbps: if codec.is_lossless() { None } else { props.audio_bitrate() },
+        vbr: false,
+    };
+    Ok((quality, u32::try_from(props.duration().as_secs()).unwrap_or(u32::MAX)))
+}
+
 /// Read properties and tags from an audio file.
 pub fn inspect(path: &Path) -> Result<AudioInfo, InspectError> {
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default();

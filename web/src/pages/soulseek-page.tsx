@@ -37,14 +37,20 @@ function Tabs() {
   const path = useRouterState({ select: (s) => s.location.pathname })
   const unreadMessages = overview.data?.conversations.reduce((n, c) => n + c.unread, 0) ?? 0
   const unreadRooms = overview.data?.rooms.reduce((n, r) => n + r.unread, 0) ?? 0
-  const section = path.startsWith("/soulseek/messages") ? "messages" : path.startsWith("/soulseek/rooms") ? "rooms" : "people"
+  const section = path.startsWith("/soulseek/messages")
+    ? "messages"
+    : path.startsWith("/soulseek/rooms")
+      ? "rooms"
+      : path.startsWith("/soulseek/uploads")
+        ? "uploads"
+        : "people"
   const tab = (active: boolean) =>
     cn(
       "relative flex h-10 items-center gap-2 rounded-xl px-4 text-[14.5px] transition-colors",
       active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
     )
   return (
-    <nav aria-label="Soulseek" className="flex gap-1 rounded-2xl border bg-card/50 p-1">
+    <nav aria-label="Soulseek" className="-mx-1 flex gap-1 overflow-x-auto rounded-2xl border bg-card/50 p-1 [scrollbar-width:none]">
       <Link to="/soulseek" className={tab(section === "people")} aria-current={section === "people" ? "page" : undefined}>
         People
       </Link>
@@ -53,6 +59,9 @@ function Tabs() {
       </Link>
       <Link to="/soulseek/rooms" className={tab(section === "rooms")} aria-current={section === "rooms" ? "page" : undefined}>
         Rooms {unreadRooms > 0 && <Count n={unreadRooms} />}
+      </Link>
+      <Link to="/soulseek/uploads" className={tab(section === "uploads")} aria-current={section === "uploads" ? "page" : undefined}>
+        Uploads
       </Link>
     </nav>
   )

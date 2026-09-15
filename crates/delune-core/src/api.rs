@@ -529,6 +529,77 @@ pub enum ChatUpdate {
     Rooms,
 }
 
+/// How delune shares the library on Soulseek. Off until someone turns it on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharingSettings {
+    pub enabled: bool,
+    /// The top folder other people see, instead of where the library really is.
+    pub share_name: String,
+    /// Uploads at once.
+    pub slots: u32,
+    /// Files one person may have waiting.
+    pub queue_per_user: u32,
+    /// Upload speed cap in KiB/s; none means no cap.
+    pub speed_limit_kib: Option<u32>,
+    /// People who can't download from us.
+    pub banned: Vec<String>,
+}
+
+impl Default for SharingSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            share_name: "Music".into(),
+            slots: 3,
+            queue_per_user: 200,
+            speed_limit_kib: None,
+            banned: Vec::new(),
+        }
+    }
+}
+
+/// `GET /api/v1/sharing`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharingStatus {
+    pub settings: SharingSettings,
+    /// The folder being shared, when a library is configured.
+    pub library_dir: Option<String>,
+    pub scanning: bool,
+    pub files: u32,
+    pub folders: u32,
+    /// Unix seconds.
+    pub last_scan: Option<u64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UploadStatus {
+    Queued,
+    Connecting,
+    Transferring,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// One upload in `GET /api/v1/soulseek/uploads`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Upload {
+    pub id: u64,
+    pub username: String,
+    /// The shared path they asked for.
+    pub filename: String,
+    pub size: u64,
+    pub bytes: u64,
+    pub status: UploadStatus,
+    pub reason: Option<String>,
+    /// Unix seconds.
+    pub queued_at: u64,
+    /// Bytes per second.
+    pub speed: u64,
+}
+
 /// A link someone pasted, resolved to the release or track it points at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedLink {

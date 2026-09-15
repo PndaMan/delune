@@ -15,6 +15,7 @@ pub mod library;
 pub mod naming;
 pub mod review;
 pub mod search;
+pub mod sharing;
 pub mod users;
 mod web;
 
@@ -77,6 +78,7 @@ pub struct AppState {
     pub accounts: Arc<accounts::Accounts>,
     pub browse: Arc<users::BrowseCache>,
     pub chat: Arc<chat::Chat>,
+    pub sharing: Arc<sharing::Sharing>,
 }
 
 impl Default for AppState {
@@ -95,6 +97,7 @@ impl Default for AppState {
             accounts: Arc::new(accounts::Accounts::in_memory(None)),
             browse: Arc::default(),
             chat: Arc::default(),
+            sharing: Arc::default(),
         }
     }
 }
@@ -106,6 +109,7 @@ impl AppState {
         let navidrome_url = config.navidrome.as_ref().map(|(url, _)| url.clone());
         let accounts = Arc::new(accounts::Accounts::open(&config.data_dir, navidrome_url));
         let chat = Arc::new(chat::Chat::open(&config.data_dir));
+        let sharing = Arc::new(sharing::Sharing::open(&config.data_dir));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -122,6 +126,7 @@ impl AppState {
             navidrome,
             accounts,
             chat,
+            sharing,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -138,6 +143,7 @@ impl AppState {
         });
         downloads::resume(&state);
         chat::start(&state);
+        sharing::start(&state);
         state
     }
 }
@@ -157,6 +163,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/users/{username}/picture", get(users::picture))
         .route("/api/v1/soulseek/users/{username}/shares", get(users::share_tree))
         .route("/api/v1/soulseek/users/{username}/folder", get(users::folder))
+        .route("/api/v1/soulseek/uploads", get(sharing::uploads))
+        .route("/api/v1/soulseek/uploads/clear", post(sharing::clear_uploads))
+        .route("/api/v1/soulseek/uploads/{id}", delete(sharing::cancel_upload))
+        .route("/api/v1/sharing", get(sharing::status).put(sharing::update))
+        .route("/api/v1/sharing/rescan", post(sharing::rescan))
         .route("/api/v1/soulseek/chat", get(chat::overview))
         .route("/api/v1/soulseek/chat/events", get(chat::events))
         .route("/api/v1/soulseek/chat/users/{username}", get(chat::conversation).post(chat::send).delete(chat::forget))

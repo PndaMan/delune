@@ -25,7 +25,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Search with rate limiting; results streamed to clients (API + TUI)
 - [x] Transfers: queueing, download, resume, retry, cancel
 - [ ] NAT traversal help: UPnP/NAT-PMP port mapping, clear guidance when port 2234 isn't reachable
-- [ ] Share index of the music folder; answering searches; uploads with slot limits
+- [x] Share index of the music folder; answering searches; uploads with slot limits
 
 **Finding the right release**
 - [x] Link parsing for 9 services
@@ -76,8 +76,8 @@ Navidrome, from both the web UI and the TUI.
 - [ ] Per-user history and notifications
 
 **Soulseek: everything slskd does, simpler (before any streaming service)**
-- [ ] Share the music library: index, answer searches, upload with slot and speed limits
-- [ ] Uploads page: who's downloading from you, queue, speeds, cancel, per-user limits
+- [x] Share the music library: index, answer searches, upload with slot and speed limits (opt-in)
+- [x] Uploads page: who's downloading from you, queue, speeds, cancel, block, per-user limits
 - [x] Browse a user's shared folders; download any folder from there
 - [x] User profiles: info, picture, shared counts, free slots, speed
 - [x] Private messages and chat rooms (for people who manage delune; rooms rejoin on reconnect)

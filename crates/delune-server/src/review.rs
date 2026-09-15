@@ -239,6 +239,8 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
 
     app.downloads.mark_imported(&id);
     app.library_cache.clear();
+    // Share what just arrived.
+    crate::sharing::refresh(&app);
     let staging = crate::downloads::staging_dir(&app.data_dir, &id);
     let _ = tokio::fs::remove_dir_all(&staging).await;
 

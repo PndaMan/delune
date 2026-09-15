@@ -7,6 +7,7 @@ import { SearchPage } from "@/pages/search-page"
 import { SettingsPage } from "@/pages/settings-page"
 import { MessagesPage } from "@/pages/messages-page"
 import { RoomsPage } from "@/pages/rooms-page"
+import { UploadsPage } from "@/pages/uploads-page"
 import { PeopleTab, SoulseekLayout } from "@/pages/soulseek-page"
 import { UserPage } from "@/pages/user-page"
 
@@ -34,12 +35,13 @@ const messagesRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "
 const conversationRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/messages/$username", component: MessagesPage })
 const roomsRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/rooms", component: RoomsPage })
 const roomRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/rooms/$room", component: RoomsPage })
+const uploadsRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/uploads", component: UploadsPage })
 
 const routeTree = rootRoute.addChildren([
   searchRoute,
   downloadsRoute,
   reviewRoute,
-  soulseekRoute.addChildren([peopleRoute, userRoute, messagesRoute, conversationRoute, roomsRoute, roomRoute]),
+  soulseekRoute.addChildren([peopleRoute, userRoute, messagesRoute, conversationRoute, roomsRoute, roomRoute, uploadsRoute]),
   settingsRoute,
 ])
 
