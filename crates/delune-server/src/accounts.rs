@@ -23,7 +23,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
-use delune_core::api::{ApiError, Appearance, AuthMode, LoginRequest, Me, People, Permissions, Person};
+use delune_core::api::{ApiError, Appearance, AuthMode, LoginRequest, Me, People, Permissions, Person, SessionInfo};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -84,6 +84,9 @@ struct Session {
     username: String,
     created_at: u64,
     last_seen: u64,
+    /// What signed in, from its user agent.
+    #[serde(default)]
+    device: Option<String>,
 }
 
 /// The person making a request.
@@ -93,6 +96,8 @@ pub struct CurrentUser {
     pub admin: bool,
     pub permissions: Permissions,
     pub can_import: bool,
+    /// Public id of the session this request came with (none in open mode).
+    pub session: Option<String>,
 }
 
 impl CurrentUser {
@@ -118,6 +123,40 @@ fn now() -> u64 {
 
 fn hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
+}
+
+/// The id shown for a session: a prefix of its stored hash, so it can't be used to sign in.
+fn public_id(key: &str) -> String {
+    key.chars().take(16).collect()
+}
+
+/// "Firefox on Linux", from a user agent.
+fn describe_device(user_agent: &str) -> String {
+    if user_agent.starts_with("delune") || user_agent.starts_with("reqwest") {
+        return "Terminal UI".into();
+    }
+    let browser =
+        [("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari")]
+            .into_iter()
+            .find(|(marker, _)| user_agent.contains(marker))
+            .map(|(_, name)| name);
+    let system = [
+        ("iPhone", "iPhone"),
+        ("iPad", "iPad"),
+        ("Android", "Android"),
+        ("Mac OS X", "macOS"),
+        ("Windows", "Windows"),
+        ("CrOS", "ChromeOS"),
+        ("Linux", "Linux"),
+    ]
+    .into_iter()
+    .find(|(marker, _)| user_agent.contains(marker))
+    .map(|(_, name)| name);
+    match (browser, system) {
+        (Some(browser), Some(system)) => format!("{browser} on {system}"),
+        (Some(name), None) | (None, Some(name)) => name.to_owned(),
+        (None, None) => "Another app".to_owned(),
+    }
 }
 
 fn new_token() -> String {
@@ -196,6 +235,7 @@ impl Accounts {
             admin: record.admin,
             permissions,
             can_import: permissions.manage || !require_approval || permissions.skip_approval,
+            session: None,
         }
     }
 
@@ -225,7 +265,8 @@ impl Accounts {
         session.last_seen = now;
         let username = session.username.clone();
         let record = state.users.get(&username)?.clone();
-        let user = Self::current(&record, state.require_approval);
+        let mut user = Self::current(&record, state.require_approval);
+        user.session = Some(public_id(&key));
         if save_timer {
             self.save(&mut state);
         }
@@ -233,7 +274,13 @@ impl Accounts {
     }
 
     /// Remember a successful Navidrome sign-in and open a session. Returns the token.
+    #[cfg(test)]
     pub(crate) fn signed_in(&self, username: &str, admin: bool) -> (String, CurrentUser) {
+        self.signed_in_on(username, admin, None)
+    }
+
+    /// Like [`Self::signed_in`], remembering what signed in.
+    fn signed_in_on(&self, username: &str, admin: bool, device: Option<String>) -> (String, CurrentUser) {
         let token = new_token();
         let now = now();
         let mut state = self.lock();
@@ -248,8 +295,12 @@ impl Accounts {
         record.admin = admin;
         record.last_login = now;
         let record = record.clone();
-        state.sessions.insert(hash(&token), Session { username: username.to_owned(), created_at: now, last_seen: now });
-        let user = Self::current(&record, state.require_approval);
+        let key = hash(&token);
+        state
+            .sessions
+            .insert(key.clone(), Session { username: username.to_owned(), created_at: now, last_seen: now, device });
+        let mut user = Self::current(&record, state.require_approval);
+        user.session = Some(public_id(&key));
         self.save(&mut state);
         (token, user)
     }
@@ -259,6 +310,39 @@ impl Accounts {
         if state.sessions.remove(&hash(token)).is_some() {
             self.save(&mut state);
         }
+    }
+
+    fn sessions_of(&self, username: &str, current: Option<&str>) -> Vec<SessionInfo> {
+        let state = self.lock();
+        let mut sessions: Vec<SessionInfo> = state
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.username == username)
+            .map(|(key, s)| {
+                let id = public_id(key);
+                SessionInfo {
+                    current: current == Some(id.as_str()),
+                    id,
+                    device: s.device.clone().unwrap_or_else(|| "Unknown device".into()),
+                    created_at: s.created_at,
+                    last_seen: s.last_seen,
+                }
+            })
+            .collect();
+        sessions.sort_by(|a, b| b.current.cmp(&a.current).then(b.last_seen.cmp(&a.last_seen)));
+        sessions
+    }
+
+    /// End `username`'s sessions that `revoke` picks out by public id. Returns how many ended.
+    fn revoke(&self, username: &str, revoke: impl Fn(&str) -> bool) -> usize {
+        let mut state = self.lock();
+        let before = state.sessions.len();
+        state.sessions.retain(|key, s| s.username != username || !revoke(&public_id(key)));
+        let ended = before - state.sessions.len();
+        if ended > 0 {
+            self.save(&mut state);
+        }
+        ended
     }
 
     fn locked_out(&self, username: &str) -> bool {
@@ -295,6 +379,8 @@ impl Accounts {
                     permissions: if u.admin { Permissions::ALL } else { u.permissions },
                     last_login: u.last_login,
                     avatar: state.profiles.get(&u.username).and_then(|p| p.avatar.as_ref()).map(|(_, v)| *v),
+                    sessions: u32::try_from(state.sessions.values().filter(|s| s.username == u.username).count())
+                        .unwrap_or(u32::MAX),
                 })
                 .collect(),
         }
@@ -508,7 +594,8 @@ pub async fn sign_in(State(app): State<AppState>, headers: HeaderMap, Json(reque
     };
     accounts.clear_failures(username);
     // Use Navidrome's spelling of the name, so "Aidan" and "aidan" are one person.
-    let (token, user) = accounts.signed_in(&navidrome_user.username, navidrome_user.admin_role);
+    let device = headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).map(describe_device);
+    let (token, user) = accounts.signed_in_on(&navidrome_user.username, navidrome_user.admin_role, device);
     tracing::info!(username = %user.username, admin = user.admin, "signed in");
 
     let body = me(accounts, &user, request.token.then(|| token.clone()));
@@ -525,6 +612,41 @@ pub async fn sign_out(State(app): State<AppState>, headers: HeaderMap) -> Respon
     let mut response = StatusCode::NO_CONTENT.into_response();
     response.headers_mut().insert(header::SET_COOKIE, session_cookie("", &headers, 0));
     response
+}
+
+/// `GET /api/v1/session/devices`: where you're signed in.
+pub async fn devices(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<SessionInfo>> {
+    Json(app.accounts.sessions_of(&user.username, user.session.as_deref()))
+}
+
+/// `DELETE /api/v1/session/devices/{id}`: sign out one of your devices.
+pub async fn revoke_device(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    match app.accounts.revoke(&user.username, |session| session == id) {
+        0 => error(StatusCode::NOT_FOUND, "no-such-session", "That device is already signed out."),
+        _ => Json(app.accounts.sessions_of(&user.username, user.session.as_deref())).into_response(),
+    }
+}
+
+/// `POST /api/v1/session/devices/sign-out-others`: sign out everywhere but here.
+pub async fn revoke_other_devices(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<SessionInfo>> {
+    let current = user.session.clone();
+    let ended = app.accounts.revoke(&user.username, |session| Some(session) != current.as_deref());
+    tracing::info!(username = %user.username, ended, "signed out other devices");
+    Json(app.accounts.sessions_of(&user.username, user.session.as_deref()))
+}
+
+/// `DELETE /api/v1/users/{username}/sessions`: sign someone out everywhere.
+pub async fn revoke_person(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    UrlPath(username): UrlPath<String>,
+) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.manage, "manage people") {
+        return denied;
+    }
+    let ended = app.accounts.revoke(&username, |_| true);
+    tracing::info!(by = %user.username, %username, ended, "signed someone out everywhere");
+    Json(app.accounts.people()).into_response()
 }
 
 /// `GET /api/v1/users`
@@ -623,6 +745,43 @@ mod tests {
 
         accounts.sign_out(&token);
         assert!(accounts.authenticate(Some(&token)).is_none());
+    }
+
+    #[test]
+    fn sessions_can_be_listed_and_revoked() {
+        let accounts = Accounts::in_memory(Some("http://navidrome".into()));
+        let firefox = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
+        let (laptop, here) = accounts.signed_in_on("sam", false, Some(describe_device(firefox)));
+        let (phone, _) = accounts.signed_in_on("sam", false, Some("Safari on iPhone".into()));
+        let (tui, _) = accounts.signed_in("sam", false);
+        let (alex, _) = accounts.signed_in("alex", true);
+
+        let listed = accounts.sessions_of("sam", here.session.as_deref());
+        assert_eq!(listed.len(), 3);
+        assert!(listed[0].current && listed[0].device == "Firefox on Linux");
+        assert!(listed.iter().all(|s| !laptop.contains(&s.id)), "ids aren't tokens");
+
+        let phone_id = accounts.authenticate(Some(&phone)).unwrap().session.unwrap();
+        assert_eq!(accounts.revoke("sam", |id| id == phone_id), 1);
+        assert!(accounts.authenticate(Some(&phone)).is_none());
+        assert_eq!(accounts.revoke("alex", |id| id == phone_id), 0, "only your own sessions");
+
+        let current = here.session.unwrap();
+        assert_eq!(accounts.revoke("sam", |id| id != current), 1);
+        assert!(accounts.authenticate(Some(&tui)).is_none());
+        assert!(accounts.authenticate(Some(&laptop)).is_some());
+        assert!(accounts.authenticate(Some(&alex)).is_some());
+        assert_eq!(accounts.people().people.iter().find(|p| p.username == "sam").unwrap().sessions, 1);
+    }
+
+    #[test]
+    fn describes_devices() {
+        let chrome_android = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36";
+        assert_eq!(describe_device(chrome_android), "Chrome on Android");
+        let safari_mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+        assert_eq!(describe_device(safari_mac), "Safari on macOS");
+        assert_eq!(describe_device("delune/0.1.0"), "Terminal UI");
+        assert_eq!(describe_device("curl/8"), "Another app");
     }
 
     #[test]

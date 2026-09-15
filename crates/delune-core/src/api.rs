@@ -452,6 +452,23 @@ pub struct Person {
     pub last_login: u64,
     #[serde(default)]
     pub avatar: Option<u64>,
+    /// Devices they're signed in on.
+    #[serde(default)]
+    pub sessions: u32,
+}
+
+/// One place someone is signed in, in `GET /api/v1/session/devices`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionInfo {
+    /// Opaque; not the token.
+    pub id: String,
+    /// What signed in, such as "Firefox on Linux".
+    pub device: String,
+    /// Unix seconds.
+    pub created_at: u64,
+    pub last_seen: u64,
+    /// The session making this request.
+    pub current: bool,
 }
 
 /// `GET /api/v1/users`

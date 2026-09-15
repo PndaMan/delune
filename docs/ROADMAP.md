@@ -69,7 +69,8 @@ Navidrome, from both the web UI and the TUI.
 - [x] Sign in with Navidrome credentials; sessions; sign out (web and TUI)
 - [x] Roles and permissions: admin (from Navidrome admin), and per-person rights to search,
       download, skip approval and manage; an "imports need approval" switch
-- [ ] Revoke sessions; per-person rights for streaming sources
+- [x] Revoke sessions: your devices, sign out elsewhere; admins sign someone out everywhere
+- [ ] Per-person rights for streaming sources (with the streaming sources themselves)
 - [ ] Requests: people ask for an album; admins or permitted users approve; request status
       visible to the requester (pending, approved, downloading, in library, declined)
 - [x] Profile menu at the bottom of the rail (avatar, role, connection status, sign out)

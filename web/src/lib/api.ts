@@ -215,7 +215,11 @@ export type Person = {
   permissions: Permissions
   last_login: number
   avatar: number | null
+  /** Devices they're signed in on. */
+  sessions: number
 }
+
+export type SessionInfo = { id: string; device: string; created_at: number; last_seen: number; current: boolean }
 export type People = { require_approval: boolean; people: Person[] }
 
 export type SoulseekUser = {
@@ -306,6 +310,10 @@ export const api = {
   setPermissions: (username: string, permissions: Permissions) =>
     send<People>("PUT", `/users/${encodeURIComponent(username)}/permissions`, { permissions }),
   setRequireApproval: (require_approval: boolean) => send<People>("PUT", "/users/approval", { require_approval }),
+  signOutPerson: (username: string) => send<People>("DELETE", `/users/${encodeURIComponent(username)}/sessions`),
+  devices: (signal?: AbortSignal) => get<SessionInfo[]>("/session/devices", signal),
+  signOutDevice: (id: string) => send<SessionInfo[]>("DELETE", `/session/devices/${encodeURIComponent(id)}`),
+  signOutOtherDevices: () => send<SessionInfo[]>("POST", "/session/devices/sign-out-others"),
   health: (signal?: AbortSignal) => get<Health>("/health", signal),
   sources: (signal?: AbortSignal) => get<SourceInfo[]>("/sources", signal),
   soulseek: (signal?: AbortSignal) => get<SoulseekStatus>("/soulseek", signal),

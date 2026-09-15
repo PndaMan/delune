@@ -14,6 +14,9 @@ use crossterm::terminal;
 use delune_core::api::{ApiError, LoginRequest, Me};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
+/// Lets the server list this as "Terminal UI" among someone's devices.
+const USER_AGENT: &str = concat!("delune-tui/", env!("CARGO_PKG_VERSION"));
+
 /// An HTTP client that is signed in to `base`, prompting for credentials if needed.
 ///
 /// # Errors
@@ -24,7 +27,7 @@ pub async fn signed_in_client(
     username: Option<String>,
     password: Option<String>,
 ) -> Result<reqwest::Client> {
-    let anonymous = reqwest::Client::new();
+    let anonymous = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
     let probe = match anonymous.get(format!("{base}/api/v1/session")).send().await {
         Ok(response) => response.json::<Option<Me>>().await,
         // Unreachable: carry on unsigned and let the UI show the problem.
@@ -59,7 +62,7 @@ pub async fn signed_in_client(
     let mut value = HeaderValue::from_str(&format!("Bearer {token}")).context("invalid session token")?;
     value.set_sensitive(true);
     headers.insert(AUTHORIZATION, value);
-    Ok(reqwest::Client::builder().default_headers(headers).build()?)
+    Ok(reqwest::Client::builder().user_agent(USER_AGENT).default_headers(headers).build()?)
 }
 
 fn prompt(label: &str) -> Result<String> {

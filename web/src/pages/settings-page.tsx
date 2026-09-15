@@ -15,7 +15,7 @@ import { type AutomationSettings, useAutomation } from "@/lib/automation"
 import { useMe, useSignOut } from "@/lib/session"
 import { useSetupStatus } from "@/lib/setup"
 import { PageFrame } from "@/pages/placeholder-pages"
-import { api, type People, type Permissions, type Person } from "@/lib/api"
+import { api, type People, type Permissions, type Person, type SessionInfo } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function SettingsPage() {
@@ -488,6 +488,52 @@ function Account() {
           <LogOut /> Sign out
         </Button>
       )}
+      {me.mode === "navidrome" && <Devices />}
+    </div>
+  )
+}
+
+/** Where you're signed in, with a way to sign any of them out. */
+function Devices() {
+  const client = useQueryClient()
+  const devices = useQuery({ queryKey: ["devices"], queryFn: ({ signal }) => api.devices(signal) })
+  const onDone = (next: SessionInfo[]) => client.setQueryData(["devices"], next)
+  const one = useMutation({ mutationFn: api.signOutDevice, onSuccess: onDone })
+  const others = useMutation({ mutationFn: api.signOutOtherDevices, onSuccess: onDone })
+  if (!devices.data) return null
+  const elsewhere = devices.data.filter((d) => !d.current).length
+  return (
+    <div className="w-full border-t pt-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-0 flex-1 text-[14px] text-muted-foreground">Signed in on</p>
+        {elsewhere > 0 && (
+          <Button variant="ghost" size="sm" disabled={others.isPending} onClick={() => others.mutate()}>
+            Sign out everywhere else
+          </Button>
+        )}
+      </div>
+      <ul className="mt-2 space-y-1">
+        {devices.data.map((device) => (
+          <li key={device.id} className="flex items-center gap-3 rounded-lg py-1.5 text-[14px]">
+            <span className="min-w-0 flex-1 truncate">
+              {device.device}
+              <span className="text-muted-foreground">
+                {device.current
+                  ? ", this device"
+                  : `, last used ${new Date(device.last_seen * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`}
+              </span>
+            </span>
+            {!device.current && (
+              <Button variant="ghost" size="sm" disabled={one.isPending} onClick={() => one.mutate(device.id)}>
+                Sign out
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {(one.isError || others.isError) && (
+        <p className="mt-1 text-sm text-destructive">{(one.error ?? others.error)?.message}</p>
+      )}
     </div>
   )
 }
@@ -509,6 +555,7 @@ function PeopleSettings() {
     mutationFn: ({ username, next }: { username: string; next: Permissions }) => api.setPermissions(username, next),
     onSuccess: onSaved,
   })
+  const signOutPerson = useMutation({ mutationFn: api.signOutPerson, onSuccess: onSaved })
 
   if (me.mode === "open") {
     return (
@@ -540,11 +587,14 @@ function PeopleSettings() {
             person={person}
             requireApproval={require_approval}
             onChange={(next) => permissions.mutate({ username: person.username, next })}
+            onSignOut={person.username === me.username ? undefined : () => signOutPerson.mutate(person.username)}
           />
         ))}
       </ul>
-      {(approval.isError || permissions.isError) && (
-        <p className="text-sm text-destructive">{(approval.error ?? permissions.error)?.message}</p>
+      {(approval.isError || permissions.isError || signOutPerson.isError) && (
+        <p className="text-sm text-destructive">
+          {(approval.error ?? permissions.error ?? signOutPerson.error)?.message}
+        </p>
       )}
     </div>
   )
@@ -554,10 +604,12 @@ function PersonRow({
   person,
   requireApproval,
   onChange,
+  onSignOut,
 }: {
   person: Person
   requireApproval: boolean
   onChange: (next: Permissions) => void
+  onSignOut?: () => void
 }) {
   const lastSeen = new Date(person.last_login * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" })
   return (
@@ -569,6 +621,15 @@ function PersonRow({
           <p className="text-[13px] text-muted-foreground">
             {person.admin ? "Admin" : "Member"}, signed in {lastSeen}
           </p>
+          {onSignOut && person.sessions > 0 && (
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="mt-0.5 text-[12.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Sign out of {person.sessions === 1 ? "their device" : `all ${person.sessions} devices`}
+            </button>
+          )}
         </div>
       </div>
       {person.admin ? (
