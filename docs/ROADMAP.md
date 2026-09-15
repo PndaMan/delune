@@ -72,6 +72,18 @@ Navidrome, from both the web UI and the TUI.
       replacing the moon indicator
 - [ ] Per-user history and notifications
 
+**Soulseek: everything slskd does, simpler (before any streaming service)**
+- [ ] Share the music library: index, answer searches, upload with slot and speed limits
+- [ ] Uploads page: who's downloading from you, queue, speeds, cancel, per-user limits
+- [ ] Browse a user's shared folders; download any folder from there
+- [ ] User profiles: info, picture, shared counts, free slots, speed
+- [ ] Private messages and chat rooms
+- [ ] Wishlist: saved searches re-run on a schedule, with auto-download when a match appears
+- [ ] Search filters (bitrate, format, size, free slot) and blocked users
+- [ ] Transfer controls: pause, retry, reorder, speed limits, bandwidth schedule
+- [ ] Distributed search network participation (parent/child) for better results
+- [ ] Statistics: transferred, shared, ratio
+
 **Search and release view**
 - [ ] Release view fits the screen with no scrollbars (adaptive, multi-column tracklist)
 - [ ] Results show "Downloading" / "Downloaded" when that folder or album is already in progress

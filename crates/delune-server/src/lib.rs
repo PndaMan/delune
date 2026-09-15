@@ -96,13 +96,27 @@ impl AppState {
                     None
                 }
             });
-        let mut state =
-            Self { data_dir: config.data_dir, library: Arc::new(config.library), navidrome, ..Self::default() };
+        let downloads = Arc::new(downloads::Downloads::open(&config.data_dir));
+        let mut state = Self {
+            downloads: downloads.clone(),
+            data_dir: config.data_dir,
+            library: Arc::new(config.library),
+            navidrome,
+            ..Self::default()
+        };
         if let Some(slsk) = config.soulseek {
             state.soulseek_username = Some(slsk.username.clone());
             state.search_timeout = slsk.search_timeout;
             state.soulseek = Some(delune_soulseek::Client::start(slsk));
         }
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(Duration::from_secs(2));
+            loop {
+                every.tick().await;
+                downloads.save_if_changed();
+            }
+        });
+        downloads::resume(&state);
         state
     }
 }

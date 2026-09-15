@@ -5,11 +5,11 @@
 //! upload slot) into a staging folder of its own, `<data dir>/staging/<job id>/`.
 //! Nothing touches the music library here; a finished job waits for review.
 //!
-//! Jobs live in memory for now and are lost on restart; persistence arrives with
-//! the database.
+//! Jobs are saved to `<data dir>/jobs.json` whenever they change, and unfinished
+//! jobs resume on startup from whatever is already on disk.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,6 +32,9 @@ use crate::review::{self, Checked, LibrarySettings};
 pub struct Downloads {
     jobs: Mutex<Vec<Entry>>,
     counter: AtomicU32,
+    /// Where jobs are saved; `None` keeps them in memory only (tests).
+    store: Option<PathBuf>,
+    dirty: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -42,6 +45,74 @@ struct Entry {
 }
 
 impl Downloads {
+    /// Load saved jobs from `data_dir`. Jobs that were mid-download come back as
+    /// queued, and reviews that were in progress will be redone.
+    #[must_use]
+    pub fn open(data_dir: &Path) -> Self {
+        let store = data_dir.join("jobs.json");
+        let jobs: Vec<DownloadJob> = match std::fs::read(&store) {
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+                tracing::warn!(%error, path = %store.display(), "couldn't read saved downloads; starting fresh");
+                Vec::new()
+            }),
+            Err(_) => Vec::new(),
+        };
+        let entries = jobs
+            .into_iter()
+            .map(|mut job| {
+                for file in &mut job.files {
+                    if !matches!(file.status, FileStatus::Done | FileStatus::Failed | FileStatus::Cancelled) {
+                        file.status = FileStatus::Waiting;
+                        file.place_in_queue = None;
+                    }
+                }
+                if job.review != ReviewState::Ready {
+                    job.review = ReviewState::Waiting;
+                }
+                job.refresh();
+                // A ready job's review isn't saved; it's recomputed on startup.
+                if job.status == JobStatus::Ready {
+                    job.review = ReviewState::Waiting;
+                }
+                Entry { job, cancel: watch::channel(false).0, checked: None }
+            })
+            .collect::<Vec<_>>();
+        if !entries.is_empty() {
+            tracing::info!(jobs = entries.len(), "restored saved downloads");
+        }
+        Self {
+            jobs: Mutex::new(entries),
+            counter: AtomicU32::new(0),
+            store: Some(store),
+            dirty: AtomicBool::new(false),
+        }
+    }
+
+    /// Write jobs to disk if anything changed since the last save.
+    pub fn save_if_changed(&self) {
+        let Some(store) = &self.store else { return };
+        if !self.dirty.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        let jobs = self.list();
+        let result = serde_json::to_vec_pretty(&jobs).map_err(std::io::Error::other).and_then(|bytes| {
+            if let Some(parent) = store.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let tmp = store.with_extension("json.tmp");
+            std::fs::write(&tmp, bytes)?;
+            std::fs::rename(&tmp, store)
+        });
+        if let Err(error) = result {
+            tracing::warn!(%error, "couldn't save downloads");
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn changed(&self) {
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Entry>> {
         self.jobs.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -56,6 +127,7 @@ impl Downloads {
             f(&mut entry.job);
             entry.job.refresh();
         }
+        self.changed();
     }
 
     /// Status, review state and the review itself, when there is one.
@@ -68,6 +140,7 @@ impl Downloads {
             entry.job.status = JobStatus::Imported;
             entry.checked = None;
         }
+        self.changed();
     }
 
     fn set_review(&self, id: &str, state: ReviewState, checked: Option<Checked>) {
@@ -75,6 +148,7 @@ impl Downloads {
             entry.job.review = state;
             entry.checked = checked;
         }
+        self.changed();
     }
 
     #[must_use]
@@ -111,7 +185,6 @@ pub async fn create(State(app): State<AppState>, Json(request): Json<DownloadJob
     }
 
     let id = app.downloads.new_id();
-    let staging = app.data_dir.join("staging").join(&id);
     let job = DownloadJob {
         id: id.clone(),
         username: request.username.clone(),
@@ -139,20 +212,54 @@ pub async fn create(State(app): State<AppState>, Json(request): Json<DownloadJob
     };
     let (cancel, cancel_rx) = watch::channel(false);
     app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None });
+    app.downloads.changed();
     tracing::info!(%id, username = %request.username, folder = %request.folder, files = job.files.len(), "download job created");
+    start(&app, client, &job, cancel_rx);
+    (StatusCode::CREATED, Json(job)).into_response()
+}
 
+/// Download a job's remaining files, then check them for review.
+fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, cancel: watch::Receiver<bool>) {
     let context = ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
+    let staging = staging_dir(&app.data_dir, &job.id);
     let downloads = app.downloads.clone();
     let library = app.library.clone();
-    let files = job.files.clone();
+    let (id, username, files) = (job.id.clone(), job.username.clone(), job.files.clone());
     tokio::spawn(async move {
-        run_job(&downloads, client, &id, request.username, files, staging.clone(), cancel_rx).await;
+        run_job(&downloads, client, &id, username, files, staging.clone(), cancel).await;
         let ready = downloads.review(&id).is_some_and(|(status, ..)| status == JobStatus::Ready);
         if ready {
             check_job(&downloads, &id, staging, context, library).await;
         }
     });
-    (StatusCode::CREATED, Json(job)).into_response()
+}
+
+/// Pick up where saved jobs left off: resume unfinished downloads and redo
+/// reviews. Call once at startup.
+pub fn resume(app: &AppState) {
+    let pending: Vec<(DownloadJob, watch::Receiver<bool>)> = {
+        let mut jobs = app.downloads.lock();
+        jobs.iter_mut()
+            .filter(|e| matches!(e.job.status, JobStatus::Queued | JobStatus::Downloading | JobStatus::Ready))
+            .map(|e| {
+                let (cancel, rx) = watch::channel(false);
+                e.cancel = cancel;
+                (e.job.clone(), rx)
+            })
+            .collect()
+    };
+    for (job, cancel) in pending {
+        if job.status == JobStatus::Ready {
+            let context =
+                ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
+            let (downloads, library, staging) =
+                (app.downloads.clone(), app.library.clone(), staging_dir(&app.data_dir, &job.id));
+            tokio::spawn(async move { check_job(&downloads, &job.id, staging, context, library).await });
+        } else if let Some(client) = app.soulseek.clone() {
+            tracing::info!(id = %job.id, title = %job.title, "resuming download");
+            start(app, client, &job, cancel);
+        }
+    }
 }
 
 /// `DELETE /api/v1/downloads/{id}`: cancel if running, remove staged files, forget the job.
@@ -164,6 +271,7 @@ pub async fn remove(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -
     let Some(entry) = removed else {
         return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
     };
+    app.downloads.changed();
     let _ = entry.cancel.send(true);
     // Job ids are generated here, so this path can't escape the staging folder.
     let staging = app.data_dir.join("staging").join(&entry.job.id);
@@ -210,6 +318,10 @@ async fn run_job(
     for (index, file) in files.iter().enumerate() {
         if *cancel.borrow() {
             break;
+        }
+        // Already downloaded before a restart.
+        if file.status == FileStatus::Done && staging.join(&file.name).exists() {
+            continue;
         }
         let download = client.download(DownloadRequest {
             username: username.clone(),
@@ -297,6 +409,49 @@ mod tests {
         assert_eq!(safe_file_name(r"@@moon\Music\..\.."), "file");
         assert_eq!(safe_file_name("a/b/.hidden.flac"), "hidden.flac");
         assert_eq!(safe_file_name(r"x\What?: yes.mp3"), "What__ yes.mp3");
+    }
+
+    #[test]
+    fn saved_jobs_restore_as_resumable() {
+        let dir = std::env::temp_dir().join(format!("delune-jobs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |status, bytes| JobFile {
+            path: format!("x\\{bytes}.flac"),
+            name: format!("{bytes}.flac"),
+            size: 10,
+            status,
+            bytes,
+            place_in_queue: Some(3),
+            error: None,
+        };
+        let saved = vec![DownloadJob {
+            id: "job1".into(),
+            username: "peer".into(),
+            folder: "x".into(),
+            title: "Album".into(),
+            parent: None,
+            created_at: 1,
+            status: JobStatus::Downloading,
+            files: vec![file(FileStatus::Done, 10), file(FileStatus::Transferring, 4), file(FileStatus::Queued, 0)],
+            bytes: 14,
+            total_bytes: 30,
+            review: ReviewState::Checking,
+        }];
+        std::fs::write(dir.join("jobs.json"), serde_json::to_vec(&saved).unwrap()).unwrap();
+
+        let downloads = Downloads::open(&dir);
+        let job = &downloads.list()[0];
+        let statuses: Vec<_> = job.files.iter().map(|f| f.status).collect();
+        assert_eq!(statuses, [FileStatus::Done, FileStatus::Waiting, FileStatus::Waiting]);
+        assert_eq!(job.files[2].place_in_queue, None);
+        assert_eq!(job.status, JobStatus::Downloading);
+        assert_eq!(job.review, ReviewState::Waiting);
+
+        // Changes are saved and read back.
+        downloads.update("job1", |job| job.files[1].status = FileStatus::Done);
+        downloads.save_if_changed();
+        assert_eq!(Downloads::open(&dir).list()[0].files[1].status, FileStatus::Done);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
