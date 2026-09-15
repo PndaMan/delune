@@ -157,6 +157,8 @@ mod tests {
         assert!(Cli::try_parse_from(["delune", "serve", "--slsk-port", "2235"]).is_ok());
         assert!(Cli::try_parse_from(["delune", "serve", "--slsk-username", "moon"]).is_err());
         assert!(Cli::try_parse_from(["delune", "serve", "--slsk-password", "secret"]).is_err());
-        assert!(Cli::try_parse_from(["delune", "serve", "--slsk-username", "moon", "--slsk-password", "secret"]).is_ok());
+        assert!(
+            Cli::try_parse_from(["delune", "serve", "--slsk-username", "moon", "--slsk-password", "secret"]).is_ok()
+        );
     }
 }
