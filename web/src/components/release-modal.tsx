@@ -13,6 +13,7 @@ import { formatBytes, formatRuntime, formatSpeed, formatTrackTime, plural } from
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
 import { parseTrackName } from "@/lib/track-name"
 import { matchLink, useResolved } from "@/lib/tracklist"
+import { useHiddenUsers } from "@/lib/hidden-users"
 import { cn } from "@/lib/utils"
 
 type Props = {
@@ -123,6 +124,8 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
         </dl>
 
         {owned && <LibraryNote owned={owned} library={library.data} />}
+
+        <HideSharer username={c.username} />
 
         {c.mixed_quality && (
           <p className="mt-4 flex gap-2 text-[13px] text-q-hires">
@@ -347,6 +350,21 @@ function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Own
         {start.isError ? start.error.message : "Nothing reaches your library until you approve it."}
       </p>
     </div>
+  )
+}
+
+/** Hide someone's results for good, e.g. after a fake or a failed download. */
+function HideSharer({ username }: { username: string }) {
+  const { hidden, hide, unhide } = useHiddenUsers()
+  const isHidden = hidden.includes(username)
+  return (
+    <button
+      type="button"
+      onClick={() => (isHidden ? unhide(username) : hide(username))}
+      className="mt-3 self-start text-[12.5px] text-muted-foreground/70 underline-offset-4 hover:text-foreground hover:underline"
+    >
+      {isHidden ? `Show ${username}'s results again` : `Hide results from ${username}`}
+    </button>
   )
 }
 

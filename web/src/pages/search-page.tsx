@@ -11,7 +11,8 @@ import { ResultHeader, ResultList } from "@/components/results/result-list"
 import { SearchField, type SearchFieldHandle } from "@/components/search-field"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
 import { Button } from "@/components/ui/button"
-import { type Candidate, PROVIDER_NAMES, type ResolvedLink } from "@/lib/api"
+import { type Candidate, type Codec, PROVIDER_NAMES, type ResolvedLink } from "@/lib/api"
+import { useHiddenUsers } from "@/lib/hidden-users"
 import { SearchContext, useAccentColour, useArtwork } from "@/lib/artwork"
 import { plural } from "@/lib/format"
 import { moonPhase } from "@/lib/moon-phase"
@@ -120,28 +121,52 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
   const [tier, setTier] = useState<TierFilter>("all")
   const [readyOnly, setReadyOnly] = useState(false)
   const [sort, setSort] = useState<SortKey>("quality")
+  const [text, setText] = useState("")
+  const [formats, setFormats] = useState<Set<Codec>>(new Set())
+  const { hidden, unhide } = useHiddenUsers()
   const [selected, setSelected] = useState(0)
   const [keyboard, setKeyboard] = useState(false)
   const [open, setOpen] = useState<Candidate | null>(null)
   const field = useRef<SearchFieldHandle>(null)
   const progress = useProgress(search)
 
+  // Filters other than the quality tier apply before counting, so tier counts stay honest.
+  const pool = useMemo(() => {
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean)
+    const include = words.filter((w) => !w.startsWith("-"))
+    const exclude = words.filter((w) => w.startsWith("-") && w.length > 1).map((w) => w.slice(1))
+    const hiddenSet = new Set(hidden)
+    return search.candidates.filter((c) => {
+      if (hiddenSet.has(c.username)) return false
+      if (formats.size && !(c.quality && formats.has(c.quality.codec))) return false
+      if (!words.length) return true
+      const haystack = `${c.parent ?? ""} ${c.folder} ${c.username}`.toLowerCase()
+      return include.every((w) => haystack.includes(w)) && !exclude.some((w) => haystack.includes(w))
+    })
+  }, [search.candidates, text, formats, hidden])
+
+  const availableFormats = useMemo(() => {
+    const counts = new Map<Codec, number>()
+    for (const c of search.candidates) if (c.quality) counts.set(c.quality.codec, (counts.get(c.quality.codec) ?? 0) + 1)
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])
+  }, [search.candidates])
+
   const counts = useMemo(() => {
-    const pool = readyOnly ? search.candidates.filter((c) => c.free_slot) : search.candidates
-    const result: Record<TierFilter, number> = { all: pool.length, hires: 0, lossless: 0, lossy: 0, unknown: 0 }
-    for (const c of pool) result[tierOf(c.quality)]++
+    const scoped = readyOnly ? pool.filter((c) => c.free_slot) : pool
+    const result: Record<TierFilter, number> = { all: scoped.length, hires: 0, lossless: 0, lossy: 0, unknown: 0 }
+    for (const c of scoped) result[tierOf(c.quality)]++
     return result
-  }, [search.candidates, readyOnly])
+  }, [pool, readyOnly])
 
   const visible = useMemo(() => {
-    const filtered = search.candidates.filter(
+    const filtered = pool.filter(
       (c) => (tier === "all" || tierOf(c.quality) === tier) && (!readyOnly || c.free_slot),
     )
     const compare = SORTS[sort].compare(typicalTracks(search.candidates))
     // Folders that match the pasted link come first, whatever the sort.
     const link = search.resolved
     return filtered.sort((a, b) => relevance(matchLink(a, link)) - relevance(matchLink(b, link)) || compare(a, b))
-  }, [search.candidates, search.resolved, tier, readyOnly, sort])
+  }, [pool, search.candidates, search.resolved, tier, readyOnly, sort])
 
   useEffect(() => setSelected((s) => Math.min(s, Math.max(0, visible.length - 1))), [visible.length])
 
@@ -246,6 +271,20 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
               onReadyOnly={setReadyOnly}
               sort={sort}
               onSort={setSort}
+              text={text}
+              onText={setText}
+              formats={availableFormats}
+              selectedFormats={formats}
+              onToggleFormat={(codec) =>
+                setFormats((current) => {
+                  const next = new Set(current)
+                  if (next.has(codec)) next.delete(codec)
+                  else next.add(codec)
+                  return next
+                })
+              }
+              hiddenPeople={hidden.filter((u) => search.candidates.some((c) => c.username === u))}
+              onUnhide={unhide}
             />
             <div className="mt-6 pb-16">
               {search.candidates.length === 0 ? (
