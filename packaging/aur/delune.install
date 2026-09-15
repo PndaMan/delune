@@ -1,0 +1,9 @@
+post_install() {
+  chgrp delune /etc/delune/delune.env 2>/dev/null || true
+  echo "Fill in /etc/delune/delune.env, then: systemctl enable --now delune"
+  echo "The web UI listens on port 7474."
+}
+
+post_upgrade() {
+  chgrp delune /etc/delune/delune.env 2>/dev/null || true
+}

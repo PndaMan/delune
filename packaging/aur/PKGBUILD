@@ -1,0 +1,47 @@
+# Maintainer: PndaMan <https://github.com/PndaMan>
+pkgname=delune
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Find music on Soulseek, review it, and add it to your Navidrome library'
+arch=('x86_64' 'aarch64')
+url='https://github.com/PndaMan/delune'
+license=('AGPL-3.0-only')
+depends=('gcc-libs' 'glibc')
+makedepends=('cargo' 'bun')
+install=delune.install
+backup=('etc/delune/delune.env')
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+  cd web
+  bun install --frozen-lockfile
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  (cd web && bun run build)
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p delune
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release --workspace --lib
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/delune "$pkgdir/usr/bin/delune"
+  install -Dm644 packaging/systemd/delune.service "$pkgdir/usr/lib/systemd/system/delune.service"
+  install -Dm644 packaging/systemd/delune.sysusers "$pkgdir/usr/lib/sysusers.d/delune.conf"
+  install -Dm640 packaging/systemd/delune.env "$pkgdir/etc/delune/delune.env"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

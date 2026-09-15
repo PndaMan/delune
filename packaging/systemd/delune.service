@@ -1,0 +1,46 @@
+[Unit]
+Description=delune: find music on Soulseek, review it, add it to your library
+Documentation=https://github.com/PndaMan/delune
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=delune
+Group=delune
+EnvironmentFile=/etc/delune/delune.env
+Environment=DELUNE_DATA_DIR=/var/lib/delune
+ExecStart=/usr/bin/delune serve
+Restart=on-failure
+RestartSec=5
+# New files are group-writable, so Navidrome and people in the group can manage them.
+UMask=0002
+StateDirectory=delune
+
+# delune needs the network, its data folder and your library, nothing else.
+# For a library somewhere other than /srv/music, run `systemctl edit delune` and add
+# ReadWritePaths=/path/to/music (plus ProtectHome=false if it's under /home).
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=-/srv/music
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

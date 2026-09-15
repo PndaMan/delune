@@ -54,7 +54,7 @@ Navidrome, from both the web UI and the TUI.
 - [ ] Docker image (multi-arch) and compose example
 - [ ] NixOS module and flake
 - [ ] Release binaries for Linux and macOS
-- [ ] AUR and Homebrew packages
+- [~] AUR and Homebrew packages: PKGBUILD, formula and systemd unit written; publishing them waits for the first release
 
 ## Next: web UI overhaul
 

@@ -193,8 +193,28 @@ docker compose up -d
 ```
 
 [`compose.yaml`](compose.yaml) mounts your music folder at `/music` and keeps
-delune's own data in a volume. Release binaries and AUR/Homebrew packages come with
-v0.1.
+delune's own data in a volume.
+
+### Arch Linux
+
+[`packaging/aur/PKGBUILD`](packaging/aur/PKGBUILD) builds delune with a hardened
+systemd service:
+
+```sh
+sudoedit /etc/delune/delune.env   # library folder, Soulseek and Navidrome details
+sudo systemctl enable --now delune
+```
+
+The service can write to `/srv/music`. For a library elsewhere, `systemctl edit delune`
+and add `ReadWritePaths=/path/to/music`.
+
+### Homebrew and release binaries
+
+Tagged releases publish binaries for Linux and macOS (x86_64 and ARM) on the
+[releases page](https://github.com/PndaMan/delune/releases), and
+[`packaging/homebrew/delune.rb`](packaging/homebrew/delune.rb) installs them
+(`brew services start delune` runs it in the background). On other Linux systems,
+copy the binary to `/usr/bin` and use the unit in [`packaging/systemd/`](packaging/systemd/).
 
 ## Project layout
 
