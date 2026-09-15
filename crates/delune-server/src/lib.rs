@@ -15,6 +15,7 @@ pub mod downloads;
 pub mod finishing;
 pub mod library;
 pub mod naming;
+pub mod nat;
 pub mod notifications;
 pub mod requests;
 pub mod review;
@@ -100,6 +101,9 @@ pub struct AppState {
     pub locked: setup::Locked,
     pub notifications: Arc<notifications::Notifier>,
     pub requests: Arc<requests::Requests>,
+    pub nat: Arc<nat::Nat>,
+    /// Nudged when the port-mapping setting changes.
+    pub nat_wake: Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 impl Default for AppState {
@@ -129,6 +133,8 @@ impl Default for AppState {
             locked: setup::Locked::default(),
             notifications: Arc::default(),
             requests: Arc::default(),
+            nat: Arc::default(),
+            nat_wake: Arc::new(tokio::sync::watch::channel(0).0),
         }
     }
 }
@@ -195,6 +201,7 @@ impl AppState {
         downloads::resume(&state);
         chat::start(&state);
         sharing::start(&state);
+        nat::start(&state);
         wishlist::start(&state);
         sharing::Totals::start(&state);
         automation::start(&state);
@@ -347,10 +354,14 @@ async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
             state: SoulseekState::NotConfigured,
             username: None,
             message: Some("No Soulseek account is configured.".into()),
+            public_ip: None,
+            listen_port: None,
+            reachable: false,
+            port_mapping: app.nat.status(),
         });
     };
     let session = client.state().borrow().clone();
-    let (state, message) = match session {
+    let (state, message) = match session.clone() {
         SessionState::Connecting { attempt } if attempt > 1 => {
             (SoulseekState::Connecting, Some(format!("Connecting (attempt {attempt})")))
         }
@@ -372,7 +383,22 @@ async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
             }),
         ),
     };
-    Json(SoulseekStatus { state, username: app.soulseek_username.clone(), message })
+    let public_ip = match &session {
+        SessionState::Online { public_ip, .. } => Some(public_ip.to_string()),
+        _ => None,
+    };
+    Json(SoulseekStatus {
+        state,
+        username: app.soulseek_username.clone(),
+        message,
+        public_ip,
+        listen_port: match &session {
+            SessionState::Online { listen_port, .. } => *listen_port,
+            _ => None,
+        },
+        reachable: client.incoming_connections() > 0,
+        port_mapping: app.nat.status(),
+    })
 }
 
 /// Bind and serve until the process receives Ctrl+C / SIGTERM.

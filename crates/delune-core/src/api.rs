@@ -32,6 +32,42 @@ pub struct SoulseekStatus {
     pub username: Option<String>,
     /// Human-readable detail for anything other than `online`.
     pub message: Option<String>,
+    /// The address the Soulseek server sees delune at.
+    #[serde(default)]
+    pub public_ip: Option<String>,
+    /// The port other users connect to, when delune is listening.
+    #[serde(default)]
+    pub listen_port: Option<u16>,
+    /// Someone on the internet has connected to that port, so it's open.
+    #[serde(default)]
+    pub reachable: bool,
+    #[serde(default = "PortMapping::off")]
+    pub port_mapping: PortMapping,
+}
+
+/// Forwarding the Soulseek port on the router with UPnP.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortMapping {
+    pub state: PortMappingState,
+    /// The router's public address, once mapped.
+    pub external_ip: Option<String>,
+    /// Why it failed.
+    pub message: Option<String>,
+}
+
+impl PortMapping {
+    #[must_use]
+    pub const fn off() -> Self {
+        Self { state: PortMappingState::Off, external_ip: None, message: None }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PortMappingState {
+    Off,
+    Mapped,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -724,6 +760,9 @@ pub struct SharingSettings {
     /// Albums downloading at once; the rest wait their turn. None means no limit.
     #[serde(default)]
     pub downloads_at_once: Option<u32>,
+    /// Ask the router to forward the Soulseek port (UPnP).
+    #[serde(default)]
+    pub upnp: bool,
     /// People who can't download from us.
     pub banned: Vec<String>,
     /// Different speed limits for part of each day.
@@ -770,6 +809,7 @@ impl Default for SharingSettings {
             download_limit_kib: None,
             refuse_leechers: false,
             downloads_at_once: None,
+            upnp: false,
             banned: Vec::new(),
             schedule: None,
         }

@@ -393,6 +393,7 @@ pub async fn update(
     tracing::info!(by = %user.username, enabled = settings.enabled, "sharing settings changed");
     app.sharing.save_settings(&settings);
     app.sharing.lock().settings = settings;
+    app.nat_wake.send_modify(|n| *n += 1);
     refresh(&app);
     Json(app.sharing.status(app.library.library_dir.as_deref())).into_response()
 }

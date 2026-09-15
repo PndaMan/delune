@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -122,6 +122,8 @@ pub(crate) struct Shared {
     pub wishlist_interval: AtomicU32,
     /// Rooms to be in, rejoined after every reconnect.
     pub rooms: Mutex<std::collections::BTreeSet<String>>,
+    /// Connections that reached our listening port from the internet, proving it's open.
+    pub incoming_from_internet: AtomicU64,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -154,6 +156,7 @@ impl Shared {
             distributed_parent: AtomicBool::new(false),
             distributed_connecting: AtomicBool::new(false),
             distributed_reset: watch::channel(0).0,
+            incoming_from_internet: AtomicU64::new(0),
         }
     }
 
@@ -194,6 +197,21 @@ impl Shared {
     }
 }
 
+/// Whether a connection from `ip` came from outside the local network, so it could
+/// only have arrived through an open port.
+fn from_internet(ip: std::net::IpAddr) -> bool {
+    match ip.to_canonical() {
+        std::net::IpAddr::V4(v4) => {
+            !(v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
+                // Carrier-grade NAT and Tailscale-style overlays.
+                || (v4.octets()[0] == 100 && (64..128).contains(&v4.octets()[1])))
+        }
+        std::net::IpAddr::V6(v6) => {
+            !(v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local() || v6.is_unicast_link_local())
+        }
+    }
+}
+
 /// Accept incoming connections until the task is aborted.
 pub(crate) async fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
     loop {
@@ -211,6 +229,9 @@ pub(crate) async fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
 }
 
 async fn handle_incoming(stream: TcpStream, addr: SocketAddr, shared: Arc<Shared>) {
+    if from_internet(addr.ip()) {
+        shared.incoming_from_internet.fetch_add(1, Ordering::Relaxed);
+    }
     let mut conn = Framed::new(stream, FrameCodec::new(MAX_PEER_FRAME));
     let Ok(Some(Ok(first))) = timeout(PEER_IDLE_TIMEOUT, conn.next()).await else { return };
 
@@ -465,4 +486,20 @@ fn answer_browse_request(shared: &Shared, message: &PeerMessage, reply: &PeerSen
         _ => return,
     };
     let _ = reply.try_send(response);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tells_internet_peers_from_local_ones() {
+        for local in ["192.168.1.20", "10.0.0.5", "127.0.0.1", "100.98.131.49", "::1", "fd00::1", "::ffff:192.168.1.2"]
+        {
+            assert!(!from_internet(local.parse().unwrap()), "{local}");
+        }
+        for internet in ["81.2.69.160", "2a00:1450:4009::200e", "::ffff:81.2.69.160"] {
+            assert!(from_internet(internet.parse().unwrap()), "{internet}");
+        }
+    }
 }

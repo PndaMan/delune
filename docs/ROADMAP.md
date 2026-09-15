@@ -25,7 +25,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Listening port, peer connections, firewall piercing
 - [x] Search with rate limiting; results streamed to clients (API + TUI)
 - [x] Transfers: queueing, download, resume, retry, cancel
-- [ ] NAT traversal help: UPnP/NAT-PMP port mapping, clear guidance when port 2234 isn't reachable
+- [x] NAT traversal help: UPnP port forwarding (opt-in), and whether the port is actually reachable
 - [x] Share index of the music folder; answering searches; uploads with slot limits
 
 **Finding the right release**

@@ -1,1 +1,1 @@
-doc-valid-idents = ["MusicBrainz", "SoundCloud", "YouTube", "OpenAPI", "OpenSubsonic", "ReplayGain", "..", "TypeScript"]
+doc-valid-idents = ["MusicBrainz", "SoundCloud", "YouTube", "OpenAPI", "OpenSubsonic", "ReplayGain", "..", "TypeScript", "UPnP"]

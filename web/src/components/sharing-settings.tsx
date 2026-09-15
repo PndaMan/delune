@@ -132,6 +132,15 @@ export function SharingSettingsPanel() {
           />
         </Field>
         <label className="flex cursor-pointer items-start gap-3 self-end pb-2">
+          <Switch checked={settings.upnp} onCheckedChange={(upnp) => edit({ upnp })} className="mt-0.5" />
+          <span>
+            <span className="block text-[14px]">Forward the Soulseek port automatically</span>
+            <span className="mt-0.5 block text-[12.5px] text-muted-foreground">
+              Asks your router (UPnP) so other users can connect in. Changes the router's settings.
+            </span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3 self-end pb-2">
           <Switch
             checked={settings.refuse_leechers}
             onCheckedChange={(refuse_leechers) => edit({ refuse_leechers })}

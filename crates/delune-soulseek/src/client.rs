@@ -328,6 +328,13 @@ impl Client {
         self.inner.shared.download_cap.set(bytes_per_second);
     }
 
+    /// How many peers have connected to our listening port from the internet since the
+    /// client started. Any at all means the port is reachable.
+    #[must_use]
+    pub fn incoming_connections(&self) -> u64 {
+        self.inner.shared.incoming_from_internet.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Bytes downloaded and uploaded since the client started.
     #[must_use]
     pub fn transferred(&self) -> (u64, u64) {

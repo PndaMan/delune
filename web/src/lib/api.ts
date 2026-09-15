@@ -32,7 +32,16 @@ export type SourceInfo = {
 }
 
 export type SoulseekState = "not-configured" | "connecting" | "online" | "reconnecting" | "stopped"
-export type SoulseekStatus = { state: SoulseekState; username: string | null; message: string | null }
+export type SoulseekStatus = {
+  state: SoulseekState
+  username: string | null
+  message: string | null
+  public_ip: string | null
+  listen_port: number | null
+  /** Someone on the internet has connected to the port, so it's open. */
+  reachable: boolean
+  port_mapping: { state: "off" | "mapped" | "failed"; external_ip: string | null; message: string | null }
+}
 
 export type Codec = "flac" | "alac" | "wav" | "aiff" | "mp3" | "aac" | "opus" | "vorbis"
 

@@ -15,7 +15,7 @@ import { type AutomationSettings, useAutomation } from "@/lib/automation"
 import { useMe, useSignOut } from "@/lib/session"
 import { useSetupStatus } from "@/lib/setup"
 import { PageFrame } from "@/pages/placeholder-pages"
-import { api, type People, type Permissions, type Person, type SessionInfo } from "@/lib/api"
+import { api, type People, type Permissions, type Person, type SessionInfo, type SoulseekStatus } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function SettingsPage() {
@@ -227,8 +227,38 @@ function SoulseekAccount() {
             ? "Searches are rate-limited to keep the account in good standing."
             : "Add a Soulseek account under Connections. A new username is registered the first time it signs in."}
         </p>
+        {status.data?.state === "online" && <Reachability status={status.data} />}
       </div>
     </div>
+  )
+}
+
+/** Whether other Soulseek users can connect in, which brings more and faster results. */
+function Reachability({ status }: { status: SoulseekStatus }) {
+  const mapping = status.port_mapping
+  const port = status.listen_port
+  let text: string
+  let good = false
+  if (!port) {
+    text = "delune isn't listening for other users, so only people it can reach itself will answer searches."
+  } else if (status.reachable) {
+    good = true
+    text = `Port ${port} is open: other users have connected to delune directly.`
+  } else if (mapping.state === "mapped") {
+    text = `Your router forwards port ${port} to delune${mapping.external_ip ? ` at ${mapping.external_ip}` : ""}. Nobody has connected in yet.`
+  } else {
+    text = `Nobody has connected to port ${port} from the internet yet. If searches return few results, forward port ${port} on your router${mapping.state === "failed" ? "" : " or turn on automatic port forwarding under Sharing"}.`
+  }
+  return (
+    <p className={cn("mt-2 text-sm", good ? "text-q-lossless" : "text-muted-foreground")}>
+      {text}
+      {mapping.state === "failed" && mapping.message && (
+        <span className="block text-destructive">Automatic port forwarding: {mapping.message}</span>
+      )}
+      {status.public_ip && (
+        <span className="block text-muted-foreground">Soulseek sees you at {status.public_ip}.</span>
+      )}
+    </p>
   )
 }
 
