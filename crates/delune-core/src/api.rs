@@ -104,18 +104,81 @@ pub struct Candidate {
     pub queue_length: u32,
 }
 
-impl Candidate {
-    /// Default result ordering: best quality first, then whoever can start
-    /// sending soonest and fastest.
+/// Broad quality band, compared before exact resolution: any complete lossless album
+/// beats a hi-res fragment, but hi-res beats CD when both are complete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum QualityTier {
+    Unknown,
+    Lossy,
+    Lossless,
+    HiRes,
+}
+
+impl QualityTier {
     #[must_use]
-    pub fn compare(a: &Self, b: &Self) -> Ordering {
-        b.quality_rank
-            .cmp(&a.quality_rank)
-            .then(b.mixed_quality.cmp(&a.mixed_quality).reverse())
+    pub fn of(quality: Option<Quality>) -> Self {
+        match quality {
+            None => Self::Unknown,
+            Some(q) if !q.codec.is_lossless() => Self::Lossy,
+            Some(q) if q.bit_depth.unwrap_or(16) > 16 || q.sample_rate.unwrap_or(44_100) > 48_000 => Self::HiRes,
+            Some(_) => Self::Lossless,
+        }
+    }
+}
+
+impl Candidate {
+    /// Whether this folder has about as many tracks as a full release in these
+    /// results. `typical_tracks` is the median audio file count of the search; a
+    /// folder with a single track from a ten-track album is a fragment.
+    #[must_use]
+    pub fn looks_complete(&self, typical_tracks: u32) -> bool {
+        let needed = (typical_tracks * 6 / 10).max(1);
+        self.audio_files >= needed.min(typical_tracks)
+    }
+
+    /// Default ordering within one search:
+    ///
+    /// 1. Lossless over lossy.
+    /// 2. Complete-looking folders over fragments.
+    /// 3. Hi-res over CD quality, then exact resolution.
+    /// 4. Consistent quality over mixed.
+    /// 5. Whoever can start sending soonest and fastest.
+    #[must_use]
+    pub fn compare_in(a: &Self, b: &Self, typical_tracks: u32) -> Ordering {
+        let lossless = |c: &Self| QualityTier::of(c.quality) >= QualityTier::Lossless;
+        lossless(b)
+            .cmp(&lossless(a))
+            .then(b.looks_complete(typical_tracks).cmp(&a.looks_complete(typical_tracks)))
+            .then(b.quality_rank.cmp(&a.quality_rank))
+            .then(a.mixed_quality.cmp(&b.mixed_quality))
             .then(b.free_slot.cmp(&a.free_slot))
             .then(a.queue_length.cmp(&b.queue_length))
             .then(b.avg_speed.cmp(&a.avg_speed))
             .then(a.id.cmp(&b.id))
+    }
+
+    /// Ordering without search context: every folder counts as complete.
+    #[must_use]
+    pub fn compare(a: &Self, b: &Self) -> Ordering {
+        Self::compare_in(a, b, 1)
+    }
+
+    /// Median number of audio files across `results`, for [`Candidate::compare_in`].
+    #[must_use]
+    pub fn typical_tracks(results: &[Self]) -> u32 {
+        let mut counts: Vec<u32> = results.iter().map(|c| c.audio_files).collect();
+        if counts.is_empty() {
+            return 1;
+        }
+        counts.sort_unstable();
+        counts[counts.len() / 2].max(1)
+    }
+
+    /// Sort `results` best-first using the search's own typical track count.
+    pub fn rank(results: &mut [Self]) {
+        let typical = Self::typical_tracks(results);
+        results.sort_by(|a, b| Self::compare_in(a, b, typical));
     }
 }
 
@@ -186,6 +249,30 @@ mod tests {
         let ids: Vec<_> = list.iter().map(|c| (c.id.as_str(), c.mixed_quality)).collect();
         // A consistent-quality folder beats a mixed one even if it's busier (ADR 0004).
         assert_eq!(ids, [("a", false), ("c", false), ("b", false), ("c", true), ("d", false), ("e", false)]);
+    }
+
+    #[test]
+    fn complete_albums_beat_hires_fragments() {
+        let album = |id: &str, q: Quality, tracks: u32| Candidate { audio_files: tracks, ..candidate(id, Some(q)) };
+        let mut results = [
+            album("hires-single", Quality::lossless(Codec::Flac, 24, 192_000), 1),
+            album("cd-album", Quality::lossless(Codec::Flac, 16, 44_100), 10),
+            album("hires-album", Quality::lossless(Codec::Flac, 24, 96_000), 10),
+            album("mp3-album", Quality::lossy(Codec::Mp3, 320), 10),
+            album("cd-album-2", Quality::lossless(Codec::Flac, 16, 44_100), 11),
+        ];
+        assert_eq!(Candidate::typical_tracks(&results), 10);
+        Candidate::rank(&mut results);
+        let ids: Vec<_> = results.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["hires-album", "cd-album", "cd-album-2", "hires-single", "mp3-album"]);
+    }
+
+    #[test]
+    fn tiers() {
+        assert_eq!(QualityTier::of(Some(Quality::lossless(Codec::Flac, 16, 96_000))), QualityTier::HiRes);
+        assert_eq!(QualityTier::of(Some(Quality::lossless(Codec::Alac, 16, 44_100))), QualityTier::Lossless);
+        assert_eq!(QualityTier::of(Some(Quality::lossy(Codec::Opus, 256))), QualityTier::Lossy);
+        assert_eq!(QualityTier::of(None), QualityTier::Unknown);
     }
 
     #[test]

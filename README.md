@@ -12,15 +12,26 @@ file names you asked for.
 [![CI](https://github.com/PndaMan/delune/actions/workflows/ci.yml/badge.svg)](https://github.com/PndaMan/delune/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-4f5bd5)](LICENSE)
 
-<img src="docs/assets/web-dark.png" alt="delune web UI: a search field reading 'Search or paste a link', with Soulseek shown as the always-on source and streaming services shown as off" width="760">
+<img src="docs/assets/results.png" alt="delune search results for Pink Floyd's The Dark Side of the Moon: album covers, colour-coded quality from FLAC 24/192 down, track counts, sizes and whether each person can send now" width="820">
 
 </div>
 
 > [!WARNING]
 > **delune is in early development and can't download anything yet.** Live
-> Soulseek search works from the API and the terminal UI; the first working
+> Soulseek search works in the web UI, the terminal UI and the API; the first working
 > release (v0.1) is tracked in the [roadmap](docs/ROADMAP.md). Star or watch the
 > repo to follow along.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/search.png" alt="The search screen: tonight's moon above a large search field"></td>
+    <td width="50%"><img src="docs/assets/release.png" alt="A release opened: large album cover, quality, availability and the full tracklist"></td>
+  </tr>
+  <tr>
+    <td align="center">Search, under tonight's actual moon phase</td>
+    <td align="center">Every release opens with artwork and a clean tracklist</td>
+  </tr>
+</table>
 
 ## Why
 
@@ -64,7 +75,9 @@ you can run `delune tui` from your laptop.
 |---|---|
 | Paste links from Spotify, Apple Music, Tidal, Qobuz, Deezer, YouTube Music, SoundCloud, Bandcamp, MusicBrainz | Link parsing done |
 | Native Soulseek client (no slskd needed) | Live search working: login, reconnect, firewall piercing, rate limiting |
-| Quality ranking (24/192 → 16/44.1 → lossy, with fake-FLAC detection) | Ranking done; fake-FLAC detection planned |
+| Quality ranking (24/192 → 16/44.1 → lossy, with fake-FLAC detection) | Ranking done (completeness-aware); fake-FLAC detection planned |
+| Album artwork for results, accent colours from covers | Done |
+| Web UI: live results, filters, release view, naming editor | Done |
 | "Already in library" and "better copy available" checks | Navidrome client done |
 | File and folder naming templates with live preview | Template engine done |
 | Review inbox with optional admin approval | Planned for v0.1 |

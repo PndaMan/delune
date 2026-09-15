@@ -1,13 +1,16 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/hanken-grotesk";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-heading: var(--font-sans);
-  --font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -27,63 +30,78 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-moon: var(--moon);
-  --color-ok: var(--ok);
+  --color-q-hires: var(--q-hires);
+  --color-q-lossless: var(--q-lossless);
+  --color-q-lossy: var(--q-lossy);
+  --color-q-unknown: var(--q-unknown);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
 }
 
 /*
- * delune palette: "night slate" dark, "cool paper" light.
- * --primary is the accent; it will be overridden per album from cover art,
- * so nothing structural may depend on its exact hue.
+ * delune: a night sky you search from. See docs/design/web-ui.md.
+ * Light "blue hour" palette on :root, "night" on .dark (the default).
  */
 :root {
-  --background: #f2f3f7;
-  --foreground: #1c2030;
-  --card: #fbfbfd;
-  --card-foreground: #1c2030;
-  --popover: #fbfbfd;
-  --popover-foreground: #1c2030;
-  --primary: #4f5bd5;
-  --primary-foreground: #fbfbfd;
-  --secondary: #e6e8f0;
-  --secondary-foreground: #1c2030;
-  --muted: #e6e8f0;
-  --muted-foreground: #5d6378;
-  --accent: #e3e6f5;
-  --accent-foreground: #1c2030;
-  --destructive: #c8384a;
-  --border: #dcdfe8;
-  --input: #cfd3df;
-  --ring: #4f5bd5;
-  --moon: #3b4260;
-  --ok: #2f8f5b;
-  --radius: 0.5rem;
+  --background: #e9ebf4;
+  --foreground: #1a1d38;
+  --card: #f5f6fa;
+  --card-foreground: #1a1d38;
+  --popover: #f7f8fb;
+  --popover-foreground: #1a1d38;
+  --primary: #5646d0;
+  --primary-foreground: #f7f8fb;
+  --secondary: #dfe2f0;
+  --secondary-foreground: #1a1d38;
+  --muted: #dfe2f0;
+  --muted-foreground: #5c6184;
+  --accent: #dfe2f0;
+  --accent-foreground: #1a1d38;
+  --destructive: #c23a4a;
+  --border: #d3d7e8;
+  --input: #c9cee2;
+  --ring: #5646d0;
+  --moon: #2c3060;
+  --moon-glow: rgb(86 70 208 / 0.18);
+  --q-hires: #946508;
+  --q-lossless: #17785f;
+  --q-lossy: #56608c;
+  --q-unknown: #8a8fae;
+  --sky-1: #dde2f3;
+  --sky-2: #e9ebf4;
+  --radius: 0.625rem;
 }
 
 .dark {
-  --background: #171b26;
-  --foreground: #e4e8f4;
-  --card: #1f2433;
-  --card-foreground: #e4e8f4;
-  --popover: #1f2433;
-  --popover-foreground: #e4e8f4;
-  --primary: #aeb8ff;
-  --primary-foreground: #171b26;
-  --secondary: #262c3d;
-  --secondary-foreground: #e4e8f4;
-  --muted: #262c3d;
-  --muted-foreground: #8b91a8;
-  --accent: #2a3147;
-  --accent-foreground: #e4e8f4;
-  --destructive: #ff7a85;
-  --border: #2b3144;
-  --input: #343b52;
-  --ring: #aeb8ff;
-  --moon: #e4e8f4;
-  --ok: #6fd39b;
+  --background: #0f1226;
+  --foreground: #edebe1;
+  --card: #161a33;
+  --card-foreground: #edebe1;
+  --popover: #181c37;
+  --popover-foreground: #edebe1;
+  --primary: #ab9dff;
+  --primary-foreground: #0f1226;
+  --secondary: #212646;
+  --secondary-foreground: #edebe1;
+  --muted: #1d2140;
+  --muted-foreground: #959ac0;
+  --accent: #212646;
+  --accent-foreground: #edebe1;
+  --destructive: #ff8a8a;
+  --border: rgb(222 226 255 / 0.09);
+  --input: rgb(222 226 255 / 0.14);
+  --ring: #ab9dff;
+  --moon: #efe9d6;
+  --moon-glow: rgb(239 233 214 / 0.14);
+  --q-hires: #f2cf7e;
+  --q-lossless: #8fdcc6;
+  --q-lossy: #8c95c2;
+  --q-unknown: #555b80;
+  --sky-1: #181b3c;
+  --sky-2: #0f1226;
 }
 
 @layer base {
@@ -92,10 +110,37 @@
   }
   html {
     @apply font-sans antialiased;
-    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
   }
   body {
     @apply bg-background text-foreground;
+    font-size: 15px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+}
+
+@layer utilities {
+  /* Display type: IBM Plex Sans set heavy and tight for large sizes. */
+  .type-display {
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.02;
+  }
+  .type-title {
+    font-weight: 600;
+    letter-spacing: -0.012em;
+  }
+  /* A faint vertical sky gradient behind the whole app. */
+  .night-sky {
+    background:
+      radial-gradient(120% 70% at 50% -10%, var(--sky-1), transparent 70%),
+      var(--sky-2);
   }
 }
 

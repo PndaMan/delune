@@ -157,7 +157,7 @@ impl App {
                 // Keep the same candidate selected while new results slot in around it.
                 let selected_id = self.selected_candidate().map(|c| c.id.clone());
                 self.results.extend(items);
-                self.results.sort_by(Candidate::compare);
+                Candidate::rank(&mut self.results);
                 if let Some(id) = selected_id {
                     self.selected = self.results.iter().position(|c| c.id == id).unwrap_or(0);
                 }

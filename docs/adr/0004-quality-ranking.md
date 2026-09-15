@@ -24,12 +24,17 @@ of the wrong edition is worse than a slightly lower-quality right one.
 
 **Candidates** are sorted by, in order:
 
-1. Match confidence against the tracklist (titles, track numbers, durations, every
-   edition in the release group).
-2. Completeness (all tracks present, no extras).
-3. `Quality::rank`, penalising folders with mixed quality.
-4. Availability: free upload slot, queue length, measured speed, and how reliable the
-   peer has been for us before.
+1. Lossless before lossy.
+2. Complete-looking folders before fragments. Until tracklist matching lands, "complete"
+   means at least 60% of the search's median track count, so a single 24/192 track
+   can't outrank a complete CD-quality album.
+3. `Quality::rank`: hi-res before CD quality, then exact resolution.
+4. Consistent quality before mixed.
+5. Availability: free upload slot, queue length, measured speed.
+
+When tracklist matching arrives, step 2 becomes match confidence against the resolved
+release (titles, track numbers, durations, every edition in the release group), and
+peer reliability joins step 5.
 
 After download, files are decoded and spectrally checked. A suspected transcode is
 flagged in review and the next candidate is offered.

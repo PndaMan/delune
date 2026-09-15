@@ -50,8 +50,9 @@ Navidrome, from both the web UI and the TUI.
 
 ## Next: web UI overhaul
 
-- [ ] Complete visual redesign of the web UI (identity, typography, colour, motion)
-- [ ] Live search results, release detail, review and settings screens
+- [x] Complete visual redesign of the web UI (identity, typography, colour, motion)
+- [x] Live search results with artwork, release view, settings with naming editor
+- [ ] Review and downloads screens (need downloads first)
 
 ## After v0.1
 

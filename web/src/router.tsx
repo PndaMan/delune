@@ -1,0 +1,33 @@
+import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router"
+
+import { AppShell } from "@/components/app-shell"
+import { DownloadsPage, ReviewPage } from "@/pages/placeholder-pages"
+import { SearchPage } from "@/pages/search-page"
+import { SettingsPage } from "@/pages/settings-page"
+
+const rootRoute = createRootRoute({ component: AppShell })
+
+const searchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  // `?q=` makes every search a link you can share, bookmark or reload.
+  validateSearch: (search: Record<string, unknown>): { q?: string } => {
+    const q = typeof search.q === "string" ? search.q.trim() : ""
+    return q ? { q } : {}
+  },
+  component: SearchPage,
+})
+
+const downloadsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/downloads", component: DownloadsPage })
+const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage })
+const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage })
+
+const routeTree = rootRoute.addChildren([searchRoute, downloadsRoute, reviewRoute, settingsRoute])
+
+export const router = createRouter({ routeTree, defaultPreload: "intent", scrollRestoration: true })
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router
+  }
+}

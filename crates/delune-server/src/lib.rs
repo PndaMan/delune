@@ -7,16 +7,19 @@
 //! Routes are versioned under `/api/v1`. Long-running work (searches, downloads,
 //! scans) streams progress over Server-Sent Events rather than being polled.
 
+pub mod artwork;
+pub mod naming;
 pub mod search;
 mod web;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
     Json, Router,
     extract::{Query, State},
-    routing::get,
+    routing::{get, post},
 };
 use delune_core::{
     Provider, ProviderRole, SourcePolicy,
@@ -40,11 +43,17 @@ pub struct AppState {
     pub soulseek: Option<delune_soulseek::Client>,
     pub soulseek_username: Option<String>,
     pub search_timeout: Duration,
+    pub artwork: Arc<artwork::ArtworkService>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        Self { soulseek: None, soulseek_username: None, search_timeout: Duration::from_secs(20) }
+        Self {
+            soulseek: None,
+            soulseek_username: None,
+            search_timeout: Duration::from_secs(20),
+            artwork: artwork::service(),
+        }
     }
 }
 
@@ -71,6 +80,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/sources", get(sources))
         .route("/api/v1/soulseek", get(soulseek_status))
         .route("/api/v1/search", get(search::stream))
+        .route("/api/v1/artwork", get(artwork::lookup))
+        .route("/api/v1/artwork/image", get(artwork::image))
+        .route("/api/v1/naming/tokens", get(naming::tokens))
+        .route("/api/v1/naming/preview", post(naming::preview))
         .fallback(web::serve_asset)
         .with_state(state)
         .layer(TraceLayer::new_for_http())
