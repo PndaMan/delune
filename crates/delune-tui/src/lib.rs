@@ -345,7 +345,8 @@ impl App {
                         self.reports.remove(&job.id);
                     }
                 }
-                self.jobs = jobs;
+                // Imported albums are finished business; the web app lists them in Review.
+                self.jobs = jobs.into_iter().filter(|j| j.status != JobStatus::Imported).collect();
                 self.job_selected = self.job_selected.min(self.jobs.len().saturating_sub(1));
                 self.review_selected = self.review_selected.min(self.reviewable().len().saturating_sub(1));
             }
