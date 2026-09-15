@@ -544,6 +544,7 @@ function RequestAction({
           title,
           artist,
           query: resolved?.query ?? [artist, title].filter(Boolean).join(" "),
+          link: null,
           download: {
             username: candidate.username,
             folder: candidate.folder,

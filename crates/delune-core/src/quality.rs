@@ -19,6 +19,7 @@ use std::fmt;
 
 /// Container/codec family of an audio file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Codec {
     Flac,
@@ -86,6 +87,7 @@ impl Codec {
 /// Fields are optional because sources are unreliable: Soulseek peers often omit
 /// attributes, and streaming APIs report quality per album, not per file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Quality {
     pub codec: Codec,
     /// Bits per sample (lossless only), e.g. 16 or 24.

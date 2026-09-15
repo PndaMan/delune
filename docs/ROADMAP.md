@@ -17,7 +17,8 @@ Navidrome, from both the web UI and the TUI.
 - [x] Configuration file and first-run setup (Navidrome URL, music folder, Soulseek account), checked before saving
 - [ ] SQLite persistence (settings, jobs, peer history)
 - [x] Login with Navidrome credentials; sessions
-- [ ] OpenAPI generation and a generated TypeScript client
+- [x] TypeScript types generated from the API types, checked against the web UI at compile time and in CI
+- [ ] OpenAPI description of the routes
 
 **Soulseek**
 - [x] Wire primitives, server messages, compressed search responses

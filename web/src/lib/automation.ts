@@ -17,6 +17,8 @@ export type Follow = {
   added_by: string
   since: number
   last_checked: number | null
+  /** Releases already put on the wishlist. */
+  seen: number[]
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {

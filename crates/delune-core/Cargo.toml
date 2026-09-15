@@ -15,6 +15,15 @@ workspace = true
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
+ts-rs = { version = "12", optional = true, features = ["serde-compat"] }
 
 [dev-dependencies]
 serde_json = "1.0.151"
+
+[features]
+# TypeScript declarations for the web UI: `cargo run -p delune-core --example typescript --features ts`.
+ts = ["dep:ts-rs"]
+
+[[example]]
+name = "typescript"
+required-features = ["ts"]

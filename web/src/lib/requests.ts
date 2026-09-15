@@ -27,10 +27,10 @@ export type NewRequest = {
   title: string
   artist: string | null
   query: string
-  link?: string | null
-  download?: DownloadJobRequest | null
-  quality_label?: string | null
-  note?: string | null
+  link: string | null
+  download: DownloadJobRequest | null
+  quality_label: string | null
+  note: string | null
 }
 
 export const REQUEST_STATUS: Record<RequestStatus, string> = {

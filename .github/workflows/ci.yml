@@ -52,6 +52,15 @@ jobs:
       - run: cargo doc --workspace --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
+      - uses: oven-sh/setup-bun@v2
+      - name: TypeScript types are up to date
+        run: |
+          (cd web && bun install --frozen-lockfile)
+          scripts/generate-types.sh
+          git diff --exit-code web/src/lib/api.generated.ts || {
+            echo "::error::web/src/lib/api.generated.ts is out of date; run scripts/generate-types.sh"
+            exit 1
+          }
 
   msrv:
     name: Minimum Rust version
