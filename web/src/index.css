@@ -108,6 +108,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* No rubber-banding past the header or the bottom bar. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
   html {
     @apply font-sans antialiased;
     font-variant-numeric: tabular-nums;
@@ -135,6 +140,21 @@
   .type-title {
     font-weight: 600;
     letter-spacing: -0.012em;
+  }
+  /*
+   * Scrollbars match the theme and stay out of sight until you scroll or point
+   * at a scrollable area. `data-scrolling` is set briefly by main.tsx on scroll.
+   */
+  .scrollbar-themed,
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 0.3s;
+  }
+  .scrollbar-themed:hover,
+  .scrollbar-themed[data-scrolling],
+  html[data-scrolling] {
+    scrollbar-color: color-mix(in oklab, var(--foreground) 24%, transparent) transparent;
   }
   /* A faint vertical sky gradient behind the whole app. */
   .night-sky {

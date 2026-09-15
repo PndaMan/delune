@@ -13,6 +13,22 @@ const applyTheme = () => document.documentElement.classList.toggle("dark", !ligh
 applyTheme()
 light.addEventListener("change", applyTheme)
 
+// Show scrollbars only while something is being scrolled.
+{
+  const timers = new WeakMap<Element, number>()
+  document.addEventListener(
+    "scroll",
+    (event) => {
+      const target = event.target === document ? document.documentElement : (event.target as Element)
+      if (!(target instanceof Element)) return
+      target.setAttribute("data-scrolling", "")
+      window.clearTimeout(timers.get(target))
+      timers.set(target, window.setTimeout(() => target.removeAttribute("data-scrolling"), 900))
+    },
+    { capture: true, passive: true },
+  )
+}
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
 })

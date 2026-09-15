@@ -307,7 +307,7 @@ async fn check_job(
 }
 
 async fn run_job(
-    downloads: &Downloads,
+    downloads: &Arc<Downloads>,
     client: delune_soulseek::Client,
     id: &str,
     username: String,
@@ -315,10 +315,12 @@ async fn run_job(
     staging: PathBuf,
     mut cancel: watch::Receiver<bool>,
 ) {
+    // Queue every remaining file with the peer at once. Uploaders serve their queue
+    // in order through their slot, so asking for one file at a time would send us
+    // to the back of the line after every track.
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut handles = Vec::new();
     for (index, file) in files.iter().enumerate() {
-        if *cancel.borrow() {
-            break;
-        }
         // Already downloaded before a restart.
         if file.status == FileStatus::Done && staging.join(&file.name).exists() {
             continue;
@@ -328,21 +330,29 @@ async fn run_job(
             filename: file.path.clone(),
             destination: staging.join(&file.name),
         });
-        let mut state = download.state();
-        loop {
-            let current = state.borrow_and_update().clone();
-            downloads.update(id, |job| apply(&mut job.files[index], &current));
-            if current.is_finished() {
-                break;
-            }
-            tokio::select! {
-                changed = state.changed() => if changed.is_err() { break },
-                _ = cancel.changed() => {
-                    download.cancel();
-                    downloads.update(id, |job| job.status = JobStatus::Cancelled);
-                    return;
+        handles.push(download.clone());
+        let (downloads, id) = (downloads.clone(), id.to_owned());
+        tasks.spawn(async move {
+            let mut state = download.state();
+            loop {
+                let current = state.borrow_and_update().clone();
+                downloads.update(&id, |job| apply(&mut job.files[index], &current));
+                if current.is_finished() || state.changed().await.is_err() {
+                    break;
                 }
             }
+        });
+    }
+
+    tokio::select! {
+        () = async { while tasks.join_next().await.is_some() {} } => {}
+        _ = cancel.changed() => {
+            for download in &handles {
+                download.cancel();
+            }
+            downloads.update(id, |job| job.status = JobStatus::Cancelled);
+            tasks.abort_all();
+            return;
         }
     }
     let status = downloads.lock().iter().find(|e| e.job.id == id).map(|e| e.job.status);

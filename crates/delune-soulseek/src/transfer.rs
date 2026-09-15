@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use bytes::{Buf, BytesMut};
 use tokio::fs::{self, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, timeout};
@@ -367,12 +367,14 @@ async fn receive(
         fs::create_dir_all(parent).await?;
     }
     let part = part_path(destination);
-    let mut file = OpenOptions::new().create(true).append(true).open(&part).await?;
+    let file = OpenOptions::new().create(true).append(true).open(&part).await?;
     let mut received = file.metadata().await?.len();
     if received > size {
         file.set_len(0).await?;
         received = 0;
     }
+    // Write in large batches: a disk write per network read is slow on NAS mounts.
+    let mut file = BufWriter::with_capacity(1 << 20, file);
 
     conn.stream.write_all(&received.to_le_bytes()).await?;
     tracing::debug!(destination = %destination.display(), offset = received, size, "receiving file");
@@ -383,7 +385,7 @@ async fn receive(
         received += take as u64;
     }
 
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut buf = vec![0u8; 256 * 1024];
     let mut last_report = Instant::now();
     state.send_replace(DownloadState::Transferring { bytes: received, size });
     while received < size {
@@ -410,6 +412,7 @@ async fn receive(
     }
 
     file.flush().await?;
+    let file = file.into_inner();
     file.sync_all().await?;
     drop(file);
     fs::rename(&part, destination).await?;

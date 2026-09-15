@@ -42,7 +42,8 @@ export function ReleaseModal({ candidate, onClose }: Props) {
   )
 }
 
-const quietScroll = "overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+/** Phones scroll the whole sheet; the scrollbar only appears while scrolling. */
+const sheetScroll = "overflow-y-auto scrollbar-themed"
 
 function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
   const tier = tierOf(c.quality)
@@ -52,7 +53,7 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
   const other = c.files.filter((f) => !f.audio)
 
   return (
-    <div className={cn("relative flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[minmax(320px,36%)_minmax(0,1fr)]", quietScroll, "lg:overflow-hidden")}>
+    <div className={cn("relative flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[minmax(320px,36%)_minmax(0,1fr)] lg:overflow-hidden", sheetScroll)}>
       <div
         className="pointer-events-none absolute inset-y-0 left-0 w-full lg:w-[36%]"
         style={{
@@ -177,7 +178,9 @@ function Tracklist({ files }: { files: CandidateFile[] }) {
       ref={box}
       className={cn(
         "relative lg:min-h-0 lg:flex-1",
-        layout.overflow ? cn(quietScroll, "[mask-image:linear-gradient(to_bottom,black_90%,transparent)]") : "lg:overflow-hidden",
+        // Desktop: this is the only part of the release view that scrolls.
+        "lg:overflow-y-auto lg:pr-1 scrollbar-themed",
+        layout.overflow && "lg:[mask-image:linear-gradient(to_bottom,black_94%,transparent)]",
       )}
     >
       <ol

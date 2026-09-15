@@ -214,7 +214,20 @@ pub(crate) async fn connect_peer(shared: &Arc<Shared>, username: &str) -> Result
     let server = shared.server().ok_or(PeerError::Offline)?;
 
     let (ready_tx, ready_rx) = oneshot::channel();
-    lock(&shared.peer_waiters).entry(username.to_owned()).or_default().push(ready_tx);
+    let already_connecting = {
+        let mut waiters = lock(&shared.peer_waiters);
+        let queue = waiters.entry(username.to_owned()).or_default();
+        queue.push(ready_tx);
+        queue.len() > 1
+    };
+    // Another download is already connecting to this user: wait for that attempt
+    // instead of opening a second connection.
+    if already_connecting {
+        return match timeout(PEER_ESTABLISH_TIMEOUT, ready_rx).await {
+            Ok(Ok(tx)) => Ok(tx),
+            _ => Err(PeerError::Unreachable(username.to_owned())),
+        };
+    }
 
     let token = shared.next_token();
     lock(&shared.pending_indirect).insert(token, username.to_owned());
@@ -250,6 +263,10 @@ pub(crate) async fn connect_peer(shared: &Arc<Shared>, username: &str) -> Result
 
     let result = timeout(PEER_ESTABLISH_TIMEOUT, ready_rx).await;
     lock(&shared.pending_indirect).remove(&token);
+    if result.is_err() {
+        // Give up for everyone waiting on this attempt, so the next try starts fresh.
+        lock(&shared.peer_waiters).remove(username);
+    }
     match result {
         Ok(Ok(tx)) => Ok(tx),
         _ => Err(PeerError::Unreachable(username.to_owned())),
