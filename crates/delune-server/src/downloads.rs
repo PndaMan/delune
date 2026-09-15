@@ -296,11 +296,34 @@ impl Downloads {
 }
 
 /// `GET /api/v1/downloads`: your downloads, or everyone's if you manage delune.
+#[utoipa::path(
+    get,
+    operation_id = "downloads_list",
+    path = "/api/v1/downloads",
+    tag = "downloads",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::DownloadJob>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<DownloadJob>> {
     Json(app.downloads.list().into_iter().filter(|job| user.can_see(job.requested_by.as_deref())).collect())
 }
 
 /// `POST /api/v1/downloads`
+#[utoipa::path(
+    post,
+    operation_id = "downloads_create",
+    path = "/api/v1/downloads",
+    tag = "downloads",
+    request_body = delune_core::api::DownloadJobRequest,
+    responses(
+        (status = 201, description = "Started", body = delune_core::api::DownloadJob),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 400, description = "Bad request", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn create(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -451,6 +474,20 @@ pub fn recheck_reviews(app: &AppState) {
 }
 
 /// `POST /api/v1/downloads/{id}/stop`: stop downloading but keep what arrived, to resume later.
+#[utoipa::path(
+    post,
+    operation_id = "downloads_stop",
+    path = "/api/v1/downloads/{id}/stop",
+    tag = "downloads",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn stop(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let stopped = {
         let jobs = app.downloads.lock();
@@ -467,6 +504,21 @@ pub async fn stop(State(app): State<AppState>, user: CurrentUser, UrlPath(id): U
 
 /// `POST /api/v1/downloads/{id}/resume`: start a stopped or failed download again,
 /// keeping finished files and resuming partial ones.
+#[utoipa::path(
+    post,
+    operation_id = "downloads_resume_one",
+    path = "/api/v1/downloads/{id}/resume",
+    tag = "downloads",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::DownloadJob),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn resume_one(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let Some(client) = app.soulseek.clone() else {
         return error(StatusCode::SERVICE_UNAVAILABLE, "soulseek-not-configured", "Soulseek isn't set up.");
@@ -501,6 +553,21 @@ pub async fn resume_one(State(app): State<AppState>, user: CurrentUser, UrlPath(
 }
 
 /// `POST /api/v1/downloads/{id}/prioritise`: start this waiting download next.
+#[utoipa::path(
+    post,
+    operation_id = "downloads_prioritise",
+    path = "/api/v1/downloads/{id}/prioritise",
+    tag = "downloads",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn prioritise(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     if app.downloads.owner(&id).is_none_or(|owner| !user.can_see(owner.as_deref())) {
         return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
@@ -513,6 +580,20 @@ pub async fn prioritise(State(app): State<AppState>, user: CurrentUser, UrlPath(
 }
 
 /// `DELETE /api/v1/downloads/{id}`: cancel if running, remove staged files, forget the job.
+#[utoipa::path(
+    delete,
+    operation_id = "downloads_remove",
+    path = "/api/v1/downloads/{id}",
+    tag = "downloads",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let removed = {
         let mut jobs = app.downloads.lock();

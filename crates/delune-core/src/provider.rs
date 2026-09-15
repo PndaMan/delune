@@ -11,6 +11,7 @@ use std::fmt;
 /// A service delune knows about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Provider {
     Soulseek,
@@ -28,6 +29,7 @@ pub enum Provider {
 /// What a provider can be used for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderRole {
     /// Peer-to-peer. Always on, always first.
@@ -89,6 +91,7 @@ impl fmt::Display for Provider {
 /// The user's source preferences, as stored in settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SourcePolicy {
     /// Streaming providers the user has switched on, in their preferred order.
     /// Empty by default: a fresh install only ever uses Soulseek.

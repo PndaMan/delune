@@ -33,7 +33,7 @@ const MAX_IMAGE_BYTES: usize = 2 << 20;
 const MAX_CACHED_LOOKUPS: usize = 2_000;
 const MAX_CACHED_IMAGE_BYTES: usize = 96 << 20;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Artwork {
     pub artist: String,
     pub album: String,
@@ -206,6 +206,21 @@ pub struct LookupParams {
 
 /// `GET /api/v1/artwork?artist=…&album=…&context=…` — `null` when there's no
 /// confident match. (Not a 404: "no cover" is a normal answer, not an error.)
+#[utoipa::path(
+    get,
+    operation_id = "artwork_lookup",
+    path = "/api/v1/artwork",
+    tag = "library",
+    params(
+        ("artist" = Option<String>, Query),
+        ("album" = String, Query),
+        ("context" = Option<String>, Query),
+    ),
+    responses(
+        (status = 200, description = "OK", body = Option<Artwork>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn lookup(State(app): State<AppState>, Query(params): Query<LookupParams>) -> Response {
     let found = app.artwork.find(params.artist.as_deref(), &params.album, params.context.as_deref()).await;
     let max_age = if found.is_some() { "private, max-age=86400" } else { "private, max-age=3600" };
@@ -218,6 +233,20 @@ pub struct ImageParams {
 }
 
 /// `GET /api/v1/artwork/image?src=…` — fetch and cache an image from an allowed CDN.
+#[utoipa::path(
+    get,
+    operation_id = "artwork_image",
+    path = "/api/v1/artwork/image",
+    tag = "library",
+    params(
+        ("src" = String, Query, description = "An artwork address from a lookup"),
+    ),
+    responses(
+        (status = 200, description = "The image, cached", content_type = "image/*"),
+        (status = 400, description = "Not an image address delune fetches", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn image(State(app): State<AppState>, Query(params): Query<ImageParams>) -> Response {
     if !is_allowed_image(&params.src) {
         return StatusCode::FORBIDDEN.into_response();

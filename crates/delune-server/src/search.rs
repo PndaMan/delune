@@ -47,6 +47,21 @@ pub struct SearchParams {
 /// follow: without edition noise and filler words, and for links the title alone.
 /// Soulseek requires every word, so store titles and typed queries often carry one
 /// that shared folders don't.
+#[utoipa::path(
+    get,
+    operation_id = "search_stream",
+    path = "/api/v1/search",
+    tag = "search",
+    params(
+        ("q" = String, Query, description = "Words or a link"),
+    ),
+    responses(
+        (status = 200, description = "Server-sent events until the search finishes", body = delune_core::api::SearchEvent, content_type = "text/event-stream"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 503, description = "Soulseek isn't set up", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn stream(State(app): State<AppState>, user: CurrentUser, Query(params): Query<SearchParams>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.search, "search") {
         return denied;

@@ -447,6 +447,17 @@ fn avatar_path(dir: &Path, username: &str) -> PathBuf {
 }
 
 /// `PUT /api/v1/session/appearance`
+#[utoipa::path(
+    put,
+    operation_id = "accounts_set_appearance",
+    path = "/api/v1/session/appearance",
+    tag = "session",
+    request_body = delune_core::api::Appearance,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::Appearance),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn set_appearance(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -462,6 +473,18 @@ pub async fn set_appearance(
 const MAX_AVATAR_BYTES: usize = 1 << 20;
 
 /// `PUT /api/v1/session/avatar`: the request body is the image.
+#[utoipa::path(
+    put,
+    operation_id = "accounts_set_avatar",
+    path = "/api/v1/session/avatar",
+    tag = "session",
+    request_body = Vec<u8>,
+    responses(
+        (status = 200, description = "Saved; returns the picture's version"),
+        (status = 400, description = "Not a PNG, JPEG, WebP or GIF under 1 MiB", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn set_avatar(State(app): State<AppState>, user: CurrentUser, body: axum::body::Bytes) -> Response {
     let Some(dir) = app.accounts.avatars.clone() else {
         return error(StatusCode::SERVICE_UNAVAILABLE, "no-storage", "Pictures can't be saved here.");
@@ -492,6 +515,16 @@ pub async fn set_avatar(State(app): State<AppState>, user: CurrentUser, body: ax
 }
 
 /// `DELETE /api/v1/session/avatar`
+#[utoipa::path(
+    delete,
+    operation_id = "accounts_remove_avatar",
+    path = "/api/v1/session/avatar",
+    tag = "session",
+    responses(
+        (status = 204, description = "Done"),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn remove_avatar(State(app): State<AppState>, user: CurrentUser) -> StatusCode {
     if let Some(dir) = &app.accounts.avatars {
         let _ = tokio::fs::remove_file(avatar_path(dir, &user.username)).await;
@@ -506,6 +539,20 @@ pub async fn remove_avatar(State(app): State<AppState>, user: CurrentUser) -> St
 }
 
 /// `GET /api/v1/avatars/{username}`
+#[utoipa::path(
+    get,
+    operation_id = "accounts_avatar",
+    path = "/api/v1/avatars/{username}",
+    tag = "people",
+    params(
+        ("username" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "The picture", content_type = "image/*"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn avatar(State(app): State<AppState>, UrlPath(username): UrlPath<String>) -> Response {
     let kind = app.accounts.lock().profiles.get(&username).and_then(|p| p.avatar.clone()).map(|(kind, _)| kind);
     let (Some(kind), Some(dir)) = (kind, app.accounts.avatars.as_ref()) else {
@@ -529,11 +576,34 @@ pub async fn avatar(State(app): State<AppState>, UrlPath(username): UrlPath<Stri
 ///
 /// Answering `200 null` rather than 401 keeps "not signed in yet" from showing up as
 /// an error in the browser console on every visit.
+#[utoipa::path(
+    get,
+    operation_id = "accounts_session",
+    path = "/api/v1/session",
+    tag = "session",
+    security(()),
+    responses(
+        (status = 200, description = "The signed-in person, or null", body = Option<delune_core::api::Me>),
+    ),
+)]
 pub async fn session(State(app): State<AppState>, headers: HeaderMap) -> Json<Option<Me>> {
     Json(app.accounts.authenticate(token_from(&headers).as_deref()).map(|user| me(&app.accounts, &user, None)))
 }
 
 /// `POST /api/v1/session`: sign in with a Navidrome username and password.
+#[utoipa::path(
+    post,
+    operation_id = "accounts_sign_in",
+    path = "/api/v1/session",
+    tag = "session",
+    request_body = delune_core::api::LoginRequest,
+    security(()),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::Me),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+        (status = 429, description = "Too many attempts", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn sign_in(State(app): State<AppState>, headers: HeaderMap, Json(request): Json<LoginRequest>) -> Response {
     let accounts = &app.accounts;
     let Some(url) = accounts.navidrome_url.clone() else {
@@ -593,6 +663,16 @@ pub async fn sign_in(State(app): State<AppState>, headers: HeaderMap, Json(reque
 }
 
 /// `DELETE /api/v1/session`
+#[utoipa::path(
+    delete,
+    operation_id = "accounts_sign_out",
+    path = "/api/v1/session",
+    tag = "session",
+    security(()),
+    responses(
+        (status = 204, description = "Done"),
+    ),
+)]
 pub async fn sign_out(State(app): State<AppState>, headers: HeaderMap) -> Response {
     if let Some(token) = token_from(&headers) {
         app.accounts.sign_out(&token);
@@ -603,11 +683,35 @@ pub async fn sign_out(State(app): State<AppState>, headers: HeaderMap) -> Respon
 }
 
 /// `GET /api/v1/session/devices`: where you're signed in.
+#[utoipa::path(
+    get,
+    operation_id = "accounts_devices",
+    path = "/api/v1/session/devices",
+    tag = "session",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::SessionInfo>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn devices(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<SessionInfo>> {
     Json(app.accounts.sessions_of(&user.username, user.session.as_deref()))
 }
 
 /// `DELETE /api/v1/session/devices/{id}`: sign out one of your devices.
+#[utoipa::path(
+    delete,
+    operation_id = "accounts_revoke_device",
+    path = "/api/v1/session/devices/{id}",
+    tag = "session",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::SessionInfo>),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn revoke_device(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     match app.accounts.revoke(&user.username, |session| session == id) {
         0 => error(StatusCode::NOT_FOUND, "no-such-session", "That device is already signed out."),
@@ -616,6 +720,16 @@ pub async fn revoke_device(State(app): State<AppState>, user: CurrentUser, UrlPa
 }
 
 /// `POST /api/v1/session/devices/sign-out-others`: sign out everywhere but here.
+#[utoipa::path(
+    post,
+    operation_id = "accounts_revoke_other_devices",
+    path = "/api/v1/session/devices/sign-out-others",
+    tag = "session",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::SessionInfo>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn revoke_other_devices(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<SessionInfo>> {
     let current = user.session.clone();
     let ended = app.accounts.revoke(&user.username, |session| Some(session) != current.as_deref());
@@ -624,6 +738,20 @@ pub async fn revoke_other_devices(State(app): State<AppState>, user: CurrentUser
 }
 
 /// `DELETE /api/v1/users/{username}/sessions`: sign someone out everywhere.
+#[utoipa::path(
+    delete,
+    operation_id = "accounts_revoke_person",
+    path = "/api/v1/users/{username}/sessions",
+    tag = "people",
+    params(
+        ("username" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::People),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn revoke_person(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -638,6 +766,17 @@ pub async fn revoke_person(
 }
 
 /// `GET /api/v1/users`
+#[utoipa::path(
+    get,
+    operation_id = "accounts_people",
+    path = "/api/v1/users",
+    tag = "people",
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::People),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn people(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "manage people") {
         return denied;
@@ -645,12 +784,29 @@ pub async fn people(State(app): State<AppState>, user: CurrentUser) -> Response 
     Json(app.accounts.people()).into_response()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PermissionsUpdate {
     permissions: Permissions,
 }
 
 /// `PUT /api/v1/users/{username}/permissions`
+#[utoipa::path(
+    put,
+    operation_id = "accounts_set_permissions",
+    path = "/api/v1/users/{username}/permissions",
+    tag = "people",
+    params(
+        ("username" = String, Path),
+    ),
+    request_body = PermissionsUpdate,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::People),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn set_permissions(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -679,12 +835,24 @@ pub async fn set_permissions(
     Json(accounts.people()).into_response()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ApprovalUpdate {
     require_approval: bool,
 }
 
 /// `PUT /api/v1/users/approval`
+#[utoipa::path(
+    put,
+    operation_id = "accounts_set_approval",
+    path = "/api/v1/users/approval",
+    tag = "people",
+    request_body = ApprovalUpdate,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::People),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn set_approval(
     State(app): State<AppState>,
     user: CurrentUser,

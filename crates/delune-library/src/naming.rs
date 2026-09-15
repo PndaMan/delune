@@ -51,6 +51,7 @@ pub const TOKENS: &[(&str, &str)] = &[
 ];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum MultiDisc {
     /// `1-01`, `2-01` on multi-disc releases; plain `01` otherwise.
@@ -63,6 +64,7 @@ pub enum MultiDisc {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Whitespace {
     #[default]
@@ -74,6 +76,7 @@ pub enum Whitespace {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(default)]
 pub struct NamingOptions {
     /// Minimum digits for track numbers (`2` → `01`).

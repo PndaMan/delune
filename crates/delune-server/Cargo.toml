@@ -15,7 +15,7 @@ workspace = true
 [dependencies]
 futures-util = { version = "0.3.33", default-features = false, features = ["std"] }
 axum = "0.8.9"
-delune-core = { version = "0.1.0-dev", path = "../delune-core" }
+delune-core = { version = "0.1.0-dev", path = "../delune-core", features = ["openapi"] }
 delune-resolve = { version = "0.1.0-dev", path = "../delune-resolve" }
 delune-soulseek = { version = "0.1.0-dev", path = "../delune-soulseek" }
 mime_guess = "2.0.5"
@@ -26,7 +26,7 @@ thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["trace", "cors"] }
 tracing = "0.1.44"
-delune-library = { version = "0.1.0-dev", path = "../delune-library" }
+delune-library = { version = "0.1.0-dev", path = "../delune-library", features = ["openapi"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "query"] }
 url = "2.5.8"
 getrandom = "0.3.4"
@@ -37,6 +37,7 @@ jiff = { version = "0.2.37", default-features = false, features = ["std", "tz-sy
 toml = "0.9"
 igd-next = { version = "0.17", features = ["aio_tokio"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
+utoipa = "5"
 
 [dev-dependencies]
 bytes = "1.12.1"

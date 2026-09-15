@@ -32,7 +32,7 @@ pub struct FileConfig {
     pub navidrome: Option<NavidromeFile>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SoulseekFile {
     pub username: String,
     pub password: String,
@@ -40,7 +40,7 @@ pub struct SoulseekFile {
     pub port: Option<u16>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NavidromeFile {
     pub url: String,
     pub username: String,
@@ -95,7 +95,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Which connections came from flags or environment variables, so the UI can't change them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Locked {
     pub library: bool,
     pub soulseek: bool,
@@ -103,7 +103,7 @@ pub struct Locked {
 }
 
 /// `GET /api/v1/setup`
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetupStatus {
     /// Nothing is connected yet: show the first-run setup.
     pub needed: bool,
@@ -120,7 +120,7 @@ pub struct SetupStatus {
 }
 
 /// `PUT /api/v1/setup` and `POST /api/v1/setup/check`. Empty passwords keep the saved ones.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetupRequest {
     #[serde(default)]
     pub library_dir: Option<String>,
@@ -131,14 +131,14 @@ pub struct SetupRequest {
 }
 
 /// What checking each part found; `None` for parts not being changed.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetupCheck {
     pub library: Option<CheckResult>,
     pub soulseek: Option<CheckResult>,
     pub navidrome: Option<CheckResult>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CheckResult {
     pub ok: bool,
     pub message: String,
@@ -159,6 +159,17 @@ fn error(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 /// `GET /api/v1/setup`
+#[utoipa::path(
+    get,
+    operation_id = "setup_status",
+    path = "/api/v1/setup",
+    tag = "settings",
+    responses(
+        (status = 200, description = "OK", body = SetupStatus),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn status(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "change server connections") {
         return denied;
@@ -179,6 +190,18 @@ pub async fn status(State(app): State<AppState>, user: CurrentUser) -> Response 
 }
 
 /// `POST /api/v1/setup/check`: try the connections without saving them.
+#[utoipa::path(
+    post,
+    operation_id = "setup_check",
+    path = "/api/v1/setup/check",
+    tag = "settings",
+    request_body = SetupRequest,
+    responses(
+        (status = 200, description = "OK", body = SetupCheck),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn check(State(app): State<AppState>, user: CurrentUser, Json(request): Json<SetupRequest>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "change server connections") {
         return denied;
@@ -192,6 +215,20 @@ pub async fn check(State(app): State<AppState>, user: CurrentUser, Json(request)
 }
 
 /// `PUT /api/v1/setup`: check, save and restart.
+#[utoipa::path(
+    put,
+    operation_id = "setup_update",
+    path = "/api/v1/setup",
+    tag = "settings",
+    request_body = SetupRequest,
+    responses(
+        (status = 200, description = "Saved; delune restarts", body = SetupCheck),
+        (status = 422, description = "A check failed", body = SetupCheck),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn update(State(app): State<AppState>, user: CurrentUser, Json(request): Json<SetupRequest>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "change server connections") {
         return denied;

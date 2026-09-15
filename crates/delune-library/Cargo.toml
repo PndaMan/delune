@@ -20,6 +20,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 symphonia = { version = "0.6.1", default-features = false, features = ["flac", "mp3", "aac", "isomp4", "alac", "wav", "aiff", "ogg", "vorbis", "pcm"] }
 thiserror = "2.0.20"
 tracing = "0.1.44"
+utoipa = { version = "5", optional = true }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[features]
+# OpenAPI schemas for the server's API description.
+openapi = ["dep:utoipa"]

@@ -180,6 +180,21 @@ fn blocked_reason(settings: &LibrarySettings, tracks: &[ReviewTrack], conflicts:
 }
 
 /// `GET /api/v1/downloads/{id}/review`
+#[utoipa::path(
+    get,
+    operation_id = "review_report",
+    path = "/api/v1/downloads/{id}/review",
+    tag = "review",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::ReviewReport),
+        (status = 202, description = "Still checking the files", body = delune_core::api::ApiError),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn report(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     if !app.downloads.owner(&id).is_some_and(|owner| user.can_see(owner.as_deref())) {
         return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
@@ -200,6 +215,22 @@ pub async fn report(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
 }
 
 /// `POST /api/v1/downloads/{id}/import`
+#[utoipa::path(
+    post,
+    operation_id = "review_import",
+    path = "/api/v1/downloads/{id}/import",
+    tag = "review",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::ImportResult),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let Some(owner) = app.downloads.owner(&id).filter(|owner| user.can_see(owner.as_deref())) else {
         return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");

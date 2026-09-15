@@ -268,6 +268,17 @@ pub fn start(app: &AppState) {
 }
 
 /// `GET /api/v1/soulseek/chat`
+#[utoipa::path(
+    get,
+    operation_id = "chat_overview",
+    path = "/api/v1/soulseek/chat",
+    tag = "chat",
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::ChatOverview),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn overview(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Err(response) = guard(&app, &user) {
         return *response;
@@ -276,6 +287,20 @@ pub async fn overview(State(app): State<AppState>, user: CurrentUser) -> Respons
 }
 
 /// `GET /api/v1/soulseek/chat/users/{username}`: the conversation, marked read.
+#[utoipa::path(
+    get,
+    operation_id = "chat_conversation",
+    path = "/api/v1/soulseek/chat/users/{username}",
+    tag = "chat",
+    params(
+        ("username" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::ChatMessage>),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn conversation(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -300,12 +325,27 @@ pub async fn conversation(
     Json(messages).into_response()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct Say {
     text: String,
 }
 
 /// `POST /api/v1/soulseek/chat/users/{username}`
+#[utoipa::path(
+    post,
+    operation_id = "chat_send",
+    path = "/api/v1/soulseek/chat/users/{username}",
+    tag = "chat",
+    params(
+        ("username" = String, Path),
+    ),
+    request_body = Say,
+    responses(
+        (status = 201, description = "Sent", body = delune_core::api::ChatMessage),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn send(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -329,6 +369,20 @@ pub async fn send(
 }
 
 /// `DELETE /api/v1/soulseek/chat/users/{username}`: forget a conversation.
+#[utoipa::path(
+    delete,
+    operation_id = "chat_forget",
+    path = "/api/v1/soulseek/chat/users/{username}",
+    tag = "chat",
+    params(
+        ("username" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn forget(State(app): State<AppState>, user: CurrentUser, UrlPath(username): UrlPath<String>) -> Response {
     if let Err(response) = guard(&app, &user) {
         return *response;
@@ -348,6 +402,20 @@ fn presence(status: UserStatus) -> Presence {
 }
 
 /// `GET /api/v1/soulseek/chat/rooms/{room}`: members and recent lines, marked read.
+#[utoipa::path(
+    get,
+    operation_id = "chat_room",
+    path = "/api/v1/soulseek/chat/rooms/{room}",
+    tag = "chat",
+    params(
+        ("room" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::RoomView),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn room(State(app): State<AppState>, user: CurrentUser, UrlPath(name): UrlPath<String>) -> Response {
     if let Err(response) = guard(&app, &user) {
         return *response;
@@ -385,6 +453,20 @@ fn valid_room(name: &str) -> bool {
 }
 
 /// `PUT /api/v1/soulseek/chat/rooms/{room}`: join.
+#[utoipa::path(
+    put,
+    operation_id = "chat_join",
+    path = "/api/v1/soulseek/chat/rooms/{room}",
+    tag = "chat",
+    params(
+        ("room" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn join(State(app): State<AppState>, user: CurrentUser, UrlPath(name): UrlPath<String>) -> Response {
     let client = match guard(&app, &user) {
         Ok(client) => client,
@@ -411,6 +493,20 @@ pub async fn join(State(app): State<AppState>, user: CurrentUser, UrlPath(name):
 }
 
 /// `DELETE /api/v1/soulseek/chat/rooms/{room}`: leave.
+#[utoipa::path(
+    delete,
+    operation_id = "chat_leave",
+    path = "/api/v1/soulseek/chat/rooms/{room}",
+    tag = "chat",
+    params(
+        ("room" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn leave(State(app): State<AppState>, user: CurrentUser, UrlPath(name): UrlPath<String>) -> Response {
     let client = match guard(&app, &user) {
         Ok(client) => client,
@@ -427,6 +523,21 @@ pub async fn leave(State(app): State<AppState>, user: CurrentUser, UrlPath(name)
 }
 
 /// `POST /api/v1/soulseek/chat/rooms/{room}/messages`
+#[utoipa::path(
+    post,
+    operation_id = "chat_say",
+    path = "/api/v1/soulseek/chat/rooms/{room}/messages",
+    tag = "chat",
+    params(
+        ("room" = String, Path),
+    ),
+    request_body = Say,
+    responses(
+        (status = 204, description = "Done"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn say(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -449,6 +560,17 @@ pub async fn say(
 }
 
 /// `POST /api/v1/soulseek/chat/rooms`: refresh the public room list.
+#[utoipa::path(
+    post,
+    operation_id = "chat_refresh_rooms",
+    path = "/api/v1/soulseek/chat/rooms",
+    tag = "chat",
+    responses(
+        (status = 204, description = "Done"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn refresh_rooms(State(app): State<AppState>, user: CurrentUser) -> Response {
     let client = match guard(&app, &user) {
         Ok(client) => client,
@@ -459,6 +581,17 @@ pub async fn refresh_rooms(State(app): State<AppState>, user: CurrentUser) -> Re
 }
 
 /// `GET /api/v1/soulseek/chat/events`: what changed, as it happens.
+#[utoipa::path(
+    get,
+    operation_id = "chat_events",
+    path = "/api/v1/soulseek/chat/events",
+    tag = "chat",
+    responses(
+        (status = 200, description = "Server-sent events", body = delune_core::api::ChatUpdate, content_type = "text/event-stream"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn events(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Err(response) = guard(&app, &user) {
         return *response;

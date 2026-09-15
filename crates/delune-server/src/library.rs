@@ -69,6 +69,21 @@ fn unknown() -> LibraryMatch {
 }
 
 /// `GET /api/v1/library/album?artist=…&album=…&context=…`
+#[utoipa::path(
+    get,
+    operation_id = "library_album",
+    path = "/api/v1/library/album",
+    tag = "library",
+    params(
+        ("artist" = Option<String>, Query),
+        ("album" = String, Query),
+        ("context" = Option<String>, Query, description = "What was searched for"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::LibraryMatch),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn album(State(app): State<AppState>, Query(params): Query<AlbumParams>) -> Json<LibraryMatch> {
     Json(lookup(&app, params.artist.as_deref(), &params.album, params.context.as_deref()).await)
 }

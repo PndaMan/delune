@@ -344,6 +344,17 @@ fn error(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 /// `GET /api/v1/sharing`
+#[utoipa::path(
+    get,
+    operation_id = "sharing_status",
+    path = "/api/v1/sharing",
+    tag = "sharing",
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::SharingStatus),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn status(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "manage sharing") {
         return denied;
@@ -352,6 +363,20 @@ pub async fn status(State(app): State<AppState>, user: CurrentUser) -> Response 
 }
 
 /// `PUT /api/v1/sharing`
+#[utoipa::path(
+    put,
+    operation_id = "sharing_update",
+    path = "/api/v1/sharing",
+    tag = "sharing",
+    request_body = delune_core::api::SharingSettings,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::SharingStatus),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 400, description = "Bad settings", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn update(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -399,6 +424,17 @@ pub async fn update(
 }
 
 /// `POST /api/v1/sharing/rescan`
+#[utoipa::path(
+    post,
+    operation_id = "sharing_rescan",
+    path = "/api/v1/sharing/rescan",
+    tag = "sharing",
+    responses(
+        (status = 202, description = "Rescanning", body = delune_core::api::SharingStatus),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn rescan(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "manage sharing") {
         return denied;
@@ -408,6 +444,17 @@ pub async fn rescan(State(app): State<AppState>, user: CurrentUser) -> Response 
 }
 
 /// `GET /api/v1/soulseek/uploads`
+#[utoipa::path(
+    get,
+    operation_id = "sharing_uploads",
+    path = "/api/v1/soulseek/uploads",
+    tag = "uploads",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::Upload>),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn uploads(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "see uploads") {
         return denied;
@@ -490,6 +537,17 @@ impl Totals {
 }
 
 /// `GET /api/v1/soulseek/stats`
+#[utoipa::path(
+    get,
+    operation_id = "sharing_stats",
+    path = "/api/v1/soulseek/stats",
+    tag = "soulseek",
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::SoulseekStats),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn stats(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.search, "see Soulseek stats") {
         return denied;
@@ -526,6 +584,21 @@ pub async fn stats(State(app): State<AppState>, user: CurrentUser) -> Response {
 }
 
 /// `DELETE /api/v1/soulseek/uploads/{id}`
+#[utoipa::path(
+    delete,
+    operation_id = "sharing_cancel_upload",
+    path = "/api/v1/soulseek/uploads/{id}",
+    tag = "uploads",
+    params(
+        ("id" = u64, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn cancel_upload(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<u64>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "manage uploads") {
         return denied;
@@ -537,6 +610,17 @@ pub async fn cancel_upload(State(app): State<AppState>, user: CurrentUser, UrlPa
 }
 
 /// `POST /api/v1/soulseek/uploads/clear`: forget finished uploads.
+#[utoipa::path(
+    post,
+    operation_id = "sharing_clear_uploads",
+    path = "/api/v1/soulseek/uploads/clear",
+    tag = "uploads",
+    responses(
+        (status = 204, description = "Done"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn clear_uploads(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "manage uploads") {
         return denied;

@@ -119,6 +119,16 @@ pub fn asked_for(app: &AppState, job_id: &str) -> bool {
 }
 
 /// `GET /api/v1/requests`: your requests, or everyone's if you manage delune.
+#[utoipa::path(
+    get,
+    operation_id = "requests_list",
+    path = "/api/v1/requests",
+    tag = "requests",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::MusicRequest>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<MusicRequest>> {
     let mut items: Vec<MusicRequest> =
         app.requests.snapshot().into_iter().filter(|r| user.can_see(Some(&r.requested_by))).collect();
@@ -132,6 +142,19 @@ pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<Mu
 }
 
 /// `POST /api/v1/requests`
+#[utoipa::path(
+    post,
+    operation_id = "requests_create",
+    path = "/api/v1/requests",
+    tag = "requests",
+    request_body = delune_core::api::NewRequest,
+    responses(
+        (status = 201, description = "Requested", body = delune_core::api::MusicRequest),
+        (status = 200, description = "Already requested", body = delune_core::api::MusicRequest),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn create(State(app): State<AppState>, user: CurrentUser, Json(new): Json<NewRequest>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.request, "request albums") {
         return denied;
@@ -213,6 +236,23 @@ pub async fn create(State(app): State<AppState>, user: CurrentUser, Json(new): J
 }
 
 /// `POST /api/v1/requests/{id}/decision`: approve or decline.
+#[utoipa::path(
+    post,
+    operation_id = "requests_decide",
+    path = "/api/v1/requests/{id}/decision",
+    tag = "requests",
+    params(
+        ("id" = String, Path),
+    ),
+    request_body = delune_core::api::RequestDecision,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::MusicRequest),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn decide(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -291,6 +331,20 @@ pub async fn decide(
 }
 
 /// `DELETE /api/v1/requests/{id}`: withdraw your own request, or remove any if you manage.
+#[utoipa::path(
+    delete,
+    operation_id = "requests_remove",
+    path = "/api/v1/requests/{id}",
+    tag = "requests",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let removed = app.requests.with(|items| {
         let index = items.iter().position(|r| r.id == id && user.can_see(Some(&r.requested_by)))?;

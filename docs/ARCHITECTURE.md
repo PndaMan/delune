@@ -133,8 +133,11 @@ Everything delune keeps lives in its data directory:
   `HttpOnly` cookie for browsers, a bearer token for the TUI. See
   [ADR 0006](adr/0006-navidrome-accounts.md). Every route except health and the
   session needs one; permissions are checked per handler.
-- `web/src/lib/*.ts` types are hand-written and kept in step with `delune-core::api`.
-  Generating them (utoipa and an OpenAPI document) is planned.
+- `GET /api/v1/openapi.json` describes every route (OpenAPI 3.1, from `#[utoipa::path]`
+  annotations on the handlers); a test fails if a registered route isn't described.
+- `web/src/lib/api.generated.ts` is generated from `delune-core::api`
+  (`scripts/generate-types.sh`), and `api-contract.ts` checks the hand-written web
+  types against it at compile time. CI fails if the generated file is stale.
 
 ## Web UI
 

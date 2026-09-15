@@ -87,6 +87,20 @@ async fn profile(app: &AppState, client: &delune_soulseek::Client, username: &st
 }
 
 /// `GET /api/v1/soulseek/users/{username}`
+#[utoipa::path(
+    get,
+    operation_id = "users_user",
+    path = "/api/v1/soulseek/users/{username}",
+    tag = "soulseek",
+    params(
+        ("username" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::SoulseekUser),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn user(State(app): State<AppState>, user: CurrentUser, UrlPath(username): UrlPath<String>) -> Response {
     let client = match guard(&app, &user) {
         Ok(client) => client,
@@ -124,6 +138,20 @@ pub async fn user(State(app): State<AppState>, user: CurrentUser, UrlPath(userna
 }
 
 /// `GET /api/v1/soulseek/users/{username}/picture`
+#[utoipa::path(
+    get,
+    operation_id = "users_picture",
+    path = "/api/v1/soulseek/users/{username}/picture",
+    tag = "soulseek",
+    params(
+        ("username" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "Their picture", content_type = "image/*"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn picture(State(app): State<AppState>, user: CurrentUser, UrlPath(username): UrlPath<String>) -> Response {
     let client = match guard(&app, &user) {
         Ok(client) => client,
@@ -166,6 +194,20 @@ async fn shares(
 }
 
 /// `GET /api/v1/soulseek/users/{username}/shares`
+#[utoipa::path(
+    get,
+    operation_id = "users_share_tree",
+    path = "/api/v1/soulseek/users/{username}/shares",
+    tag = "soulseek",
+    params(
+        ("username" = String, Path),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::ShareTree),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn share_tree(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -210,6 +252,21 @@ pub struct FolderParams {
 }
 
 /// `GET /api/v1/soulseek/users/{username}/folder?path=…`: one folder, ready to open and download.
+#[utoipa::path(
+    get,
+    operation_id = "users_folder",
+    path = "/api/v1/soulseek/users/{username}/folder",
+    tag = "soulseek",
+    params(
+        ("username" = String, Path),
+        ("path" = String, Query, description = "The folder, as they share it"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::Candidate),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn folder(
     State(app): State<AppState>,
     user: CurrentUser,

@@ -34,6 +34,7 @@ pub struct Sample {
 
 /// The layout most of the sample follows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DetectedLayout {
     pub template: String,
     pub options: NamingOptions,

@@ -28,7 +28,7 @@ use crate::store::Database;
 const DETECT_SAMPLE: usize = 300;
 
 /// `GET/PUT /api/v1/naming`
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NamingSettings {
     pub template: String,
     pub options: NamingOptions,
@@ -74,11 +74,34 @@ fn error(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 /// `GET /api/v1/naming`
+#[utoipa::path(
+    get,
+    operation_id = "naming_get",
+    path = "/api/v1/naming",
+    tag = "settings",
+    responses(
+        (status = 200, description = "OK", body = NamingSettings),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn get(State(app): State<AppState>, _user: CurrentUser) -> Json<NamingSettings> {
     Json(app.naming.settings())
 }
 
 /// `PUT /api/v1/naming`: save, then re-plan albums waiting in review.
+#[utoipa::path(
+    put,
+    operation_id = "naming_update",
+    path = "/api/v1/naming",
+    tag = "settings",
+    request_body = NamingSettings,
+    responses(
+        (status = 200, description = "OK", body = NamingSettings),
+        (status = 422, description = "Bad template", body = delune_core::api::ApiError),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn update(State(app): State<AppState>, user: CurrentUser, Json(settings): Json<NamingSettings>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "change file naming") {
         return denied;
@@ -114,6 +137,19 @@ pub async fn update(State(app): State<AppState>, user: CurrentUser, Json(setting
 }
 
 /// `POST /api/v1/naming/detect`: the template the library already follows.
+#[utoipa::path(
+    post,
+    operation_id = "naming_detect",
+    path = "/api/v1/naming/detect",
+    tag = "settings",
+    responses(
+        (status = 200, description = "OK", body = delune_library::layout::DetectedLayout),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn detect(State(app): State<AppState>, user: CurrentUser) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.manage, "change file naming") {
         return denied;
@@ -142,13 +178,23 @@ pub async fn detect(State(app): State<AppState>, user: CurrentUser) -> Response 
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct TokenInfo {
     pub name: String,
     pub description: String,
 }
 
 /// `GET /api/v1/naming/tokens`
+#[utoipa::path(
+    get,
+    operation_id = "naming_tokens",
+    path = "/api/v1/naming/tokens",
+    tag = "settings",
+    responses(
+        (status = 200, description = "OK", body = Vec<TokenInfo>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn tokens() -> Json<Vec<TokenInfo>> {
     Json(
         TOKENS
@@ -158,28 +204,28 @@ pub async fn tokens() -> Json<Vec<TokenInfo>> {
     )
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PreviewRequest {
     pub template: String,
     #[serde(default)]
     pub options: NamingOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct PreviewExample {
     /// What the sample represents, e.g. "Second disc of a double album".
     pub label: String,
     pub path: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct PreviewError {
     /// 0-based character offset of the problem.
     pub position: usize,
     pub message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(untagged)]
 pub enum PreviewResponse {
     Ok { examples: Vec<PreviewExample> },
@@ -187,6 +233,18 @@ pub enum PreviewResponse {
 }
 
 /// `POST /api/v1/naming/preview`
+#[utoipa::path(
+    post,
+    operation_id = "naming_preview",
+    path = "/api/v1/naming/preview",
+    tag = "settings",
+    request_body = PreviewRequest,
+    responses(
+        (status = 200, description = "OK", body = PreviewResponse),
+        (status = 422, description = "Bad template", body = PreviewResponse),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn preview(Json(request): Json<PreviewRequest>) -> (StatusCode, Json<PreviewResponse>) {
     match Template::parse(&request.template) {
         Ok(template) => {

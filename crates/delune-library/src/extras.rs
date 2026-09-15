@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Where lyrics go.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum LyricsMode {
     Off,

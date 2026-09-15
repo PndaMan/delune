@@ -222,6 +222,16 @@ fn error(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 /// `GET /api/v1/wishlist`: yours, or everyone's if you manage delune.
+#[utoipa::path(
+    get,
+    operation_id = "wishlist_list",
+    path = "/api/v1/wishlist",
+    tag = "wishlist",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::WishlistItem>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<WishlistItem>> {
     let mut items: Vec<WishlistItem> =
         app.wishlist.lock().iter().filter(|i| user.can_see(Some(&i.added_by))).cloned().collect();
@@ -230,6 +240,19 @@ pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<Wi
 }
 
 /// `POST /api/v1/wishlist`
+#[utoipa::path(
+    post,
+    operation_id = "wishlist_add",
+    path = "/api/v1/wishlist",
+    tag = "wishlist",
+    request_body = delune_core::api::WishlistRequest,
+    responses(
+        (status = 201, description = "Added", body = delune_core::api::WishlistItem),
+        (status = 200, description = "Already there", body = delune_core::api::WishlistItem),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn add(State(app): State<AppState>, user: CurrentUser, Json(request): Json<WishlistRequest>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.search && p.download, "use the wishlist") {
         return denied;
@@ -245,6 +268,18 @@ pub async fn add(State(app): State<AppState>, user: CurrentUser, Json(request): 
 }
 
 /// `POST /api/v1/wishlist/batch`: many items at once, such as a playlist.
+#[utoipa::path(
+    post,
+    operation_id = "wishlist_add_many",
+    path = "/api/v1/wishlist/batch",
+    tag = "wishlist",
+    request_body = Vec<delune_core::api::WishlistRequest>,
+    responses(
+        (status = 200, description = "How many were added"),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn add_many(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -321,6 +356,21 @@ fn insert(
 }
 
 /// `PATCH /api/v1/wishlist/{id}`
+#[utoipa::path(
+    patch,
+    operation_id = "wishlist_update",
+    path = "/api/v1/wishlist/{id}",
+    tag = "wishlist",
+    params(
+        ("id" = String, Path),
+    ),
+    request_body = delune_core::api::WishlistUpdate,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::WishlistItem),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn update(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -346,6 +396,20 @@ pub async fn update(
 }
 
 /// `DELETE /api/v1/wishlist/{id}`
+#[utoipa::path(
+    delete,
+    operation_id = "wishlist_remove",
+    path = "/api/v1/wishlist/{id}",
+    tag = "wishlist",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let mut items = app.wishlist.lock();
     let before = items.len();

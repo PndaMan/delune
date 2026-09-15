@@ -12,6 +12,7 @@ use crate::{EntityKind, Provider, Quality};
 /// `GET /api/v1/health`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Health {
     pub name: String,
     pub version: String,
@@ -20,6 +21,7 @@ pub struct Health {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum HealthStatus {
     Ok,
@@ -29,6 +31,7 @@ pub enum HealthStatus {
 /// `GET /api/v1/soulseek`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SoulseekStatus {
     pub state: SoulseekState,
     /// The account delune logs in with, when configured.
@@ -51,6 +54,7 @@ pub struct SoulseekStatus {
 /// Forwarding the Soulseek port on the router with UPnP.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct PortMapping {
     pub state: PortMappingState,
     /// The router's public address, once mapped.
@@ -68,6 +72,7 @@ impl PortMapping {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum PortMappingState {
     Off,
@@ -77,6 +82,7 @@ pub enum PortMappingState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum SoulseekState {
     /// No Soulseek account configured.
@@ -91,6 +97,7 @@ pub enum SoulseekState {
 /// Error body returned by every failing API route.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ApiError {
     /// Stable machine-readable code, e.g. `soulseek-not-configured`.
     pub code: String,
@@ -107,6 +114,7 @@ impl ApiError {
 /// One file inside a [`Candidate`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CandidateFile {
     /// Full path as the peer shares it; what a download request names.
     pub path: String,
@@ -121,6 +129,7 @@ pub struct CandidateFile {
 /// How downloads from one Soulseek user have gone before.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct PeerHistory {
     pub files_done: u32,
     pub files_failed: u32,
@@ -135,6 +144,7 @@ pub struct PeerHistory {
 /// between in search results.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Candidate {
     /// Stable within a search: `username` + folder path.
     pub id: String,
@@ -171,6 +181,7 @@ pub struct Candidate {
 /// beats a hi-res fragment, but hi-res beats CD when both are complete.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum QualityTier {
     Unknown,
@@ -262,6 +273,7 @@ impl Candidate {
 /// A file to download, as listed in a [`Candidate`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RequestedFile {
     pub path: String,
     pub size: u64,
@@ -270,6 +282,7 @@ pub struct RequestedFile {
 /// `POST /api/v1/downloads`: fetch these files from one folder of one peer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DownloadJobRequest {
     pub username: String,
     pub folder: String,
@@ -280,6 +293,7 @@ pub struct DownloadJobRequest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum JobStatus {
     /// Waiting for an earlier file or for the peer.
@@ -296,6 +310,7 @@ pub enum JobStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum ReviewState {
     /// Waiting for the download to finish.
@@ -309,6 +324,7 @@ pub enum ReviewState {
 /// One track as the review screen shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReviewTrack {
     pub file: String,
     /// Where it will go, relative to the library.
@@ -330,6 +346,7 @@ pub struct ReviewTrack {
 /// `GET /api/v1/downloads/{id}/review`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReviewReport {
     pub album_artist: String,
     pub album: String,
@@ -349,6 +366,7 @@ pub struct ReviewReport {
 /// `POST /api/v1/downloads/{id}/import`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ImportResult {
     pub imported: u32,
     pub folder: String,
@@ -357,6 +375,7 @@ pub struct ImportResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum FileStatus {
     Waiting,
@@ -372,6 +391,7 @@ pub enum FileStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct JobFile {
     pub path: String,
     pub name: String,
@@ -384,6 +404,7 @@ pub struct JobFile {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DownloadJob {
     pub id: String,
     pub username: String,
@@ -438,6 +459,7 @@ impl DownloadJob {
 /// What someone may do in delune. Admins (Navidrome admins) can do everything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[allow(clippy::struct_excessive_bools, reason = "independent switches, shown as toggles")]
 pub struct Permissions {
     /// Search Soulseek and open releases.
@@ -463,6 +485,7 @@ impl Permissions {
 /// Where a request for an album has got to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum RequestStatus {
     /// Waiting for someone who manages delune.
@@ -482,6 +505,7 @@ pub enum RequestStatus {
 /// Someone asking for an album.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MusicRequest {
     pub id: String,
     pub requested_by: String,
@@ -510,6 +534,7 @@ pub struct MusicRequest {
 /// `POST /api/v1/requests`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NewRequest {
     pub title: String,
     #[serde(default)]
@@ -528,6 +553,7 @@ pub struct NewRequest {
 /// `POST /api/v1/requests/{id}/decision`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RequestDecision {
     pub approve: bool,
     #[serde(default)]
@@ -536,6 +562,7 @@ pub struct RequestDecision {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum NotificationKind {
     RequestNew,
@@ -549,6 +576,7 @@ pub enum NotificationKind {
 /// Something that happened that someone should know about.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Notification {
     pub id: String,
     pub kind: NotificationKind,
@@ -564,6 +592,7 @@ pub struct Notification {
 /// `GET /api/v1/notifications`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Notifications {
     pub unread: u32,
     pub items: Vec<Notification>,
@@ -571,6 +600,7 @@ pub struct Notifications {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum AuthMode {
     /// Accounts come from Navidrome; everyone signs in.
@@ -581,6 +611,7 @@ pub enum AuthMode {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Theme {
     /// Night or blue hour, following the device.
@@ -596,6 +627,7 @@ pub enum Theme {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Accent {
     #[default]
@@ -610,6 +642,7 @@ pub enum Accent {
 /// How delune looks for one person, saved to their account.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Appearance {
     pub theme: Theme,
     pub accent: Accent,
@@ -618,6 +651,7 @@ pub struct Appearance {
 /// `GET /api/v1/session`: who is signed in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Me {
     pub username: String,
     pub admin: bool,
@@ -639,6 +673,7 @@ pub struct Me {
 /// `POST /api/v1/session`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
@@ -650,6 +685,7 @@ pub struct LoginRequest {
 /// One person in `GET /api/v1/users`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Person {
     pub username: String,
     pub admin: bool,
@@ -666,6 +702,7 @@ pub struct Person {
 /// One place someone is signed in, in `GET /api/v1/session/devices`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SessionInfo {
     /// Opaque; not the token.
     pub id: String,
@@ -681,6 +718,7 @@ pub struct SessionInfo {
 /// `GET /api/v1/users`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct People {
     /// Imports wait for an admin unless the person may skip approval.
     pub require_approval: bool,
@@ -689,6 +727,7 @@ pub struct People {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Presence {
     Online,
@@ -699,6 +738,7 @@ pub enum Presence {
 /// `GET /api/v1/soulseek/users/{username}`: another Soulseek user.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SoulseekUser {
     pub username: String,
     /// False when no account has that name.
@@ -715,6 +755,7 @@ pub struct SoulseekUser {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SoulseekProfile {
     pub description: String,
     pub has_picture: bool,
@@ -726,6 +767,7 @@ pub struct SoulseekProfile {
 /// One folder in `GET /api/v1/soulseek/users/{username}/shares`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ShareFolder {
     /// Virtual path, `\`-separated.
     pub path: String,
@@ -740,6 +782,7 @@ pub struct ShareFolder {
 /// `GET /api/v1/soulseek/users/{username}/shares`: every folder a user shares.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ShareTree {
     pub username: String,
     pub folders: Vec<ShareFolder>,
@@ -750,6 +793,7 @@ pub struct ShareTree {
 /// One line of chat, private or in a room.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ChatMessage {
     pub id: u64,
     /// Unix seconds.
@@ -763,6 +807,7 @@ pub struct ChatMessage {
 /// A private conversation, as listed in `GET /api/v1/soulseek/chat`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ConversationSummary {
     pub username: String,
     pub last: Option<ChatMessage>,
@@ -771,6 +816,7 @@ pub struct ConversationSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RoomSummary {
     pub name: String,
     pub members: u32,
@@ -781,6 +827,7 @@ pub struct RoomSummary {
 /// `GET /api/v1/soulseek/chat`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ChatOverview {
     pub conversations: Vec<ConversationSummary>,
     /// Rooms we're in first, then the busiest public rooms.
@@ -789,6 +836,7 @@ pub struct ChatOverview {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RoomPerson {
     pub username: String,
     pub presence: Presence,
@@ -800,6 +848,7 @@ pub struct RoomPerson {
 /// `GET /api/v1/soulseek/chat/rooms/{room}`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RoomView {
     pub name: String,
     pub joined: bool,
@@ -810,6 +859,7 @@ pub struct RoomView {
 /// Streamed from `GET /api/v1/soulseek/chat/events` so pages can refresh what changed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ChatUpdate {
     Conversation { username: String, message: ChatMessage },
@@ -820,6 +870,7 @@ pub enum ChatUpdate {
 /// How delune shares the library on Soulseek. Off until someone turns it on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SharingSettings {
     pub enabled: bool,
     /// The top folder other people see, instead of where the library really is.
@@ -857,6 +908,7 @@ pub struct SharingSettings {
 /// example keeping transfers slow while people are home in the evening.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SpeedSchedule {
     /// Minutes after midnight the window opens, in `time_zone`.
     pub start_minute: u16,
@@ -904,6 +956,7 @@ impl Default for SharingSettings {
 /// `GET /api/v1/soulseek/stats`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SoulseekStats {
     pub shared_files: u32,
     pub shared_folders: u32,
@@ -922,6 +975,7 @@ pub struct SoulseekStats {
 /// `GET /api/v1/sharing`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SharingStatus {
     pub settings: SharingSettings,
     /// The folder being shared, when a library is configured.
@@ -939,6 +993,7 @@ pub struct SharingStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum UploadStatus {
     Queued,
@@ -952,6 +1007,7 @@ pub enum UploadStatus {
 /// One upload in `GET /api/v1/soulseek/uploads`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Upload {
     pub id: u64,
     pub username: String,
@@ -970,6 +1026,7 @@ pub struct Upload {
 /// The least a wishlist match must be.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum MinQuality {
     Any,
@@ -992,6 +1049,7 @@ impl MinQuality {
 /// Something to keep looking for. `GET /api/v1/wishlist`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WishlistItem {
     pub id: String,
     pub query: String,
@@ -1021,6 +1079,7 @@ pub struct WishlistItem {
 /// `POST /api/v1/wishlist`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WishlistRequest {
     pub query: String,
     #[serde(default)]
@@ -1040,6 +1099,7 @@ const fn yes() -> bool {
 /// `GET /api/v1/automation`: what delune does on its own. Both are off by default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AutomationSettings {
     /// Put new releases from followed artists on the wishlist.
     pub follow_artists: bool,
@@ -1060,6 +1120,7 @@ impl Default for AutomationSettings {
 /// An artist someone follows. `GET /api/v1/follows`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Follow {
     pub artist: String,
     pub deezer_id: u64,
@@ -1076,6 +1137,7 @@ pub struct Follow {
 /// `PATCH /api/v1/wishlist/{id}`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WishlistUpdate {
     pub auto_download: Option<bool>,
     pub min_quality: Option<MinQuality>,
@@ -1085,6 +1147,7 @@ pub struct WishlistUpdate {
 /// A link someone pasted, resolved to the release or track it points at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResolvedLink {
     pub provider: Provider,
     pub kind: EntityKind,
@@ -1112,6 +1175,7 @@ pub struct ResolvedLink {
 /// A release found on MusicBrainz for a link from another service.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MusicBrainzMatch {
     /// The exact release, when matched by barcode or ISRC.
     pub release_id: Option<String>,
@@ -1125,6 +1189,7 @@ pub struct MusicBrainzMatch {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum MatchedBy {
     Barcode,
@@ -1135,6 +1200,7 @@ pub enum MatchedBy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResolvedTrack {
     pub title: String,
     pub artist: Option<String>,
@@ -1147,6 +1213,7 @@ pub struct ResolvedTrack {
 /// `GET /api/v1/library/album`: whether an album is already in Navidrome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct LibraryMatch {
     pub state: LibraryState,
     pub album: Option<String>,
@@ -1160,6 +1227,7 @@ pub struct LibraryMatch {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum LibraryState {
     /// No Navidrome configured, or it couldn't be reached.
@@ -1170,6 +1238,7 @@ pub enum LibraryState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct LibraryTrack {
     pub title: String,
     pub track: Option<u32>,
@@ -1179,6 +1248,7 @@ pub struct LibraryTrack {
 /// Events streamed by `GET /api/v1/search` (Server-Sent Events, JSON data).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SearchEvent {
     /// A pasted link, understood. Sent before `started`, which then carries the

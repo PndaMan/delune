@@ -18,7 +18,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] SQLite persistence (settings, jobs, peer history), importing the JSON files from before
 - [x] Login with Navidrome credentials; sessions
 - [x] TypeScript types generated from the API types, checked against the web UI at compile time and in CI
-- [ ] OpenAPI description of the routes
+- [x] OpenAPI description of the routes, served at `/api/v1/openapi.json` and checked for completeness
 
 **Soulseek**
 - [x] Wire primitives, server messages, compressed search responses

@@ -17,6 +17,7 @@ pub mod library;
 pub mod naming;
 pub mod nat;
 pub mod notifications;
+pub mod openapi;
 pub mod requests;
 pub mod review;
 pub mod search;
@@ -287,6 +288,7 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/v1/health", get(health))
+        .route("/api/v1/openapi.json", get(openapi::document))
         .route("/api/v1/session", get(accounts::session).post(accounts::sign_in).delete(accounts::sign_out))
         .merge(signed_in)
         .fallback(web::serve_asset)
@@ -294,6 +296,17 @@ pub fn router(state: AppState) -> Router {
         .layer(TraceLayer::new_for_http())
 }
 
+/// `GET /api/v1/health`: whether the server is up.
+#[utoipa::path(
+    get,
+    operation_id = "health",
+    path = "/api/v1/health",
+    tag = "system",
+    security(()),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::Health),
+    ),
+)]
 async fn health() -> Json<Health> {
     Json(Health { name: "delune".into(), version: env!("CARGO_PKG_VERSION").into(), status: HealthStatus::Ok })
 }
@@ -304,7 +317,7 @@ struct ClassifyParams {
 }
 
 /// What the search bar will do with the current input.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Classification {
     Empty,
@@ -315,6 +328,19 @@ pub enum Classification {
 
 /// `GET /api/v1/classify?q=…` — lets clients show "Spotify album" vs "text search"
 /// as the user types, using the same parser the server resolves with.
+#[utoipa::path(
+    get,
+    operation_id = "classify_input",
+    path = "/api/v1/classify",
+    tag = "search",
+    params(
+        ("q" = String, Query, description = "What was typed or pasted"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = Classification),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 async fn classify_input(Query(params): Query<ClassifyParams>) -> Json<Classification> {
     Json(match classify(&params.q) {
         delune_resolve::Query::Text(q) if q.is_empty() => Classification::Empty,
@@ -326,7 +352,7 @@ async fn classify_input(Query(params): Query<ClassifyParams>) -> Json<Classifica
     })
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct SourceInfo {
     pub provider: Provider,
     pub name: String,
@@ -337,6 +363,16 @@ pub struct SourceInfo {
 }
 
 /// `GET /api/v1/sources` — download sources and whether each is in use.
+#[utoipa::path(
+    get,
+    operation_id = "sources",
+    path = "/api/v1/sources",
+    tag = "system",
+    responses(
+        (status = 200, description = "OK", body = Vec<SourceInfo>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 async fn sources() -> Json<Vec<SourceInfo>> {
     // Settings persistence lands with the database; until then, the default policy.
     let order = SourcePolicy::default().search_order();
@@ -359,6 +395,16 @@ async fn sources() -> Json<Vec<SourceInfo>> {
 }
 
 /// `GET /api/v1/soulseek` — connection state for status indicators.
+#[utoipa::path(
+    get,
+    operation_id = "soulseek_status",
+    path = "/api/v1/soulseek",
+    tag = "soulseek",
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::SoulseekStatus),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
     let Some(client) = &app.soulseek else {
         return Json(SoulseekStatus {

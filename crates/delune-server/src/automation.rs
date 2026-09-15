@@ -266,11 +266,33 @@ fn error(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 /// `GET /api/v1/automation`
+#[utoipa::path(
+    get,
+    operation_id = "automation_settings",
+    path = "/api/v1/automation",
+    tag = "automation",
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::AutomationSettings),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn settings(State(app): State<AppState>, _user: CurrentUser) -> Json<AutomationSettings> {
     Json(app.automation.lock().settings.clone())
 }
 
 /// `PUT /api/v1/automation`
+#[utoipa::path(
+    put,
+    operation_id = "automation_update",
+    path = "/api/v1/automation",
+    tag = "automation",
+    request_body = delune_core::api::AutomationSettings,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::AutomationSettings),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn update(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -286,16 +308,39 @@ pub async fn update(
 }
 
 /// `GET /api/v1/follows`: yours, or everyone's if you manage delune.
+#[utoipa::path(
+    get,
+    operation_id = "automation_follows",
+    path = "/api/v1/follows",
+    tag = "automation",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::Follow>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn follows(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<Follow>> {
     Json(app.automation.lock().follows.iter().filter(|f| user.can_see(Some(&f.added_by))).cloned().collect())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct FollowRequest {
     artist: String,
 }
 
 /// `POST /api/v1/follows`: find the artist on Deezer and follow them.
+#[utoipa::path(
+    post,
+    operation_id = "automation_follow",
+    path = "/api/v1/follows",
+    tag = "automation",
+    request_body = FollowRequest,
+    responses(
+        (status = 201, description = "Following", body = delune_core::api::Follow),
+        (status = 200, description = "Already following", body = delune_core::api::Follow),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn follow(State(app): State<AppState>, user: CurrentUser, Json(request): Json<FollowRequest>) -> Response {
     if let Some(denied) = user.refuse_unless(|p| p.search && p.download, "follow artists") {
         return denied;
@@ -341,6 +386,20 @@ pub async fn follow(State(app): State<AppState>, user: CurrentUser, Json(request
 }
 
 /// `DELETE /api/v1/follows/{deezer_id}`
+#[utoipa::path(
+    delete,
+    operation_id = "automation_unfollow",
+    path = "/api/v1/follows/{id}",
+    tag = "automation",
+    params(
+        ("id" = u64, Path, description = "The artist's Deezer id"),
+    ),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn unfollow(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<u64>) -> StatusCode {
     let mut state = app.automation.lock();
     state.follows.retain(|f| !(f.deezer_id == id && user.can_see(Some(&f.added_by))));

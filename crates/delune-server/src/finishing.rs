@@ -23,7 +23,7 @@ const LRCLIB: &str = "https://lrclib.net/api/search";
 const USER_AGENT: &str = concat!("delune/", env!("CARGO_PKG_VERSION"), " (https://github.com/PndaMan/delune)");
 
 /// `GET/PUT /api/v1/import-options`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ImportOptions {
     pub lyrics: LyricsMode,
     pub embed_cover: bool,
@@ -150,11 +150,33 @@ fn pick(results: &[Value], duration: Option<u32>) -> Option<Lyrics> {
 }
 
 /// `GET /api/v1/import-options`
+#[utoipa::path(
+    get,
+    operation_id = "finishing_get_options",
+    path = "/api/v1/import-options",
+    tag = "settings",
+    responses(
+        (status = 200, description = "OK", body = ImportOptions),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn get_options(State(app): State<AppState>, _user: CurrentUser) -> Json<ImportOptions> {
     Json(app.finishing.options())
 }
 
 /// `PUT /api/v1/import-options`
+#[utoipa::path(
+    put,
+    operation_id = "finishing_set_options",
+    path = "/api/v1/import-options",
+    tag = "settings",
+    request_body = ImportOptions,
+    responses(
+        (status = 200, description = "OK", body = ImportOptions),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn set_options(
     State(app): State<AppState>,
     user: CurrentUser,

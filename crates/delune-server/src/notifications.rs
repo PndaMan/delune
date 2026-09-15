@@ -139,11 +139,21 @@ pub fn job_changed(app: &AppState, job: &DownloadJob, before: JobStatus) {
 }
 
 /// `GET /api/v1/notifications`
+#[utoipa::path(
+    get,
+    operation_id = "notifications_list",
+    path = "/api/v1/notifications",
+    tag = "notifications",
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::Notifications),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Json<Notifications> {
     Json(app.notifications.inbox(&user.username))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct MarkRead {
     /// Which to mark; all of them when missing.
     #[serde(default)]
@@ -151,12 +161,33 @@ pub struct MarkRead {
 }
 
 /// `POST /api/v1/notifications/read`
+#[utoipa::path(
+    post,
+    operation_id = "notifications_read",
+    path = "/api/v1/notifications/read",
+    tag = "notifications",
+    request_body = MarkRead,
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::Notifications),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn read(State(app): State<AppState>, user: CurrentUser, Json(body): Json<MarkRead>) -> Json<Notifications> {
     app.notifications.mark_read(&user.username, body.ids.as_deref());
     Json(app.notifications.inbox(&user.username))
 }
 
 /// `DELETE /api/v1/notifications`
+#[utoipa::path(
+    delete,
+    operation_id = "notifications_clear",
+    path = "/api/v1/notifications",
+    tag = "notifications",
+    responses(
+        (status = 204, description = "Done"),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
 pub async fn clear(State(app): State<AppState>, user: CurrentUser) -> Response {
     app.notifications.clear(&user.username);
     StatusCode::NO_CONTENT.into_response()
