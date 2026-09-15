@@ -7,6 +7,7 @@ import { jobForAlbum, jobForCandidate, useDownloads } from "@/lib/downloads"
 import { coverStatus, type Ownership, ownership, useLibraryAlbum } from "@/lib/library"
 import { formatBytes, formatRuntime, formatSpeed, plural } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
+import { type LinkMatch, matchLink, useResolved } from "@/lib/tracklist"
 import { cn } from "@/lib/utils"
 
 type Props = {
@@ -30,6 +31,7 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
   const library = useLibraryAlbum(c.parent, c.title)
   const owned = ownership(c, library.data)
   const status = coverStatus(exact ?? sameAlbum, owned)
+  const linkMatch = matchLink(c, useResolved())
   // A download in flight says the most; after that, what the library holds beats job history.
   const job = exact ?? sameAlbum
   const badge =
@@ -59,7 +61,9 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
           <span className="block truncate text-[13px] text-muted-foreground">{c.parent ?? c.username}</span>
           <span className="mt-1 flex items-center gap-2.5 text-[12.5px] whitespace-nowrap">
             <span className={cn("font-semibold", TIER_TEXT[tier])}>{c.quality_label ?? "Unknown"}</span>
-            <span className="text-muted-foreground">{plural(c.audio_files, "track")}</span>
+            <span className="text-muted-foreground">
+              <MatchSummary match={linkMatch} fallback={plural(c.audio_files, "track")} />
+            </span>
             <span className="ml-auto min-w-0 truncate">
               {exact || sameAlbum || owned ? (
                 badge
@@ -92,7 +96,9 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
             <span className="hidden shrink-0 truncate text-muted-foreground/60 lg:inline">shared by {c.username}</span>
           </span>
         </span>
-        <span className="text-sm text-muted-foreground">{plural(c.audio_files, "track")}</span>
+        <span className="text-sm text-muted-foreground">
+          <MatchSummary match={linkMatch} fallback={plural(c.audio_files, "track")} />
+        </span>
         <span className="text-sm text-muted-foreground">{formatRuntime(c.duration_secs) ?? "—"}</span>
         <span className="text-sm text-muted-foreground">{formatBytes(c.total_bytes)}</span>
         <span>
@@ -110,6 +116,20 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
     </button>
   )
 })
+
+/** Tracks, or for a pasted link, how well this folder matches it. */
+function MatchSummary({ match, fallback }: { match: LinkMatch | null; fallback: string }) {
+  if (!match) return <>{fallback}</>
+  if (match.kind === "track") {
+    return match.file ? <span className="whitespace-nowrap text-q-lossless">Has track</span> : <span className="text-muted-foreground/60">{fallback}</span>
+  }
+  if (match.matched === match.total) return <span className="whitespace-nowrap text-q-lossless" title="Every track on the linked release is here">{match.total} tracks</span>
+  return (
+    <span className={match.matched === 0 ? "text-muted-foreground/60" : undefined}>
+      {match.matched} of {match.total}
+    </span>
+  )
+}
 
 function LibraryBadge({ owned }: { owned: Ownership | null }) {
   if (!owned) return null

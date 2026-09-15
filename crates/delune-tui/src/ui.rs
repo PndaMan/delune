@@ -11,6 +11,7 @@ use ratatui::{
     },
 };
 
+use delune_core::EntityKind;
 use delune_core::api::{Candidate, SoulseekState};
 
 use crate::{App, Connection, Focus, SearchState};
@@ -135,16 +136,35 @@ fn draw_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 bar.inner(Margin::new(0, 0)),
             );
         }
-        SearchState::Done { peers, .. } => frame.render_widget(
-            Line::from(Span::styled(
+        SearchState::Done { peers, .. } => {
+            let mut spans = Vec::new();
+            if let Some(link) = &app.resolved {
+                let by = link.artist.as_deref().map(|a| format!(" by {a}")).unwrap_or_default();
+                spans.push(Span::styled(
+                    format!("{} {}: ", link.provider, kind_name(link.kind)),
+                    Style::new().fg(MUTED),
+                ));
+                spans.push(Span::styled(format!("{}{by}", link.title), Style::new().fg(ACCENT)));
+                spans.push(Span::styled(" · ", Style::new().fg(FAINT)));
+            }
+            spans.push(Span::styled(
                 format!("✓ {} releases from {peers} peers, best quality first", app.results.len()),
                 Style::new().fg(MUTED),
-            )),
-            area,
-        ),
+            ));
+            frame.render_widget(Line::from(spans), area);
+        }
         SearchState::Failed(message) => {
             frame.render_widget(Line::from(Span::styled(format!("✗ {message}"), Style::new().fg(ERR))), area);
         }
+    }
+}
+
+const fn kind_name(kind: EntityKind) -> &'static str {
+    match kind {
+        EntityKind::Album => "album",
+        EntityKind::Track => "track",
+        EntityKind::Artist => "artist",
+        EntityKind::Playlist => "playlist",
     }
 }
 

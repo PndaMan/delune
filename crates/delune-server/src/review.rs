@@ -2,7 +2,7 @@
 //!
 //! When a download job finishes, [`check`] inspects and verifies every staged file
 //! and plans where each will land in the library. The review screen shows that
-//! report; approving it calls [`import`], which moves the files and asks Navidrome
+//! report; approving it calls [`import()`], which moves the files and asks Navidrome
 //! to rescan. Nothing reaches the library any other way (ADR 0005).
 
 use std::path::{Path, PathBuf};

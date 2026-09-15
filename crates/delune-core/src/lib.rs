@@ -13,6 +13,6 @@ pub mod media;
 pub mod provider;
 pub mod quality;
 
-pub use media::{ExternalIds, Release, ReleaseKind, Track};
+pub use media::{EntityKind, ExternalIds, Release, ReleaseKind, Track};
 pub use provider::{Provider, ProviderRole, SourcePolicy};
 pub use quality::{Codec, Quality};

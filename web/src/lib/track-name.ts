@@ -42,3 +42,24 @@ export function parseTrackName(fileName: string): TrackName {
 
   return { title: parts.at(-1) ?? stem, extension }
 }
+
+/**
+ * A comparison key for song titles: case, accents, punctuation and bracketed extras
+ * ("(Remastered)", "[Live]") don't count, and "&" reads as "and".
+ */
+export function titleKey(title: string): string {
+  return title
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\(.*?\)|\[.*?\]/g, "")
+    .replace(/&/g, "and")
+    .replace(/colour/g, "color")
+    .replace(/[^a-z0-9]+/g, "")
+}
+
+/** Whether two title keys name the same song, allowing for a prefix or suffix on one of them. */
+export function sameTitle(a: string, b: string): boolean {
+  if (!a || !b) return false
+  return a === b || (b.length >= 4 && a.includes(b)) || (a.length >= 4 && b.includes(a))
+}

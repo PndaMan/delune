@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef } from "react"
 
-import { type Candidate, type SearchEvent, toApiError } from "@/lib/api"
+import { type Candidate, type ResolvedLink, type SearchEvent, toApiError } from "@/lib/api"
 import { readEventStream } from "@/lib/sse"
 
 export type SearchState = {
@@ -10,6 +10,10 @@ export type SearchState = {
   timeoutSecs: number
   peers: number
   candidates: Candidate[]
+  /** Set when the query was a link: what it points at. */
+  resolved: ResolvedLink | null
+  /** The words actually sent to Soulseek, which differ from the query for links. */
+  searchedFor: string | null
   error: string | null
   errorCode: string | null
 }
@@ -21,6 +25,8 @@ const initial: SearchState = {
   timeoutSecs: 20,
   peers: 0,
   candidates: [],
+  resolved: null,
+  searchedFor: null,
   error: null,
   errorCode: null,
 }
@@ -43,8 +49,11 @@ function reducer(state: SearchState, action: Action): SearchState {
       const added: Candidate[] = []
       for (const event of action.events) {
         switch (event.type) {
+          case "resolved":
+            next = { ...next, resolved: event.link }
+            break
           case "started":
-            next = { ...next, timeoutSecs: event.timeout_secs, startedAt: Date.now() }
+            next = { ...next, timeoutSecs: event.timeout_secs, startedAt: Date.now(), searchedFor: event.query }
             break
           case "candidates":
             added.push(...event.items)

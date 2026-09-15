@@ -141,7 +141,22 @@ export type DownloadJobRequest = {
 
 export type ApiErrorBody = { code: string; message: string }
 
+export type ResolvedTrack = { title: string; artist: string | null; duration_secs: number | null }
+
+/** A pasted link, resolved to what it points at. */
+export type ResolvedLink = {
+  provider: Provider
+  kind: EntityKind
+  title: string
+  artist: string | null
+  album: string | null
+  year: number | null
+  tracks: ResolvedTrack[]
+  query: string
+}
+
 export type SearchEvent =
+  | { type: "resolved"; link: ResolvedLink }
   | { type: "started"; query: string; timeout_secs: number }
   | { type: "candidates"; items: Candidate[] }
   | { type: "finished"; peers: number; candidates: number }

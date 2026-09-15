@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
 
-use crate::Quality;
+use crate::{EntityKind, Provider, Quality};
 
 /// `GET /api/v1/health`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -336,6 +336,30 @@ impl DownloadJob {
     }
 }
 
+/// A link someone pasted, resolved to the release or track it points at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedLink {
+    pub provider: Provider,
+    pub kind: EntityKind,
+    /// The album, track, artist or playlist name.
+    pub title: String,
+    pub artist: Option<String>,
+    /// For a track: the album it's from, when the service says.
+    pub album: Option<String>,
+    pub year: Option<u16>,
+    /// The tracklist, for albums and playlists whose service lists one.
+    pub tracks: Vec<ResolvedTrack>,
+    /// What delune searches Soulseek for.
+    pub query: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedTrack {
+    pub title: String,
+    pub artist: Option<String>,
+    pub duration_secs: Option<u32>,
+}
+
 /// `GET /api/v1/library/album`: whether an album is already in Navidrome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LibraryMatch {
@@ -369,6 +393,11 @@ pub struct LibraryTrack {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SearchEvent {
+    /// A pasted link, understood. Sent before `started`, which then carries the
+    /// text delune searches Soulseek for.
+    Resolved {
+        link: ResolvedLink,
+    },
     Started {
         query: String,
         timeout_secs: u32,

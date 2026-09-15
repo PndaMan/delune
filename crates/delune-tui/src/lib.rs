@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use delune_core::api::{ApiError, Candidate, Health, SearchEvent, SoulseekState, SoulseekStatus};
+use delune_core::api::{ApiError, Candidate, Health, ResolvedLink, SearchEvent, SoulseekState, SoulseekStatus};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -54,6 +54,8 @@ pub struct App {
     pub search: SearchState,
     /// Sorted best-first.
     pub results: Vec<Candidate>,
+    /// What a pasted link turned out to be.
+    pub resolved: Option<ResolvedLink>,
     pub selected: usize,
     pub should_quit: bool,
     search_task: Option<JoinHandle<()>>,
@@ -83,6 +85,7 @@ impl App {
             focus: Focus::Input,
             search: SearchState::Idle,
             results: Vec::new(),
+            resolved: None,
             selected: 0,
             should_quit: false,
             search_task: None,
@@ -142,6 +145,7 @@ impl App {
 
     fn on_search_event(&mut self, event: SearchEvent) {
         match event {
+            SearchEvent::Resolved { link } => self.resolved = Some(link),
             SearchEvent::Started { query, timeout_secs } => {
                 self.search = SearchState::Running {
                     query,
@@ -178,6 +182,7 @@ impl App {
             task.abort();
         }
         self.results.clear();
+        self.resolved = None;
         self.selected = 0;
         self.search = SearchState::Running {
             query: query.clone(),

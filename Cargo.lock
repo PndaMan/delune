@@ -619,8 +619,11 @@ name = "delune-resolve"
 version = "0.1.0-dev"
 dependencies = [
  "delune-core",
+ "reqwest",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
+ "tokio",
  "url",
 ]
 

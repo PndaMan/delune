@@ -9,19 +9,10 @@
 //! `on.soundcloud.com`) can't be understood without following a redirect, so they
 //! come back as [`Parsed::ShortLink`] and the resolver expands them over HTTP.
 
+pub use delune_core::EntityKind;
 use delune_core::Provider;
 use serde::{Deserialize, Serialize};
 use url::Url;
-
-/// What kind of thing a link points at.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EntityKind {
-    Track,
-    Album,
-    Artist,
-    Playlist,
-}
 
 /// A link we fully understood.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -18,11 +18,12 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
     },
 };
+use delune_core::EntityKind;
 use delune_core::{
     Quality,
     api::{ApiError, Candidate, CandidateFile, SearchEvent},
 };
-use delune_resolve::classify;
+use delune_resolve::{ResolveError, classify, query::search_query};
 use delune_soulseek::peer::{SearchResponse, SharedFile};
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -36,6 +37,10 @@ pub struct SearchParams {
 
 /// `GET /api/v1/search?q=…` — a stream of [`SearchEvent`]s. Closing the connection
 /// cancels the search.
+///
+/// A pasted link is resolved first (a `resolved` event says what it points at), then
+/// Soulseek is searched for its artist and title. If nobody answers that, the title
+/// alone gets a second try: store titles often carry words shared folders don't.
 pub async fn stream(State(app): State<AppState>, Query(params): Query<SearchParams>) -> Response {
     let Some(client) = app.soulseek.clone() else {
         return error(
@@ -44,51 +49,49 @@ pub async fn stream(State(app): State<AppState>, Query(params): Query<SearchPara
             "Soulseek isn't set up. Add a Soulseek username and password to the server configuration.",
         );
     };
-    let query = match classify(&params.q) {
+    let input = match classify(&params.q) {
         delune_resolve::Query::Text(q) if q.is_empty() => {
             return error(StatusCode::BAD_REQUEST, "empty-query", "Type something to search for.");
         }
-        delune_resolve::Query::Text(q) => q,
-        delune_resolve::Query::Link(_) => {
-            return error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "links-not-supported-yet",
-                "Searching by link isn't available yet. Type the artist and album instead.",
-            );
-        }
+        input => input,
     };
 
     let (tx, rx) = mpsc::channel::<SearchEvent>(64);
     tokio::spawn(async move {
-        let mut search = match client.search(&query).await {
-            Ok(search) => search,
-            Err(e) => {
-                let error = ApiError::new("soulseek-unavailable", format!("Can't search right now: {e}."));
-                let _ = tx.send(SearchEvent::Failed { error }).await;
-                return;
-            }
+        let (query, fallback) = match input {
+            delune_resolve::Query::Text(query) => (query, None),
+            delune_resolve::Query::Link(parsed) => match app.resolver.resolve(&parsed).await {
+                Ok(link) => {
+                    let fallback = (link.artist.is_some() && link.kind != EntityKind::Artist)
+                        .then(|| search_query(None, &link.title))
+                        .filter(|f| f.len() >= 4 && *f != link.query);
+                    let query = link.query.clone();
+                    if tx.send(SearchEvent::Resolved { link }).await.is_err() {
+                        return;
+                    }
+                    (query, fallback)
+                }
+                Err(e) => {
+                    let message = match e {
+                        ResolveError::Unsupported(message) => message,
+                        other => {
+                            format!("{}. Try typing the artist and album instead.", capitalise(&other.to_string()))
+                        }
+                    };
+                    let _ = tx.send(SearchEvent::Failed { error: ApiError::new("link-unresolved", message) }).await;
+                    return;
+                }
+            },
         };
-        let timeout_secs = u32::try_from(app.search_timeout.as_secs()).unwrap_or(u32::MAX);
-        if tx.send(SearchEvent::Started { query, timeout_secs }).await.is_err() {
-            return;
-        }
 
         let (mut peers, mut total) = (0u32, 0u32);
-        loop {
-            let response = tokio::select! {
-                response = search.next() => response,
-                () = tx.closed() => return,
-            };
-            let Some(response) = response else { break };
-            peers += 1;
-            let items = candidates(&response);
-            if items.is_empty() {
-                continue;
+        for query in std::iter::once(query).chain(fallback) {
+            if total > 0 {
+                break;
             }
-            total += u32::try_from(items.len()).unwrap_or(u32::MAX);
-            if tx.send(SearchEvent::Candidates { items }).await.is_err() {
-                return;
-            }
+            let Some((p, t)) = run(&app, &client, query, &tx).await else { return };
+            peers += p;
+            total += t;
         }
         let _ = tx.send(SearchEvent::Finished { peers, candidates: total }).await;
     });
@@ -99,6 +102,47 @@ pub async fn stream(State(app): State<AppState>, Query(params): Query<SearchPara
         Some((Ok::<_, Infallible>(sse), rx))
     });
     Sse::new(events).keep_alive(KeepAlive::default()).into_response()
+}
+
+/// One Soulseek search, streamed. `None` when the client went away or the search couldn't start.
+async fn run(
+    app: &AppState,
+    client: &delune_soulseek::Client,
+    query: String,
+    tx: &mpsc::Sender<SearchEvent>,
+) -> Option<(u32, u32)> {
+    let mut search = match client.search(&query).await {
+        Ok(search) => search,
+        Err(e) => {
+            let error = ApiError::new("soulseek-unavailable", format!("Can't search right now: {e}."));
+            let _ = tx.send(SearchEvent::Failed { error }).await;
+            return None;
+        }
+    };
+    let timeout_secs = u32::try_from(app.search_timeout.as_secs()).unwrap_or(u32::MAX);
+    tx.send(SearchEvent::Started { query, timeout_secs }).await.ok()?;
+
+    let (mut peers, mut total) = (0u32, 0u32);
+    loop {
+        let response = tokio::select! {
+            response = search.next() => response,
+            () = tx.closed() => return None,
+        };
+        let Some(response) = response else { break };
+        peers += 1;
+        let items = candidates(&response);
+        if items.is_empty() {
+            continue;
+        }
+        total += u32::try_from(items.len()).unwrap_or(u32::MAX);
+        tx.send(SearchEvent::Candidates { items }).await.ok()?;
+    }
+    Some((peers, total))
+}
+
+fn capitalise(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
 fn error(status: StatusCode, code: &str, message: &str) -> Response {

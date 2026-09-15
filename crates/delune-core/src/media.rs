@@ -27,6 +27,16 @@ pub struct ExternalIds {
     pub provider: BTreeMap<Provider, String>,
 }
 
+/// What kind of thing a link points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntityKind {
+    Track,
+    Album,
+    Artist,
+    Playlist,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReleaseKind {

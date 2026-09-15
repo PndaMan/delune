@@ -29,23 +29,25 @@ Navidrome, from both the web UI and the TUI.
 
 **Finding the right release**
 - [x] Link parsing for 9 services
-- [ ] MusicBrainz, UPC and ISRC resolution with caching
-- [ ] Library check against Navidrome
+- [x] Link resolution from each service's public metadata (Deezer, iTunes, Spotify embed, oEmbed, JSON-LD, MusicBrainz), cached
+- [ ] Cross-service matching by UPC and ISRC through MusicBrainz
+- [x] Library check against Navidrome
 - [x] Folder grouping and quality/availability ranking
-- [ ] Tracklist matching against the resolved release
-- [ ] Automatic retry with fewer words when the network returns nothing
+- [x] Tracklist matching against the resolved release
+- [~] Automatic retry with fewer words when the network returns nothing (links retry with the title alone)
 
 **Downloads**
-- [x] Download jobs: one folder, files in sequence, staged under the data directory
-- [ ] Persist jobs across restarts (SQLite)
+- [x] Download jobs: one folder, every file queued at once, staged under the data directory
+- [x] Persist jobs across restarts (JSON for now; SQLite with accounts)
 
 **Getting it into the library**
 - [x] Naming template engine
 - [ ] Layout detection from an existing library
-- [ ] Decode verification and fake-FLAC detection
+- [x] Decode verification and fake-FLAC detection
 - [ ] Tags (lofty), artwork, synced lyrics (LRCLIB)
-- [ ] Review inbox, admin approval gate
-- [ ] Atomic import and targeted Navidrome scan
+- [x] Review inbox
+- [ ] Admin approval gate
+- [x] Import with conflict checks, then a Navidrome scan
 
 **Shipping**
 - [ ] Docker image (multi-arch) and compose example
@@ -85,16 +87,20 @@ Navidrome, from both the web UI and the TUI.
 - [ ] Statistics: transferred, shared, ratio
 
 **Links**
-- [ ] Resolve pasted Spotify, Apple Music, YouTube Music, Deezer, Tidal, Qobuz, SoundCloud, Bandcamp and MusicBrainz links to a release, then search Soulseek for it
+- [x] Resolve pasted Spotify, Apple Music, YouTube Music, Deezer, Tidal, Qobuz, SoundCloud, Bandcamp and MusicBrainz links to a release, then search Soulseek for it
+- [x] Rank folders by how much of the linked tracklist they hold; track links download just that track
+- [ ] Playlist links (with playlist import)
 
 **Mobile**
 - [x] Phone layouts for search results, filters, release view (sticky action), downloads
 - [ ] Phone layouts for review and settings
+- [x] Installable web app (manifest, icons, offline shell)
 
 **Search and release view**
 - [x] Release view fits the screen with no scrollbars (adaptive, multi-column tracklist)
 - [x] Results show "Downloading" / "In review" / "Imported" when that folder or album is already in progress
-- [~] "In library" from Navidrome: server matching done (`/api/v1/library/album`); badges and missing-track view next
+- [x] "In library" and "N missing" from Navidrome, per-track marks in the release view, a warning before downloading an album you already have
+- [x] Cover overlays: greyed with a progress ring while downloading, tinted once in the library
 
 ## After v0.1
 

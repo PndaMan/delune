@@ -11,12 +11,13 @@ import { ResultHeader, ResultList } from "@/components/results/result-list"
 import { SearchField, type SearchFieldHandle } from "@/components/search-field"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
 import { Button } from "@/components/ui/button"
-import type { Candidate } from "@/lib/api"
+import { type Candidate, PROVIDER_NAMES, type ResolvedLink } from "@/lib/api"
 import { SearchContext, useAccentColour, useArtwork } from "@/lib/artwork"
 import { plural } from "@/lib/format"
 import { moonPhase } from "@/lib/moon-phase"
 import { SORTS, type SortKey, tierOf, typicalTracks } from "@/lib/quality"
 import { useRecentSearches } from "@/lib/recent"
+import { matchLink, relevance, ResolvedContext } from "@/lib/tracklist"
 import { type SearchState, useSearch } from "@/lib/use-search"
 import { cn } from "@/lib/utils"
 
@@ -37,9 +38,15 @@ export function SearchPage() {
   )
 
   if (!q) return <Idle onSubmit={submit} recent={recent} onForget={forget} />
+  // For links, artwork and library matching go by what the link points at, not the URL.
+  const context = search.resolved
+    ? [search.resolved.artist, search.resolved.album ?? search.resolved.title].filter(Boolean).join(" ")
+    : q
   return (
-    <SearchContext.Provider value={q}>
-      <Results key={q} query={q} search={search} onSubmit={submit} />
+    <SearchContext.Provider value={context}>
+      <ResolvedContext.Provider value={search.resolved}>
+        <Results key={q} query={q} search={search} onSubmit={submit} />
+      </ResolvedContext.Provider>
     </SearchContext.Provider>
   )
 }
@@ -129,8 +136,11 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
     const filtered = search.candidates.filter(
       (c) => (tier === "all" || tierOf(c.quality) === tier) && (!readyOnly || c.free_slot),
     )
-    return filtered.sort(SORTS[sort].compare(typicalTracks(search.candidates)))
-  }, [search.candidates, tier, readyOnly, sort])
+    const compare = SORTS[sort].compare(typicalTracks(search.candidates))
+    // Folders that match the pasted link come first, whatever the sort.
+    const link = search.resolved
+    return filtered.sort((a, b) => relevance(matchLink(a, link)) - relevance(matchLink(b, link)) || compare(a, b))
+  }, [search.candidates, search.resolved, tier, readyOnly, sort])
 
   useEffect(() => setSelected((s) => Math.min(s, Math.max(0, visible.length - 1))), [visible.length])
 
@@ -141,7 +151,11 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
   }, [])
 
   const top = visible[0] ?? search.candidates[0]
-  const heroArt = useArtwork(top?.parent ?? null, top?.title ?? null)
+  const resolved = search.resolved
+  const heroArt = useArtwork(
+    resolved ? resolved.artist : (top?.parent ?? null),
+    resolved ? (resolved.album ?? resolved.title) : (top?.title ?? null),
+  )
   const accent = useAccentColour(heroArt.data?.thumb)
 
   return (
@@ -175,7 +189,7 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
 
       <div className="relative mx-auto w-full max-w-[1200px] px-4 sm:px-8">
         <section className="flex items-center gap-6 pt-8 pb-8">
-          {top && (
+          {(top || resolved) && (
             <Cover
               src={heroArt.data?.cover}
               pending={heroArt.isPending}
@@ -184,8 +198,19 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
             />
           )}
           <div className="min-w-0">
-            <h1 className="type-display text-[clamp(1.9rem,4vw,2.75rem)] text-balance break-words">{query}</h1>
-            <StatusLine search={search} visible={visible.length} />
+            {resolved ? (
+              <>
+                <ResolvedHeading link={resolved} />
+                <StatusLine search={search} visible={visible.length} query={query} />
+              </>
+            ) : (
+              <>
+                <h1 className="type-display text-[clamp(1.9rem,4vw,2.75rem)] text-balance break-words">
+                  {looksLikeLink(query) ? "Reading that link" : query}
+                </h1>
+                <StatusLine search={search} visible={visible.length} query={query} />
+              </>
+            )}
           </div>
         </section>
 
@@ -202,7 +227,7 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
             {search.error}
           </EmptyState>
         ) : search.status === "done" && search.candidates.length === 0 ? (
-          <EmptyState illumination={0.08} title={`Nobody is sharing “${query}” right now`}>
+          <EmptyState illumination={0.08} title={`Nobody is sharing “${resolved?.title ?? query}” right now`}>
             Try fewer words, or just the album title. The Soulseek network sometimes drops longer exact phrases, and
             people come online throughout the day.
           </EmptyState>
@@ -250,16 +275,38 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
   )
 }
 
-function StatusLine({ search, visible }: { search: SearchState; visible: number }) {
+/** A pasted link, named: title first, then who made it and where the link came from. */
+function ResolvedHeading({ link }: { link: ResolvedLink }) {
+  const kind = link.kind === "track" ? "track" : link.kind === "artist" ? "artist" : "album"
+  const facts = [link.artist, link.year, `${PROVIDER_NAMES[link.provider]} ${kind}`].filter(Boolean)
+  return (
+    <>
+      <h1 className="type-display text-[clamp(1.9rem,4vw,2.75rem)] text-balance break-words">{link.title}</h1>
+      <p className="mt-1 text-[17px] text-foreground/85">
+        {facts.join(", ")}
+        {link.kind === "track" && link.album ? <span className="text-muted-foreground"> from {link.album}</span> : null}
+      </p>
+    </>
+  )
+}
+
+function looksLikeLink(query: string) {
+  return /^(spotify:|https?:\/\/)/i.test(query) || (!/\s/.test(query) && /^[\w.-]+\.[a-z]{2,}\//i.test(query))
+}
+
+function StatusLine({ search, visible, query }: { search: SearchState; visible: number; query: string }) {
   const total = search.candidates.length
   let text: string
-  if (search.status === "running") {
+  if (search.status === "running" && !search.searchedFor && looksLikeLink(query)) {
+    text = "Finding out what this link points to"
+  } else if (search.status === "running") {
     text = total
       ? `Listening for answers. ${plural(total, "release")} from ${plural(search.peers, "person", "people")} so far`
       : "Asking the Soulseek network. The first answers usually arrive within a few seconds"
   } else if (search.status === "done") {
     text = `${plural(total, "release")} from ${plural(search.peers, "person", "people")}`
     if (visible !== total) text += `, ${visible.toLocaleString()} shown`
+    if (search.resolved && search.searchedFor) text += `, searched for “${search.searchedFor}”`
   } else {
     text = ""
   }

@@ -9,9 +9,10 @@ import type { Candidate, CandidateFile } from "@/lib/api"
 import { useAccentColour, useArtwork } from "@/lib/artwork"
 import { describeJob, jobForCandidate, useDownloads, useStartDownload } from "@/lib/downloads"
 import { coverStatus, type LibraryMatch, type Ownership, ownership, useLibraryAlbum } from "@/lib/library"
-import { formatBytes, formatRuntime, formatSpeed, formatTrackTime } from "@/lib/format"
+import { formatBytes, formatRuntime, formatSpeed, formatTrackTime, plural } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
 import { parseTrackName } from "@/lib/track-name"
+import { matchLink, useResolved } from "@/lib/tracklist"
 import { cn } from "@/lib/utils"
 
 type Props = {
@@ -56,6 +57,8 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
   const owned = ownership(c, library.data)
   const downloads = useDownloads()
   const status = coverStatus(jobForCandidate(downloads.data ?? [], c), owned)
+  const linkMatch = matchLink(c, useResolved())
+  const linkedTrack = linkMatch?.kind === "track" ? linkMatch.file : undefined
 
   return (
     <div className={cn("relative flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[minmax(320px,36%)_minmax(0,1fr)] lg:overflow-hidden", sheetScroll)}>
@@ -127,7 +130,7 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
       </aside>
 
       <section className="relative flex shrink-0 flex-col px-3 lg:min-h-0 lg:shrink pt-2 pb-5 sm:px-6 lg:pt-[72px]">
-        <Tracklist files={audio} owned={owned} />
+        <Tracklist files={audio} owned={owned} highlight={linkedTrack?.path} />
         {other.length > 0 && (
           <ul className="mx-3 mt-3 flex flex-wrap gap-2 border-t pt-4">
             {other.map((f) => (
@@ -157,7 +160,7 @@ const MIN_COLUMN_WIDTH = 330
  * album shows at once instead of scrolling. Only beyond what fits in the widest
  * layout does it scroll, quietly, with a fade at the bottom.
  */
-function Tracklist({ files, owned }: { files: CandidateFile[]; owned: Ownership | null }) {
+function Tracklist({ files, owned, highlight }: { files: CandidateFile[]; owned: Ownership | null; highlight?: string }) {
   const box = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({ columns: 1, rows: files.length, overflow: false })
 
@@ -205,7 +208,10 @@ function Tracklist({ files, owned }: { files: CandidateFile[]; owned: Ownership 
           return (
             <li
               key={file.path}
-              className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-3 transition-colors hover:bg-accent/50"
+              className={cn(
+                "grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-3 transition-colors hover:bg-accent/50",
+                file.path === highlight && "bg-primary/12 ring-1 ring-primary/30 ring-inset",
+              )}
               title={have ? `${file.name} (already in your library)` : file.name}
             >
               <span className="text-right text-[13px] text-muted-foreground/70">{position ?? i + 1}</span>
@@ -246,8 +252,17 @@ function LibraryNote({ owned, library }: { owned: Ownership; library: LibraryMat
 }
 
 function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Ownership | null }) {
-  const [confirming, setConfirming] = useState(false)
+  const [confirming, setConfirming] = useState<CandidateFile[] | "folder" | null>(null)
   const start = useStartDownload()
+  const match = matchLink(candidate, useResolved())
+  const track = match?.kind === "track" ? match.file : undefined
+  // A pasted track link downloads just that track, with the folder's artwork.
+  const trackFiles = track ? [track, ...candidate.files.filter((f) => !f.audio && /\.(jpe?g|png|webp)$/i.test(f.name))] : undefined
+  const begin = (files: CandidateFile[] | undefined) => {
+    const alreadyOwned = files ? owned !== null && !!track && !owned.missing.has(track.name) : owned?.complete
+    if (alreadyOwned) return setConfirming(files ?? "folder")
+    start.mutate({ candidate, files })
+  }
   const downloads = useDownloads()
   const job = jobForCandidate(downloads.data ?? [], candidate)
 
@@ -276,18 +291,22 @@ function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Own
   if (confirming) {
     return (
       <div className="rounded-xl border border-q-hires/40 bg-q-hires/10 px-4 py-3">
-        <p className="text-[14px]">You already have every track on this album. Download another copy anyway?</p>
+        <p className="text-[14px]">
+          {confirming === "folder"
+            ? "You already have every track on this album. Download another copy anyway?"
+            : "You already have this track. Download another copy anyway?"}
+        </p>
         <div className="mt-3 flex gap-2">
           <Button
             className="h-10 flex-1 rounded-lg"
             onClick={() => {
-              setConfirming(false)
-              start.mutate(candidate)
+              setConfirming(null)
+              start.mutate({ candidate, files: confirming === "folder" ? undefined : confirming })
             }}
           >
             Download anyway
           </Button>
-          <Button variant="outline" className="h-10 flex-1 rounded-lg" onClick={() => setConfirming(false)}>
+          <Button variant="outline" className="h-10 flex-1 rounded-lg" onClick={() => setConfirming(null)}>
             Keep mine
           </Button>
         </div>
@@ -299,14 +318,24 @@ function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Own
     <div>
       <Button
         size="lg"
-        variant={owned?.complete ? "outline" : "default"}
+        variant={owned?.complete && !track ? "outline" : "default"}
         className="h-12 w-full rounded-xl text-[15px] font-semibold"
         disabled={start.isPending}
-        onClick={() => (owned?.complete ? setConfirming(true) : start.mutate(candidate))}
+        onClick={() => begin(trackFiles)}
       >
         {start.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowDownToLine />}
-        Download for review
+        {track ? `Download “${parseTrackName(track.name).title}”` : "Download for review"}
       </Button>
+      {track && candidate.audio_files > 1 && (
+        <button
+          type="button"
+          disabled={start.isPending}
+          onClick={() => begin(undefined)}
+          className="mt-2 w-full rounded-lg py-1.5 text-[13.5px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Or the whole folder, {plural(candidate.audio_files, "track")}
+        </button>
+      )}
       <p className="mt-2 hidden text-center text-[12.5px] text-muted-foreground sm:block">
         {start.isError ? start.error.message : "Nothing reaches your library until you approve it."}
       </p>

@@ -2,13 +2,18 @@
 //!
 //! From "whatever the user pasted" to "the same release on every service".
 //!
-//! - [`link`] — offline parsing of provider URLs into `(provider, kind, id)`.
-//! - Resolution (MusicBrainz URL lookup → UPC/ISRC bridge → provider metadata) lands
-//!   next; see `docs/adr/0003-link-resolution.md` for why we don't use Odesli.
+//! - [`link`]: offline parsing of provider URLs into `(provider, kind, id)`.
+//! - [`resolve`]: what a link points at (title, artist, tracklist), fetched from
+//!   each service's public metadata. See `docs/adr/0003-link-resolution.md`.
+//! - [`query`]: the Soulseek search a resolved release turns into.
 
+mod html;
 pub mod link;
+pub mod query;
+pub mod resolve;
 
 pub use link::{EntityKind, Link, ParseError, Parsed, parse};
+pub use resolve::{ResolveError, Resolver};
 
 /// What the search bar should do with some input.
 #[derive(Debug, Clone, PartialEq, Eq)]

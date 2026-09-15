@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { api, type Candidate, type DownloadJob, type JobFile } from "@/lib/api"
+import { api, type Candidate, type CandidateFile, type DownloadJob, type JobFile } from "@/lib/api"
 import { plural } from "@/lib/format"
 
 /** All download jobs, polled while anything is still moving. */
@@ -16,14 +16,15 @@ export function useDownloads() {
 export function useStartDownload() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (candidate: Candidate) =>
+    /** `files` narrows the download, e.g. to one track; by default it's the whole folder. */
+    mutationFn: ({ candidate, files }: { candidate: Candidate; files?: CandidateFile[] }) =>
       api.startDownload({
         username: candidate.username,
         folder: candidate.folder,
         title: candidate.title,
         parent: candidate.parent,
         // Audio plus artwork, cue sheets and logs: everything a review might need.
-        files: candidate.files.map((f) => ({ path: f.path, size: f.size })),
+        files: (files ?? candidate.files).map((f) => ({ path: f.path, size: f.size })),
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
   })

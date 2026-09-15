@@ -4,7 +4,7 @@ import { useContext } from "react"
 import type { CoverStatus } from "@/components/cover"
 import type { Candidate, DownloadJob } from "@/lib/api"
 import { SearchContext } from "@/lib/artwork"
-import { parseTrackName } from "@/lib/track-name"
+import { parseTrackName, sameTitle, titleKey } from "@/lib/track-name"
 
 export type LibraryTrack = { title: string; track: number | null; disc: number | null }
 export type LibraryMatch = {
@@ -35,16 +35,6 @@ export function useLibraryAlbum(artist: string | null, album: string | null) {
   })
 }
 
-const normalise = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\(.*?\)|\[.*?\]/g, "")
-    .replace(/&/g, "and")
-    .replace(/colour/g, "color")
-    .replace(/[^a-z0-9]+/g, "")
-
 export type Ownership = {
   /** Every audio file in this folder has a counterpart in the library. */
   complete: boolean
@@ -60,14 +50,14 @@ export type Ownership = {
  */
 export function ownership(candidate: Candidate, library: LibraryMatch | undefined): Ownership | null {
   if (!library || library.state !== "in-library") return null
-  const titles = new Set(library.tracks.map((t) => normalise(t.title)).filter(Boolean))
+  const titles = library.tracks.map((t) => titleKey(t.title)).filter(Boolean)
 
   const missing = new Set<string>()
   let owned = 0
   for (const file of candidate.files) {
     if (!file.audio) continue
-    const title = normalise(parseTrackName(file.name).title)
-    if (title && [...titles].some((t) => t === title || (t.length >= 4 && title.includes(t)))) owned++
+    const title = titleKey(parseTrackName(file.name).title)
+    if (titles.some((t) => sameTitle(title, t))) owned++
     else missing.add(file.name)
   }
   return { complete: missing.size === 0, missing, owned }

@@ -69,6 +69,7 @@ pub struct AppState {
     pub library: Arc<review::LibrarySettings>,
     pub navidrome: Option<delune_navidrome::Client>,
     pub library_cache: Arc<library::LibraryCache>,
+    pub resolver: Arc<delune_resolve::Resolver>,
 }
 
 impl Default for AppState {
@@ -83,6 +84,7 @@ impl Default for AppState {
             library: Arc::default(),
             navidrome: None,
             library_cache: Arc::default(),
+            resolver: Arc::default(),
         }
     }
 }

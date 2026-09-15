@@ -146,9 +146,11 @@ export const SearchField = forwardRef<SearchFieldHandle, SearchFieldProps>(funct
 function hint(c: Classification | undefined): string | null {
   switch (c?.kind) {
     case "link":
-      return `Looks like a ${PROVIDER_NAMES[c.provider]} ${c.entity}. Finding releases from links arrives soon; type the artist and album for now.`
+      return c.entity === "playlist"
+        ? `A ${PROVIDER_NAMES[c.provider]} playlist. Playlists can't be searched yet; paste an album or track link.`
+        : `A ${PROVIDER_NAMES[c.provider]} ${c.entity}. Press Enter to find it on Soulseek`
     case "short-link":
-      return `A ${PROVIDER_NAMES[c.provider]} short link. Finding releases from links arrives soon.`
+      return `A ${PROVIDER_NAMES[c.provider]} link. Press Enter to find it on Soulseek`
     case "text":
       return "Press Enter to search Soulseek"
     default:
