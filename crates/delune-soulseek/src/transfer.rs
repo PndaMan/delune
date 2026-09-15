@@ -317,21 +317,23 @@ async fn run(
                     deadline = Some(Instant::now() + FILE_CONNECTION_TIMEOUT);
                     state.send_replace(DownloadState::Starting { size });
                 }
-                Some(Event::File(conn)) => match receive(conn, &request.destination, size, state, &mut cancel).await {
-                    Ok(bytes) => return DownloadState::Completed { bytes },
-                    Err(ReceiveError::Cancelled) => return DownloadState::Cancelled,
-                    Err(ReceiveError::Io(error))
-                        if error.kind() != std::io::ErrorKind::UnexpectedEof
-                            && error.kind() != std::io::ErrorKind::TimedOut
-                            && error.kind() != std::io::ErrorKind::ConnectionReset =>
-                    {
-                        return DownloadState::Failed { reason: format!("couldn't save the file: {error}") };
+                Some(Event::File(conn)) => {
+                    match receive(&shared.download_cap, conn, &request.destination, size, state, &mut cancel).await {
+                        Ok(bytes) => return DownloadState::Completed { bytes },
+                        Err(ReceiveError::Cancelled) => return DownloadState::Cancelled,
+                        Err(ReceiveError::Io(error))
+                            if error.kind() != std::io::ErrorKind::UnexpectedEof
+                                && error.kind() != std::io::ErrorKind::TimedOut
+                                && error.kind() != std::io::ErrorKind::ConnectionReset =>
+                        {
+                            return DownloadState::Failed { reason: format!("couldn't save the file: {error}") };
+                        }
+                        Err(ReceiveError::Io(error)) => {
+                            last_error = format!("the transfer from {username} dropped ({error})");
+                            continue 'attempts;
+                        }
                     }
-                    Err(ReceiveError::Io(error)) => {
-                        last_error = format!("the transfer from {username} dropped ({error})");
-                        continue 'attempts;
-                    }
-                },
+                }
             }
         }
     }
@@ -358,6 +360,7 @@ fn part_path(destination: &Path) -> PathBuf {
 }
 
 async fn receive(
+    shared_cap: &Arc<crate::pacing::SpeedCap>,
     mut conn: FileConnection,
     destination: &Path,
     size: Option<u64>,
@@ -391,6 +394,7 @@ async fn receive(
 
     let mut buf = vec![0u8; 256 * 1024];
     let mut last_report = Instant::now();
+    let mut pace = shared_cap.start();
     state.send_replace(DownloadState::Transferring { bytes: received, size });
     while received < size {
         let want = usize::try_from((size - received).min(buf.len() as u64)).unwrap_or(buf.len());
@@ -409,6 +413,7 @@ async fn receive(
         };
         file.write_all(&buf[..n]).await?;
         received += n as u64;
+        pace.record(n).await;
         if last_report.elapsed() >= PROGRESS_INTERVAL {
             state.send_replace(DownloadState::Transferring { bytes: received, size });
             last_report = Instant::now();

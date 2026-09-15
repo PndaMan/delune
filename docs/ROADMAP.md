@@ -78,20 +78,25 @@ Navidrome, from both the web UI and the TUI.
 
 **Soulseek: everything slskd does, simpler (before any streaming service)**
 - [x] Share the music library: index, answer searches, upload with slot and speed limits (opt-in)
-- [x] Uploads page: who's downloading from you, queue, speeds, cancel, block, per-user limits
+- [x] Uploads page: who's downloading from you, queue, speeds, cancel, block, per-user limits, refuse people who share nothing
 - [x] Browse a user's shared folders; download any folder from there
 - [x] User profiles: info, picture, shared counts, free slots, speed
 - [x] Private messages and chat rooms (for people who manage delune; rooms rejoin on reconnect)
 - [x] Wishlist: saved searches re-run on a schedule, with auto-download (for review) when a good enough match appears
 - [x] Search filters (words and -exclusions, format, quality tier, free slot) and hidden people
-- [ ] Transfer controls: pause, retry, reorder, speed limits, bandwidth schedule
+- [x] Transfer controls: stop, resume, retry elsewhere, global upload and download speed limits
+- [ ] Reorder the download queue; bandwidth schedule
 - [~] Distributed search network: joins as a leaf so shared files are found (relaying to children later)
-- [ ] Statistics: transferred, shared, ratio
+- [x] Statistics: shared, running, transferred (kept across restarts)
 
 **Links**
 - [x] Resolve pasted Spotify, Apple Music, YouTube Music, Deezer, Tidal, Qobuz, SoundCloud, Bandcamp and MusicBrainz links to a release, then search Soulseek for it
 - [x] Rank folders by how much of the linked tracklist they hold; track links download just that track
 - [ ] Playlist links (with playlist import)
+
+**Profiles and look**
+- [ ] Profile pictures: upload your own (shown in the rail, people list, requests) and show Soulseek users' pictures everywhere they appear
+- [ ] Themes: light, dark and system; accent presets; per-person theme saved to their account
 
 **Mobile**
 - [x] Phone layouts for search results, filters, release view (sticky action), downloads

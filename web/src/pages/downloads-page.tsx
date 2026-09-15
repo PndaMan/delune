@@ -17,6 +17,7 @@ import { PageFrame } from "@/pages/placeholder-pages"
 
 export function DownloadsPage() {
   const downloads = useDownloads()
+  const remove = useRemoveDownload()
   const jobs = downloads.data ?? []
 
   return (
@@ -37,11 +38,25 @@ export function DownloadsPage() {
           they're all in.
         </EmptyState>
       ) : (
-        <ul className="mt-6 space-y-3">
-          {jobs.map((job) => (
-            <JobCard key={job.id} job={job} />
-          ))}
-        </ul>
+        <>
+          {jobs.some((j) => j.status === "imported") && (
+            <div className="mt-4 flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={remove.isPending}
+                onClick={() => jobs.filter((j) => j.status === "imported").forEach((j) => remove.mutate(j.id))}
+              >
+                Clear imported
+              </Button>
+            </div>
+          )}
+          <ul className="mt-2 space-y-3">
+            {jobs.map((job) => (
+              <JobCard key={job.id} job={job} />
+            ))}
+          </ul>
+        </>
       )}
       <WishlistSection />
     </PageFrame>

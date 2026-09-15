@@ -81,6 +81,7 @@ pub struct AppState {
     pub chat: Arc<chat::Chat>,
     pub sharing: Arc<sharing::Sharing>,
     pub wishlist: Arc<wishlist::Wishlist>,
+    pub totals: Arc<sharing::Totals>,
 }
 
 impl Default for AppState {
@@ -101,6 +102,7 @@ impl Default for AppState {
             chat: Arc::default(),
             sharing: Arc::default(),
             wishlist: Arc::default(),
+            totals: Arc::default(),
         }
     }
 }
@@ -114,6 +116,7 @@ impl AppState {
         let chat = Arc::new(chat::Chat::open(&config.data_dir));
         let sharing = Arc::new(sharing::Sharing::open(&config.data_dir));
         let wishlist = Arc::new(wishlist::Wishlist::open(&config.data_dir));
+        let totals = Arc::new(sharing::Totals::open(&config.data_dir));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -132,6 +135,7 @@ impl AppState {
             chat,
             sharing,
             wishlist,
+            totals,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -150,6 +154,7 @@ impl AppState {
         chat::start(&state);
         sharing::start(&state);
         wishlist::start(&state);
+        sharing::Totals::start(&state);
         state
     }
 }
@@ -169,6 +174,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/users/{username}/picture", get(users::picture))
         .route("/api/v1/soulseek/users/{username}/shares", get(users::share_tree))
         .route("/api/v1/soulseek/users/{username}/folder", get(users::folder))
+        .route("/api/v1/soulseek/stats", get(sharing::stats))
         .route("/api/v1/soulseek/uploads", get(sharing::uploads))
         .route("/api/v1/soulseek/uploads/clear", post(sharing::clear_uploads))
         .route("/api/v1/soulseek/uploads/{id}", delete(sharing::cancel_upload))

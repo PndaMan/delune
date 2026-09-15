@@ -118,6 +118,7 @@ fn limits(settings: &SharingSettings) -> UploadLimits {
         slots: usize::try_from(settings.slots.clamp(1, 20)).unwrap_or(3),
         queue_per_user: usize::try_from(settings.queue_per_user.clamp(1, 10_000)).unwrap_or(200),
         bytes_per_second: settings.speed_limit_kib.filter(|&k| k > 0).map(|k| u64::from(k) * 1024),
+        refuse_leechers: settings.refuse_leechers,
     }
 }
 
@@ -127,6 +128,7 @@ pub fn refresh(app: &AppState) {
     let Some(client) = app.soulseek.clone() else { return };
     let settings = app.sharing.settings();
     client.set_upload_limits(limits(&settings));
+    client.set_download_limit(settings.download_limit_kib.filter(|&k| k > 0).map(|k| u64::from(k) * 1024));
     client.set_banned(settings.banned.iter().cloned().collect::<HashSet<_>>());
 
     let library = app.library.library_dir.clone();
@@ -376,6 +378,88 @@ pub async fn uploads(State(app): State<AppState>, user: CurrentUser) -> Response
         .collect();
     list.sort_by_key(|u| std::cmp::Reverse(u.id));
     Json(list).into_response()
+}
+
+/// Transfer totals that survive restarts: what was saved, plus this run's counters.
+#[derive(Debug, Default)]
+pub struct Totals {
+    path: Option<PathBuf>,
+    saved: Mutex<SavedTotals>,
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+struct SavedTotals {
+    downloaded_bytes: u64,
+    uploaded_bytes: u64,
+}
+
+impl Totals {
+    #[must_use]
+    pub fn open(data_dir: &Path) -> Self {
+        let path = data_dir.join("stats.json");
+        let saved = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        Self { path: Some(path), saved: Mutex::new(saved) }
+    }
+
+    fn current(&self, client: Option<&delune_soulseek::Client>) -> (u64, u64) {
+        let saved = *self.saved.lock().unwrap_or_else(PoisonError::into_inner);
+        let (down, up) = client.map_or((0, 0), delune_soulseek::Client::transferred);
+        (saved.downloaded_bytes + down, saved.uploaded_bytes + up)
+    }
+
+    /// Save periodically; the saved base plus the live counters is always the total.
+    pub fn start(app: &AppState) {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let base = *app.totals.saved.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut every = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                every.tick().await;
+                let (down, up) = app.soulseek.as_ref().map_or((0, 0), delune_soulseek::Client::transferred);
+                let totals = SavedTotals {
+                    downloaded_bytes: base.downloaded_bytes + down,
+                    uploaded_bytes: base.uploaded_bytes + up,
+                };
+                if let Some(path) = &app.totals.path
+                    && let Ok(json) = serde_json::to_vec(&totals)
+                {
+                    let _ = std::fs::write(path, json);
+                }
+            }
+        });
+    }
+}
+
+/// `GET /api/v1/soulseek/stats`
+pub async fn stats(State(app): State<AppState>, user: CurrentUser) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.search, "see Soulseek stats") {
+        return denied;
+    }
+    let uploads = app.soulseek.as_ref().map(delune_soulseek::Client::uploads).unwrap_or_default();
+    let count =
+        |f: fn(&UploadState) -> bool| u32::try_from(uploads.iter().filter(|u| f(&u.state)).count()).unwrap_or(u32::MAX);
+    let (downloaded_bytes, uploaded_bytes) = app.totals.current(app.soulseek.as_ref());
+    let downloads_running = app
+        .downloads
+        .list()
+        .iter()
+        .filter(|j| matches!(j.status, delune_core::api::JobStatus::Queued | delune_core::api::JobStatus::Downloading))
+        .count();
+    let (files, folders) = {
+        let inner = app.sharing.lock();
+        (inner.files, inner.folders)
+    };
+    Json(delune_core::api::SoulseekStats {
+        shared_files: files,
+        shared_folders: folders,
+        uploads_running: count(|s| matches!(s, UploadState::Connecting | UploadState::Transferring { .. })),
+        uploads_waiting: count(|s| *s == UploadState::Queued),
+        downloads_running: u32::try_from(downloads_running).unwrap_or(u32::MAX),
+        downloaded_bytes,
+        uploaded_bytes,
+        uploads_completed: count(|s| matches!(s, UploadState::Completed { .. })),
+    })
+    .into_response()
 }
 
 /// `DELETE /api/v1/soulseek/uploads/{id}`

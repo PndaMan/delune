@@ -320,21 +320,18 @@ impl Client {
     ///
     /// When we're offline or the server doesn't answer.
     pub async fn user_presence(&self, username: &str) -> Result<UserPresence, PeerError> {
-        let shared = &self.inner.shared;
-        let server = shared.server().ok_or(PeerError::Offline)?;
-        let answer = shared.presences.register(username.to_owned());
-        server
-            .send(ServerRequest::WatchUser { username: username.to_owned() })
-            .await
-            .map_err(|_| PeerError::Offline)?;
-        let presence = timeout(USER_INFO_TIMEOUT, answer)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .ok_or_else(|| PeerError::TimedOut("The Soulseek server".into()))?;
-        // One answer is all we want; don't keep receiving their status changes.
-        let _ = server.send(ServerRequest::UnwatchUser { username: username.to_owned() }).await;
-        Ok(presence)
+        connection::presence(&self.inner.shared, username).await
+    }
+
+    /// Cap download speed across all downloads, in bytes per second.
+    pub fn set_download_limit(&self, bytes_per_second: Option<u64>) {
+        self.inner.shared.download_cap.set(bytes_per_second);
+    }
+
+    /// Bytes downloaded and uploaded since the client started.
+    #[must_use]
+    pub fn transferred(&self) -> (u64, u64) {
+        (self.inner.shared.download_cap.total(), self.inner.shared.upload_cap.total())
     }
 
     /// Chat activity from now on. Slow listeners miss old events rather than stall the client.
@@ -418,6 +415,7 @@ impl Client {
 
     /// Change upload slots, per-person queue size and speed cap.
     pub fn set_upload_limits(&self, limits: UploadLimits) {
+        self.inner.shared.upload_cap.set(limits.bytes_per_second);
         self.inner.shared.uploads.set_limits(limits);
     }
 

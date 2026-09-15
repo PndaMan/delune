@@ -49,13 +49,15 @@ pub struct UploadLimits {
     pub slots: usize,
     /// Files one person may have waiting.
     pub queue_per_user: usize,
-    /// Overall upload speed cap in bytes per second.
+    /// Overall upload speed cap in bytes per second, shared by all uploads.
     pub bytes_per_second: Option<u64>,
+    /// Refuse people who share nothing themselves.
+    pub refuse_leechers: bool,
 }
 
 impl Default for UploadLimits {
     fn default() -> Self {
-        Self { slots: 3, queue_per_user: 200, bytes_per_second: None }
+        Self { slots: 3, queue_per_user: 200, bytes_per_second: None, refuse_leechers: false }
     }
 }
 
@@ -363,12 +365,16 @@ pub(crate) async fn schedule(shared: Arc<Shared>) {
                 let id = info.id;
                 let outcome = run(&shared, &info, &disk_path, cancel).await;
                 tracing::info!(username = %info.username, file = %info.filename, ?outcome, "upload finished");
-                if let UploadState::Failed { .. } = outcome
-                    && let Ok(peer) =
+                if let UploadState::Failed { reason } = &outcome
+                    && let Ok(Ok(peer)) =
                         timeout(Duration::from_secs(10), connection::connect_peer(&shared, &info.username)).await
-                    && let Ok(peer) = peer
                 {
-                    let _ = peer.send(PeerMessage::UploadFailed { filename: info.filename.clone() }.encode()).await;
+                    let message = if reason == LEECHER_REASON {
+                        PeerMessage::UploadDenied { filename: info.filename.clone(), reason: "Banned".into() }
+                    } else {
+                        PeerMessage::UploadFailed { filename: info.filename.clone() }
+                    };
+                    let _ = peer.send(message.encode()).await;
                 }
                 shared.uploads.set_state(id, outcome, None);
                 shared.uploads.wake.notify_one();
@@ -381,6 +387,9 @@ pub(crate) async fn schedule(shared: Arc<Shared>) {
     }
 }
 
+/// Why an upload was refused to someone who shares nothing.
+const LEECHER_REASON: &str = "They don't share anything";
+
 async fn run(
     shared: &Arc<Shared>,
     info: &UploadInfo,
@@ -388,6 +397,13 @@ async fn run(
     mut cancel: watch::Receiver<bool>,
 ) -> UploadState {
     let work = async {
+        if shared.uploads.lock().limits.refuse_leechers
+            && let Ok(presence) = connection::presence(shared, &info.username).await
+            && presence.exists
+            && presence.files == 0
+        {
+            return Err(LEECHER_REASON.to_owned());
+        }
         let peer = connection::connect_peer(shared, &info.username).await.map_err(|e| e.to_string())?;
         let token = shared.next_token();
         let (answer_tx, answer_rx) = oneshot::channel();
@@ -512,6 +528,7 @@ async fn send_file(
     let mut sent = offset;
     let mut last_report = Instant::now();
     let mut buffer = vec![0u8; 64 * 1024];
+    let mut pace = shared.upload_cap.start();
     loop {
         let n = file.read(&mut buffer).await.map_err(|e| e.to_string())?;
         if n == 0 {
@@ -522,22 +539,10 @@ async fn send_file(
             .map_err(|_| "the transfer stalled".to_owned())?
             .map_err(|_| "they disconnected".to_owned())?;
         sent += n as u64;
-
-        let limit = shared.uploads.lock().limits.bytes_per_second;
-        let elapsed = started.elapsed().as_secs_f64();
-        let this_session = (sent - offset) as f64;
-        if let Some(limit) = limit
-            && limit > 0
-        {
-            // Sleep just long enough to keep the average under the cap.
-            let ahead = this_session / limit as f64 - elapsed;
-            if ahead > 0.0 {
-                sleep(Duration::from_secs_f64(ahead.min(1.0))).await;
-            }
-        }
+        pace.record(n).await;
         if last_report.elapsed() >= PROGRESS_INTERVAL {
             last_report = Instant::now();
-            let speed = (this_session / elapsed.max(0.001)) as u64;
+            let speed = ((sent - offset) as f64 / started.elapsed().as_secs_f64().max(0.001)) as u64;
             shared.uploads.set_state(info.id, UploadState::Transferring { bytes: sent }, Some(speed));
         }
     }

@@ -4,7 +4,9 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { useChatEvents, useChatOverview } from "@/lib/chat"
+import { formatBytes, plural } from "@/lib/format"
 import { useRecentList } from "@/lib/recent"
+import { useSoulseekStats } from "@/lib/sharing"
 import { initial, useMe } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
@@ -75,6 +77,30 @@ function Count({ n }: { n: number }) {
   )
 }
 
+/** This delune on the network: what it shares and what has moved. */
+function Stats() {
+  const stats = useSoulseekStats()
+  if (!stats.data) return null
+  const s = stats.data
+  const items = [
+    ["Sharing", s.shared_files ? `${s.shared_files.toLocaleString()} files` : "Nothing yet"],
+    ["Uploading", s.uploads_running || s.uploads_waiting ? `${s.uploads_running} now, ${s.uploads_waiting} waiting` : "Idle"],
+    ["Downloading", s.downloads_running ? plural(s.downloads_running, "release") : "Idle"],
+    ["Downloaded", formatBytes(s.downloaded_bytes)],
+    ["Uploaded", formatBytes(s.uploaded_bytes)],
+  ]
+  return (
+    <dl className="mb-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-5">
+      {items.map(([label, value]) => (
+        <div key={label} className="bg-card/80 px-4 py-3">
+          <dt className="text-[12.5px] text-muted-foreground">{label}</dt>
+          <dd className="mt-0.5 truncate text-[15px]">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 /** Look someone up to browse their shares. */
 export function PeopleTab() {
   const navigate = useNavigate()
@@ -84,6 +110,7 @@ export function PeopleTab() {
 
   return (
     <div className="pb-24">
+      <Stats />
       <p className="max-w-[60ch] text-[15px] text-muted-foreground">
         Look someone up to see their profile and browse everything they share. Any folder opens like a search result, ready
         to download.

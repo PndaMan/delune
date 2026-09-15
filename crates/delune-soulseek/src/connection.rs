@@ -108,6 +108,8 @@ pub(crate) struct Shared {
     pub presences: Waiters<String, UserPresence>,
     /// What we share, who's downloading it, and who's waiting.
     pub uploads: Uploads,
+    pub upload_cap: Arc<crate::pacing::SpeedCap>,
+    pub download_cap: Arc<crate::pacing::SpeedCap>,
     /// Private messages and room activity, for whoever is listening.
     pub chat: broadcast::Sender<ChatEvent>,
     /// Whether we have a parent in the distributed search network.
@@ -144,6 +146,8 @@ impl Shared {
             folders: Waiters::default(),
             presences: Waiters::default(),
             uploads: Uploads::default(),
+            upload_cap: Arc::default(),
+            download_cap: Arc::default(),
             chat: broadcast::channel(512).0,
             rooms: Mutex::default(),
             wishlist_interval: AtomicU32::new(12 * 60),
@@ -269,6 +273,21 @@ pub(crate) async fn pierce(addr: SocketAddr, token: u32, username: String, kind:
         (ConnectionType::File, _) => transfer::accept_file_connection(conn, &shared).await,
         _ => {}
     }
+}
+
+/// What the server knows about `username`: whether they exist, and what they share.
+pub(crate) async fn presence(shared: &Shared, username: &str) -> Result<UserPresence, PeerError> {
+    let server = shared.server().ok_or(PeerError::Offline)?;
+    let answer = shared.presences.register(username.to_owned());
+    server.send(ServerRequest::WatchUser { username: username.to_owned() }).await.map_err(|_| PeerError::Offline)?;
+    let presence = timeout(Duration::from_secs(20), answer)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .ok_or_else(|| PeerError::TimedOut("The Soulseek server".into()))?;
+    // One answer is all we want; don't keep receiving their status changes.
+    let _ = server.send(ServerRequest::UnwatchUser { username: username.to_owned() }).await;
+    Ok(presence)
 }
 
 /// Ask the server where `username` listens. The answer arrives on the receiver.

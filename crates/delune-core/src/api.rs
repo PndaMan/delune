@@ -541,6 +541,12 @@ pub struct SharingSettings {
     pub queue_per_user: u32,
     /// Upload speed cap in KiB/s; none means no cap.
     pub speed_limit_kib: Option<u32>,
+    /// Download speed cap in KiB/s, shared by every download; none means no cap.
+    #[serde(default)]
+    pub download_limit_kib: Option<u32>,
+    /// Refuse uploads to people who share nothing themselves.
+    #[serde(default)]
+    pub refuse_leechers: bool,
     /// People who can't download from us.
     pub banned: Vec<String>,
 }
@@ -553,9 +559,25 @@ impl Default for SharingSettings {
             slots: 3,
             queue_per_user: 200,
             speed_limit_kib: None,
+            download_limit_kib: None,
+            refuse_leechers: false,
             banned: Vec::new(),
         }
     }
+}
+
+/// `GET /api/v1/soulseek/stats`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SoulseekStats {
+    pub shared_files: u32,
+    pub shared_folders: u32,
+    pub uploads_running: u32,
+    pub uploads_waiting: u32,
+    pub downloads_running: u32,
+    /// Bytes, ever (since delune started keeping count).
+    pub downloaded_bytes: u64,
+    pub uploaded_bytes: u64,
+    pub uploads_completed: u32,
 }
 
 /// `GET /api/v1/sharing`

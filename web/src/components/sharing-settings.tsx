@@ -90,6 +90,23 @@ export function SharingSettingsPanel() {
             className={input}
           />
         </Field>
+        <Field label="Download speed limit (KiB/s)" hint="Shared by all downloads. Leave empty for no limit.">
+          <input
+            type="number"
+            min={0}
+            value={settings.download_limit_kib ?? ""}
+            placeholder="No limit"
+            onChange={(e) => edit({ download_limit_kib: e.target.value ? Number(e.target.value) : null })}
+            className={input}
+          />
+        </Field>
+        <label className="flex cursor-pointer items-start gap-3 self-end pb-2">
+          <Switch checked={settings.refuse_leechers} onCheckedChange={(refuse_leechers) => edit({ refuse_leechers })} className="mt-0.5" />
+          <span>
+            <span className="block text-[14px]">Only share with people who share</span>
+            <span className="mt-0.5 block text-[12.5px] text-muted-foreground">Refuse uploads to anyone sharing nothing.</span>
+          </span>
+        </label>
         <Field label="Files per person" hint="How many files one person can have waiting.">
           <input
             type="number"

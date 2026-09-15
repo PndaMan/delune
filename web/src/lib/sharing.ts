@@ -8,7 +8,24 @@ export type SharingSettings = {
   slots: number
   queue_per_user: number
   speed_limit_kib: number | null
+  download_limit_kib: number | null
+  refuse_leechers: boolean
   banned: string[]
+}
+
+export type SoulseekStats = {
+  shared_files: number
+  shared_folders: number
+  uploads_running: number
+  uploads_waiting: number
+  downloads_running: number
+  downloaded_bytes: number
+  uploaded_bytes: number
+  uploads_completed: number
+}
+
+export function useSoulseekStats() {
+  return useQuery({ queryKey: ["soulseek-stats"], queryFn: () => call<SoulseekStats>("GET", "/soulseek/stats"), refetchInterval: 5_000 })
 }
 
 export type SharingStatus = {

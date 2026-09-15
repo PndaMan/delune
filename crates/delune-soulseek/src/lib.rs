@@ -42,6 +42,7 @@ mod connection;
 pub mod distributed;
 pub mod frame;
 pub mod limiter;
+pub mod pacing;
 pub mod peer;
 pub mod server;
 pub mod shares;
