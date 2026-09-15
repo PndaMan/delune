@@ -7,6 +7,7 @@
 //! Routes are versioned under `/api/v1`. Long-running work (searches, downloads,
 //! scans) streams progress over Server-Sent Events rather than being polled.
 
+pub mod accounts;
 pub mod artwork;
 pub mod downloads;
 pub mod library;
@@ -23,7 +24,8 @@ use std::time::Duration;
 use axum::{
     Json, Router,
     extract::{Query, State},
-    routing::{delete, get, post},
+    middleware,
+    routing::{delete, get, post, put},
 };
 use delune_core::{
     Provider, ProviderRole, SourcePolicy,
@@ -70,6 +72,7 @@ pub struct AppState {
     pub navidrome: Option<delune_navidrome::Client>,
     pub library_cache: Arc<library::LibraryCache>,
     pub resolver: Arc<delune_resolve::Resolver>,
+    pub accounts: Arc<accounts::Accounts>,
 }
 
 impl Default for AppState {
@@ -85,6 +88,7 @@ impl Default for AppState {
             navidrome: None,
             library_cache: Arc::default(),
             resolver: Arc::default(),
+            accounts: Arc::new(accounts::Accounts::in_memory(None)),
         }
     }
 }
@@ -93,6 +97,8 @@ impl AppState {
     /// Start background services described by `config`. Needs a Tokio runtime.
     #[must_use]
     pub fn start(config: ServerConfig) -> Self {
+        let navidrome_url = config.navidrome.as_ref().map(|(url, _)| url.clone());
+        let accounts = Arc::new(accounts::Accounts::open(&config.data_dir, navidrome_url));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -107,6 +113,7 @@ impl AppState {
             data_dir: config.data_dir,
             library: Arc::new(config.library),
             navidrome,
+            accounts,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -129,8 +136,11 @@ impl AppState {
 /// Build the application router. Separate from [`serve`] so tests can call routes
 /// in-process without opening a socket.
 pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/api/v1/health", get(health))
+    // Everything except health, signing in and the web UI itself needs a session.
+    let signed_in = Router::new()
+        .route("/api/v1/users", get(accounts::people))
+        .route("/api/v1/users/approval", put(accounts::set_approval))
+        .route("/api/v1/users/{username}/permissions", put(accounts::set_permissions))
         .route("/api/v1/classify", get(classify_input))
         .route("/api/v1/sources", get(sources))
         .route("/api/v1/soulseek", get(soulseek_status))
@@ -144,6 +154,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/artwork/image", get(artwork::image))
         .route("/api/v1/naming/tokens", get(naming::tokens))
         .route("/api/v1/naming/preview", post(naming::preview))
+        .route_layer(middleware::from_fn_with_state(state.clone(), accounts::require_session));
+
+    Router::new()
+        .route("/api/v1/health", get(health))
+        .route("/api/v1/session", get(accounts::session).post(accounts::sign_in).delete(accounts::sign_out))
+        .merge(signed_in)
         .fallback(web::serve_asset)
         .with_state(state)
         .layer(TraceLayer::new_for_http())
@@ -306,6 +322,33 @@ mod tests {
         let health: Health = get_json("/api/v1/health").await;
         assert_eq!(health.status, HealthStatus::Ok);
         assert_eq!(health.name, "delune");
+    }
+
+    #[tokio::test]
+    async fn api_needs_a_session_when_accounts_are_on() {
+        let accounts = Arc::new(accounts::Accounts::in_memory(Some("http://navidrome.invalid".into())));
+        let (token, _) = accounts.signed_in("sam", false);
+        let app = router(AppState { accounts, ..AppState::default() });
+        let status = |uri: &'static str, token: Option<&str>| {
+            let app = app.clone();
+            let token = token.map(str::to_owned);
+            async move {
+                let mut request = Request::get(uri);
+                if let Some(token) = token {
+                    request = request.header("cookie", format!("delune_session={token}"));
+                }
+                app.oneshot(request.body(Body::empty()).unwrap()).await.unwrap().status()
+            }
+        };
+
+        assert_eq!(status("/api/v1/health", None).await, StatusCode::OK);
+        assert_eq!(status("/api/v1/session", None).await, StatusCode::OK, "answers null, not 401");
+        assert_eq!(status("/api/v1/downloads", None).await, StatusCode::UNAUTHORIZED);
+        assert_eq!(status("/api/v1/classify?q=x", Some("wrong")).await, StatusCode::UNAUTHORIZED);
+
+        assert_eq!(status("/api/v1/session", Some(&token)).await, StatusCode::OK);
+        assert_eq!(status("/api/v1/downloads", Some(&token)).await, StatusCode::OK);
+        assert_eq!(status("/api/v1/users", Some(&token)).await, StatusCode::FORBIDDEN, "members can't manage people");
     }
 
     #[tokio::test]

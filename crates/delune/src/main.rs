@@ -41,6 +41,12 @@ enum Command {
         /// URL of a running delune server.
         #[arg(long, env = "DELUNE_SERVER", default_value = "http://localhost:7474")]
         server: String,
+        /// Navidrome username, when the server has accounts. Asked for if missing.
+        #[arg(long, env = "DELUNE_USERNAME")]
+        username: Option<String>,
+        /// Navidrome password. Prefer the prompt; flags end up in shell history.
+        #[arg(long, env = "DELUNE_PASSWORD", hide_env_values = true)]
+        password: Option<String>,
     },
 }
 
@@ -123,7 +129,10 @@ async fn main() -> Result<()> {
             delune_server::serve(bind, config).await?;
         }
         // No logging to stdout here: it would corrupt the terminal UI.
-        Command::Tui { server } => delune_tui::run(server)?,
+        Command::Tui { server, username, password } => {
+            let http = delune_tui::auth::signed_in_client(server.trim_end_matches('/'), username, password).await?;
+            delune_tui::run(server, &http)?;
+        }
     }
     Ok(())
 }

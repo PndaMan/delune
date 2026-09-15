@@ -1,8 +1,9 @@
 //! Download jobs.
 //!
 //! A job is one folder from one peer: the release someone picked from search
-//! results. Its files download one at a time (peers usually give each user a single
-//! upload slot) into a staging folder of its own, `<data dir>/staging/<job id>/`.
+//! results. All of its files are requested at once (the peer queues them and sends
+//! as its upload slots allow) into a staging folder of its own,
+//! `<data dir>/staging/<job id>/`.
 //! Nothing touches the music library here; a finished job waits for review.
 //!
 //! Jobs are saved to `<data dir>/jobs.json` whenever they change, and unfinished
@@ -25,6 +26,7 @@ use delune_soulseek::{DownloadRequest, DownloadState};
 use tokio::sync::watch;
 
 use crate::AppState;
+use crate::accounts::CurrentUser;
 use crate::review::{self, Checked, LibrarySettings};
 
 /// All jobs plus the cancel switches of the ones still running.
@@ -135,6 +137,11 @@ impl Downloads {
         self.lock().iter().find(|e| e.job.id == id).map(|e| (e.job.status, e.job.review, e.checked.clone()))
     }
 
+    /// Who started a job: `None` if there's no such job, `Some(None)` for jobs from before accounts.
+    pub fn owner(&self, id: &str) -> Option<Option<String>> {
+        self.lock().iter().find(|e| e.job.id == id).map(|e| e.job.requested_by.clone())
+    }
+
     pub fn mark_imported(&self, id: &str) {
         if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
             entry.job.status = JobStatus::Imported;
@@ -159,13 +166,20 @@ impl Downloads {
     }
 }
 
-/// `GET /api/v1/downloads`
-pub async fn list(State(app): State<AppState>) -> Json<Vec<DownloadJob>> {
-    Json(app.downloads.list())
+/// `GET /api/v1/downloads`: your downloads, or everyone's if you manage delune.
+pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<DownloadJob>> {
+    Json(app.downloads.list().into_iter().filter(|job| user.can_see(job.requested_by.as_deref())).collect())
 }
 
 /// `POST /api/v1/downloads`
-pub async fn create(State(app): State<AppState>, Json(request): Json<DownloadJobRequest>) -> Response {
+pub async fn create(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Json(request): Json<DownloadJobRequest>,
+) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.download, "download") {
+        return denied;
+    }
     let Some(client) = app.soulseek.clone() else {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -209,6 +223,7 @@ pub async fn create(State(app): State<AppState>, Json(request): Json<DownloadJob
         bytes: 0,
         total_bytes: request.files.iter().map(|f| f.size).sum(),
         review: ReviewState::Waiting,
+        requested_by: Some(user.username.clone()),
     };
     let (cancel, cancel_rx) = watch::channel(false);
     app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None });
@@ -263,10 +278,10 @@ pub fn resume(app: &AppState) {
 }
 
 /// `DELETE /api/v1/downloads/{id}`: cancel if running, remove staged files, forget the job.
-pub async fn remove(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let removed = {
         let mut jobs = app.downloads.lock();
-        jobs.iter().position(|e| e.job.id == id).map(|i| jobs.remove(i))
+        jobs.iter().position(|e| e.job.id == id && user.can_see(e.job.requested_by.as_deref())).map(|i| jobs.remove(i))
     };
     let Some(entry) = removed else {
         return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
@@ -446,6 +461,7 @@ mod tests {
             bytes: 14,
             total_bytes: 30,
             review: ReviewState::Checking,
+            requested_by: None,
         }];
         std::fs::write(dir.join("jobs.json"), serde_json::to_vec(&saved).unwrap()).unwrap();
 

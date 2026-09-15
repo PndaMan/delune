@@ -73,15 +73,16 @@ you can run `delune tui` from your laptop.
 
 | | Status |
 |---|---|
-| Paste links from Spotify, Apple Music, Tidal, Qobuz, Deezer, YouTube Music, SoundCloud, Bandcamp, MusicBrainz | Link parsing done |
+| Paste links from Spotify, Apple Music, Tidal, Qobuz, Deezer, YouTube Music, SoundCloud, Bandcamp, MusicBrainz | Done: resolved, searched on Soulseek, ranked by tracklist match |
 | Native Soulseek client (no slskd needed) | Live search working: login, reconnect, firewall piercing, rate limiting |
-| Quality ranking (24/192 → 16/44.1 → lossy, with fake-FLAC detection) | Ranking done (completeness-aware); fake-FLAC detection planned |
+| Quality ranking (24/192 → 16/44.1 → lossy, with fake-FLAC detection) | Done |
 | Album artwork for results, accent colours from covers | Done |
 | Web UI: live results, filters, release view, naming editor | Done |
-| "Already in library" and "better copy available" checks | Navidrome client done |
+| "Already in library" and missing-track checks against Navidrome | Done; "better copy available" planned |
 | File and folder naming templates with live preview | Template engine done |
-| Review inbox with optional admin approval | Planned for v0.1 |
-| Log in with your Navidrome account | Planned for v0.1 |
+| Review inbox with optional admin approval | Done |
+| Sign in with your Navidrome account; per-person permissions | Done |
+| Installable web app (PWA) | Done |
 | Synced lyrics, embedded artwork, MP3/AAC transcoding | Planned for v0.1 |
 | Playlist import, watchlist | Planned |
 | Follow artists, automatic quality upgrades (off by default) | Planned |
@@ -113,6 +114,20 @@ DELUNE_SLSK_USERNAME=you DELUNE_SLSK_PASSWORD=secret cargo run -- serve
 
 For web development, `scripts/dev.sh` runs the API server and the hot-reloading
 web UI together; open http://localhost:5173.
+
+### Accounts
+
+Point delune at Navidrome and everyone signs in with their Navidrome account;
+Navidrome admins are delune admins ([ADR 0006](docs/adr/0006-navidrome-accounts.md)):
+
+```sh
+DELUNE_NAVIDROME_URL=http://localhost:4533 \
+DELUNE_NAVIDROME_USERNAME=admin DELUNE_NAVIDROME_PASSWORD=secret \
+cargo run -- serve
+```
+
+Without Navidrome, delune runs in **open mode**: no sign-in, and whoever can reach
+it is an admin. Keep an open-mode server off the internet.
 
 Docker images, a NixOS module, release binaries and AUR/Homebrew packages come
 with v0.1. A development [`compose.yaml`](compose.yaml) is included.

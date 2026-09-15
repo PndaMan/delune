@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import type { DownloadJob, JobFile } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
 import { describeJob, useDownloads, useRemoveDownload } from "@/lib/downloads"
+import { requesterLabel, useMe } from "@/lib/session"
 import { formatBytes } from "@/lib/format"
 import { parseTrackName } from "@/lib/track-name"
 import { cn } from "@/lib/utils"
@@ -51,6 +52,7 @@ export function JobCard({ job }: { job: DownloadJob }) {
   const remove = useRemoveDownload()
   const progress = job.total_bytes ? job.bytes / job.total_bytes : 0
   const running = job.status === "queued" || job.status === "downloading"
+  const requester = requesterLabel(useMe(), job.requested_by)
 
   return (
     <li className="overflow-hidden rounded-2xl border bg-card/60">
@@ -60,6 +62,7 @@ export function JobCard({ job }: { job: DownloadJob }) {
           <p className="truncate text-[16px] font-semibold">{artwork.data?.album ?? job.title}</p>
           <p className="truncate text-sm text-muted-foreground">
             {artwork.data?.artist ?? job.parent}
+            {requester && <span className="text-muted-foreground/70">, for {requester}</span>}
             <span className="sm:hidden">{running || job.status === "failed" ? `, ${Math.round(progress * 100)}%` : ""}</span>
           </p>
           <p

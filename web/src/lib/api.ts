@@ -129,6 +129,8 @@ export type DownloadJob = {
   bytes: number
   total_bytes: number
   review: ReviewState
+  /** Who started it; null for downloads from before accounts. */
+  requested_by: string | null
 }
 
 export type DownloadJobRequest = {
@@ -189,6 +191,22 @@ export const PROVIDER_NAMES: Record<Provider, string> = {
   "music-brainz": "MusicBrainz",
 }
 
+export type Permissions = { search: boolean; download: boolean; skip_approval: boolean; manage: boolean }
+
+export type Me = {
+  username: string
+  admin: boolean
+  permissions: Permissions
+  can_import: boolean
+  mode: "navidrome" | "open"
+}
+
+export type Person = { username: string; admin: boolean; permissions: Permissions; last_login: number }
+export type People = { require_approval: boolean; people: Person[] }
+
+/** Fired whenever the server says the session is gone, so the app can show sign-in. */
+export const sessionEvents = new EventTarget()
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
@@ -201,6 +219,7 @@ export class ApiError extends Error {
 
 /** Turn a failed response into an ApiError, using the server's message when there is one. */
 export async function toApiError(res: Response): Promise<ApiError> {
+  if (res.status === 401) sessionEvents.dispatchEvent(new Event("signed-out"))
   try {
     const body = (await res.json()) as Partial<ApiErrorBody>
     if (body.message) return new ApiError(res.status, body.code ?? "error", body.message)
@@ -216,7 +235,29 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>
 }
 
+async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/v1${path}`, {
+    method,
+    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw await toApiError(res)
+  return (res.status === 204 ? undefined : await res.json()) as T
+}
+
 export const api = {
+  /** The signed-in person, or null when nobody is. */
+  session: async (signal?: AbortSignal): Promise<Me | null> => {
+    const res = await fetch("/api/v1/session", { signal, headers: { accept: "application/json" } })
+    if (!res.ok) throw await toApiError(res)
+    return res.json() as Promise<Me | null>
+  },
+  signIn: (username: string, password: string) => send<Me>("POST", "/session", { username, password }),
+  signOut: () => send<void>("DELETE", "/session"),
+  people: (signal?: AbortSignal) => get<People>("/users", signal),
+  setPermissions: (username: string, permissions: Permissions) =>
+    send<People>("PUT", `/users/${encodeURIComponent(username)}/permissions`, { permissions }),
+  setRequireApproval: (require_approval: boolean) => send<People>("PUT", "/users/approval", { require_approval }),
   health: (signal?: AbortSignal) => get<Health>("/health", signal),
   sources: (signal?: AbortSignal) => get<SourceInfo[]>("/sources", signal),
   soulseek: (signal?: AbortSignal) => get<SoulseekStatus>("/soulseek", signal),

@@ -46,7 +46,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Decode verification and fake-FLAC detection
 - [ ] Tags (lofty), artwork, synced lyrics (LRCLIB)
 - [x] Review inbox
-- [ ] Admin approval gate
+- [x] Admin approval gate
 - [x] Import with conflict checks, then a Navidrome scan
 
 **Shipping**
@@ -65,12 +65,13 @@ Navidrome, from both the web UI and the TUI.
 ## Requested next (from Aidan, 2026-09-15)
 
 **Accounts and requests: "Overseerr for Soulseek and streaming"**
-- [ ] Sign in with Navidrome credentials; sessions; sign out
-- [ ] Roles and permissions: admin (from Navidrome admin), and per-user rights to search,
-      request, download directly, approve imports, enable streaming sources, manage users
+- [x] Sign in with Navidrome credentials; sessions; sign out (web and TUI)
+- [x] Roles and permissions: admin (from Navidrome admin), and per-person rights to search,
+      download, skip approval and manage; an "imports need approval" switch
+- [ ] Revoke sessions; per-person rights for streaming sources
 - [ ] Requests: people ask for an album; admins or permitted users approve; request status
       visible to the requester (pending, approved, downloading, in library, declined)
-- [ ] Profile menu at the bottom of the rail (avatar, role, connection status, sign out)
+- [x] Profile menu at the bottom of the rail (avatar, role, connection status, sign out)
       replacing the moon indicator
 - [ ] Per-user history and notifications
 

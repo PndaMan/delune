@@ -8,6 +8,7 @@
 //! `ui::draw` function, and an event loop that merges key presses with messages
 //! from background tasks over a channel. Background tasks never touch the terminal.
 
+pub mod auth;
 mod sse;
 mod ui;
 
@@ -177,7 +178,7 @@ impl App {
         }
     }
 
-    fn start_search(&mut self, base: &str, query: String, tx: mpsc::UnboundedSender<Message>) {
+    fn start_search(&mut self, http: &reqwest::Client, base: &str, query: String, tx: mpsc::UnboundedSender<Message>) {
         if let Some(task) = self.search_task.take() {
             task.abort();
         }
@@ -190,7 +191,7 @@ impl App {
             timeout: Duration::from_secs(20),
             peers: 0,
         };
-        self.search_task = Some(tokio::spawn(stream_search(base.to_owned(), query, tx)));
+        self.search_task = Some(tokio::spawn(stream_search(http.clone(), base.to_owned(), query, tx)));
     }
 }
 
@@ -198,10 +199,10 @@ impl App {
 ///
 /// Blocks the calling thread on the terminal event loop, and must be called from
 /// inside a multi-threaded Tokio runtime so background tasks keep running.
-pub fn run(server_url: String) -> Result<()> {
+pub fn run(server_url: String, http: &reqwest::Client) -> Result<()> {
     let base = server_url.trim_end_matches('/').to_owned();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    tokio::spawn(poll_status(base.clone(), tx.clone()));
+    tokio::spawn(poll_status(http.clone(), base.clone(), tx.clone()));
 
     let mut terminal = ratatui::init();
     let mut app = App::new(server_url);
@@ -218,7 +219,7 @@ pub fn run(server_url: String) -> Result<()> {
             Ok(true) => match event::read() {
                 Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
                     if let Action::StartSearch(query) = app.on_key(key.code, key.modifiers) {
-                        app.start_search(&base, query, tx.clone());
+                        app.start_search(http, &base, query, tx.clone());
                     }
                 }
                 Ok(_) => {}
@@ -235,8 +236,7 @@ pub fn run(server_url: String) -> Result<()> {
     result
 }
 
-async fn poll_status(base: String, tx: mpsc::UnboundedSender<Message>) {
-    let http = reqwest::Client::new();
+async fn poll_status(http: reqwest::Client, base: String, tx: mpsc::UnboundedSender<Message>) {
     loop {
         let result = async {
             let health = http.get(format!("{base}/api/v1/health")).send().await?.error_for_status()?.json().await?;
@@ -252,7 +252,7 @@ async fn poll_status(base: String, tx: mpsc::UnboundedSender<Message>) {
     }
 }
 
-async fn stream_search(base: String, query: String, tx: mpsc::UnboundedSender<Message>) {
+async fn stream_search(http: reqwest::Client, base: String, query: String, tx: mpsc::UnboundedSender<Message>) {
     let mut url = match url::Url::parse(&format!("{base}/api/v1/search")) {
         Ok(url) => url,
         Err(e) => {
@@ -262,7 +262,7 @@ async fn stream_search(base: String, query: String, tx: mpsc::UnboundedSender<Me
     };
     url.query_pairs_mut().append_pair("q", &query);
 
-    let response = match reqwest::Client::new().get(url).header("accept", "text/event-stream").send().await {
+    let response = match http.get(url).header("accept", "text/event-stream").send().await {
         Ok(r) => r,
         Err(e) => {
             let _ = tx.send(Message::SearchError(format!("Can't reach the server: {e}")));

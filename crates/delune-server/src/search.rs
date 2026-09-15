@@ -29,6 +29,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use crate::AppState;
+use crate::accounts::CurrentUser;
 
 #[derive(Debug, Deserialize)]
 pub struct SearchParams {
@@ -41,7 +42,10 @@ pub struct SearchParams {
 /// A pasted link is resolved first (a `resolved` event says what it points at), then
 /// Soulseek is searched for its artist and title. If nobody answers that, the title
 /// alone gets a second try: store titles often carry words shared folders don't.
-pub async fn stream(State(app): State<AppState>, Query(params): Query<SearchParams>) -> Response {
+pub async fn stream(State(app): State<AppState>, user: CurrentUser, Query(params): Query<SearchParams>) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.search, "search") {
+        return denied;
+    }
     let Some(client) = app.soulseek.clone() else {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,

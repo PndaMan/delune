@@ -18,6 +18,7 @@ use delune_library::import::{self, Plan, ReleaseContext, StagedTrack};
 use delune_library::{NamingOptions, Template, inspect, verify};
 
 use crate::AppState;
+use crate::accounts::CurrentUser;
 
 /// Import settings, from the server configuration.
 #[derive(Debug, Clone)]
@@ -179,7 +180,10 @@ fn blocked_reason(settings: &LibrarySettings, tracks: &[ReviewTrack], conflicts:
 }
 
 /// `GET /api/v1/downloads/{id}/review`
-pub async fn report(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+pub async fn report(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    if !app.downloads.owner(&id).is_some_and(|owner| user.can_see(owner.as_deref())) {
+        return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
+    }
     let Some((status, review, checked)) = app.downloads.review(&id) else {
         return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
     };
@@ -196,7 +200,18 @@ pub async fn report(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -
 }
 
 /// `POST /api/v1/downloads/{id}/import`
-pub async fn import(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    let Some(owner) = app.downloads.owner(&id).filter(|owner| user.can_see(owner.as_deref())) else {
+        return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
+    };
+    let own = owner.as_deref() == Some(user.username.as_str());
+    if !(user.permissions.manage || (own && user.can_import)) {
+        return error(
+            StatusCode::FORBIDDEN,
+            "needs-approval",
+            "An admin needs to approve this before it goes into the library.",
+        );
+    }
     let Some((status, _, Some(checked))) = app.downloads.review(&id) else {
         return error(StatusCode::CONFLICT, "not-ready", "This download isn't ready for import yet.");
     };

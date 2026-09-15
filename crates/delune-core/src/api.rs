@@ -312,6 +312,9 @@ pub struct DownloadJob {
     pub bytes: u64,
     pub total_bytes: u64,
     pub review: ReviewState,
+    /// Who started it. Jobs saved before accounts existed have none.
+    #[serde(default)]
+    pub requested_by: Option<String>,
 }
 
 impl DownloadJob {
@@ -334,6 +337,78 @@ impl DownloadJob {
             JobStatus::Queued
         };
     }
+}
+
+/// What someone may do in delune. Admins (Navidrome admins) can do everything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools, reason = "independent switches, shown as toggles")]
+pub struct Permissions {
+    /// Search Soulseek and open releases.
+    pub search: bool,
+    /// Start downloads. Everything downloaded still waits for review.
+    pub download: bool,
+    /// Import their own downloads even when imports need an admin's approval.
+    pub skip_approval: bool,
+    /// See and act on everyone's downloads, and manage people and settings.
+    pub manage: bool,
+}
+
+impl Permissions {
+    pub const ALL: Self = Self { search: true, download: true, skip_approval: true, manage: true };
+    /// What someone signing in for the first time gets.
+    pub const MEMBER: Self = Self { search: true, download: true, skip_approval: false, manage: false };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthMode {
+    /// Accounts come from Navidrome; everyone signs in.
+    Navidrome,
+    /// No Navidrome configured: whoever can reach delune is the admin.
+    Open,
+}
+
+/// `GET /api/v1/session`: who is signed in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Me {
+    pub username: String,
+    pub admin: bool,
+    /// Effective permissions (all of them for admins).
+    pub permissions: Permissions,
+    /// Whether this person can import their own downloads right now.
+    pub can_import: bool,
+    pub mode: AuthMode,
+    /// Only returned to clients that asked for one, such as the TUI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+/// `POST /api/v1/session`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+    /// Return a bearer token in the response instead of relying on the cookie.
+    #[serde(default)]
+    pub token: bool,
+}
+
+/// One person in `GET /api/v1/users`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Person {
+    pub username: String,
+    pub admin: bool,
+    pub permissions: Permissions,
+    /// Unix seconds.
+    pub last_login: u64,
+}
+
+/// `GET /api/v1/users`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct People {
+    /// Imports wait for an admin unless the person may skip approval.
+    pub require_approval: bool,
+    pub people: Vec<Person>,
 }
 
 /// A link someone pasted, resolved to the release or track it points at.
@@ -510,6 +585,7 @@ mod tests {
             bytes: 0,
             total_bytes: 0,
             review: ReviewState::Waiting,
+            requested_by: None,
         };
         job.refresh();
         assert_eq!((job.status, job.total_bytes), (JobStatus::Queued, 20));

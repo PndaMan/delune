@@ -1,21 +1,42 @@
-import { useQuery } from "@tanstack/react-query"
-import { Lock } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { LogOut, Lock } from "lucide-react"
+import { useEffect } from "react"
 
 import { NamingEditor } from "@/components/naming-editor"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
 import { Moon } from "@/components/moon"
+import { Avatar } from "@/components/profile-menu"
+import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { useMe, useSignOut } from "@/lib/session"
 import { PageFrame } from "@/pages/placeholder-pages"
-import { api } from "@/lib/api"
+import { api, type People, type Permissions, type Person } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function SettingsPage() {
+  const me = useMe()
+  useEffect(() => {
+    if (window.location.hash === "#people") document.getElementById("people")?.scrollIntoView({ block: "start" })
+  }, [])
   return (
     <PageFrame title="Settings" wide>
       <p className="max-w-[60ch] text-[15px] text-muted-foreground">
-        Settings aren't saved yet. These screens show what delune will use, and the file naming editor previews exactly
-        how your library will be named.
+        People and permissions save as you change them. The other sections show what delune uses today, and the file
+        naming editor previews exactly how your library will be named.
       </p>
       <div className="mt-10 divide-y border-t pb-24">
+        <Section title="Your account" description="delune uses your Navidrome account. Admins in Navidrome are admins here.">
+          <Account />
+        </Section>
+        {me.permissions.manage && (
+          <Section
+            id="people"
+            title="People"
+            description="Everyone who has signed in. Admins can do everything; choose what everyone else can do."
+          >
+            <PeopleSettings />
+          </Section>
+        )}
         <Section title="Sources" description="Where delune looks for music, in order. Soulseek always comes first.">
           <Sources />
         </Section>
@@ -33,9 +54,19 @@ export function SettingsPage() {
   )
 }
 
-function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function Section({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id?: string
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
   return (
-    <section className="grid gap-6 py-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12">
+    <section id={id} className="grid scroll-mt-6 gap-6 py-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12">
       <div>
         <h2 className="type-title text-[21px]">{title}</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
@@ -86,5 +117,143 @@ function SoulseekAccount() {
         </p>
       </div>
     </div>
+  )
+}
+
+function Account() {
+  const me = useMe()
+  const signOut = useSignOut()
+  const allowed = [
+    me.permissions.search && "search",
+    me.permissions.download && "download",
+    me.can_import ? "import your downloads" : "import once an admin approves",
+    me.permissions.manage && "manage people",
+  ].filter(Boolean)
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-2xl border bg-card/50 px-5 py-5">
+      <Avatar name={me.username} className="size-12 text-lg" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[17px] font-semibold">{me.username}</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          {me.mode === "open"
+            ? "No Navidrome is configured, so there's no sign-in and you're the admin."
+            : `${me.admin ? "Admin" : "Member"}. You can ${allowed.join(", ")}.`}
+        </p>
+      </div>
+      {me.mode === "navidrome" && (
+        <Button variant="outline" className="w-full sm:w-auto" onClick={() => signOut.mutate()} disabled={signOut.isPending}>
+          <LogOut /> Sign out
+        </Button>
+      )}
+    </div>
+  )
+}
+
+const PERMISSIONS: { key: keyof Permissions; label: string; description: string }[] = [
+  { key: "search", label: "Search", description: "Search Soulseek and open releases" },
+  { key: "download", label: "Download", description: "Start downloads; they still wait for review" },
+  { key: "skip_approval", label: "Skip approval", description: "Import their own downloads without an admin" },
+  { key: "manage", label: "Manage", description: "See everyone's downloads, approve imports, manage people" },
+]
+
+function PeopleSettings() {
+  const me = useMe()
+  const client = useQueryClient()
+  const people = useQuery({ queryKey: ["people"], queryFn: ({ signal }) => api.people(signal) })
+  const onSaved = (data: People) => client.setQueryData(["people"], data)
+  const approval = useMutation({ mutationFn: api.setRequireApproval, onSuccess: onSaved })
+  const permissions = useMutation({
+    mutationFn: ({ username, next }: { username: string; next: Permissions }) => api.setPermissions(username, next),
+    onSuccess: onSaved,
+  })
+
+  if (me.mode === "open") {
+    return (
+      <p className="rounded-2xl border bg-card/50 px-5 py-5 text-[15px] text-muted-foreground">
+        Connect delune to Navidrome to let other people sign in with their own accounts.
+      </p>
+    )
+  }
+  if (!people.data) return <div className="h-40 animate-pulse rounded-xl bg-muted/50" />
+  const { require_approval } = people.data
+
+  return (
+    <div className="space-y-5">
+      <label className="flex cursor-pointer items-start gap-4 rounded-2xl border bg-card/50 px-5 py-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px]">Imports need an admin's approval</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            People review their own downloads either way. When this is on, only admins and people allowed to skip approval
+            can move them into the library.
+          </p>
+        </div>
+        <Switch checked={require_approval} onCheckedChange={(checked) => approval.mutate(checked)} className="mt-1" />
+      </label>
+
+      <ul className="overflow-hidden rounded-2xl border bg-card/50">
+        {people.data.people.map((person) => (
+          <PersonRow
+            key={person.username}
+            person={person}
+            requireApproval={require_approval}
+            onChange={(next) => permissions.mutate({ username: person.username, next })}
+          />
+        ))}
+      </ul>
+      {(approval.isError || permissions.isError) && (
+        <p className="text-sm text-destructive">{(approval.error ?? permissions.error)?.message}</p>
+      )}
+    </div>
+  )
+}
+
+function PersonRow({
+  person,
+  requireApproval,
+  onChange,
+}: {
+  person: Person
+  requireApproval: boolean
+  onChange: (next: Permissions) => void
+}) {
+  const lastSeen = new Date(person.last_login * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+  return (
+    <li className="flex flex-col gap-3 border-b px-5 py-4 last:border-b-0 md:flex-row md:items-center md:gap-5">
+      <div className="flex min-w-0 items-center gap-3 md:w-56">
+        <Avatar name={person.username} />
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-medium">{person.username}</p>
+          <p className="text-[13px] text-muted-foreground">
+            {person.admin ? "Admin" : "Member"}, signed in {lastSeen}
+          </p>
+        </div>
+      </div>
+      {person.admin ? (
+        <p className="text-sm text-muted-foreground md:ml-auto">Can do everything. Roles come from Navidrome.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">
+          {PERMISSIONS.map(({ key, label, description }) => {
+            const on = person.permissions[key]
+            const moot = key === "skip_approval" && !requireApproval
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={on}
+                title={moot ? "Imports don't need approval right now" : description}
+                onClick={() => onChange({ ...person.permissions, [key]: !on })}
+                className={cn(
+                  "h-9 rounded-full border px-3.5 text-[13.5px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  on ? "border-transparent bg-foreground text-background" : "bg-transparent text-muted-foreground hover:text-foreground",
+                  moot && "opacity-50",
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </li>
   )
 }

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { api, type DownloadJob, type ReviewReport, type ReviewTrack } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
 import { useDownloads, useRemoveDownload } from "@/lib/downloads"
+import { requesterLabel, useMe } from "@/lib/session"
 import { formatTrackTime, plural } from "@/lib/format"
 import { TIER_TEXT, tierOf } from "@/lib/quality"
 import { cn } from "@/lib/utils"
@@ -68,6 +69,11 @@ function ImportedRow({ job }: { job: DownloadJob }) {
 }
 
 function ReviewCard({ job }: { job: DownloadJob }) {
+  const me = useMe()
+  const requester = requesterLabel(me, job.requested_by)
+  const own = job.requested_by === me.username
+  // Someone else's download, or your own when imports need approval: say who has to act.
+  const canImport = me.permissions.manage || (own && me.can_import)
   const client = useQueryClient()
   const artwork = useArtwork(job.parent, job.title)
   const report = useQuery({
@@ -92,6 +98,7 @@ function ReviewCard({ job }: { job: DownloadJob }) {
             {report.data?.album_artist ?? artwork.data?.artist ?? job.parent}
             {report.data?.year ? `, ${report.data.year}` : ""}
           </p>
+          {requester && <p className="mt-0.5 text-[13.5px] text-muted-foreground">Requested by {requester}</p>}
           <Verdict job={job} report={report.data ?? null} />
         </div>
         <div className="flex w-full items-center gap-2 sm:w-auto">
@@ -106,11 +113,11 @@ function ReviewCard({ job }: { job: DownloadJob }) {
           <Button
             size="lg"
             className="h-11 flex-1 rounded-xl px-5 font-semibold sm:flex-none"
-            disabled={!report.data || !!report.data.blocked_reason || importRelease.isPending}
+            disabled={!canImport || !report.data || !!report.data.blocked_reason || importRelease.isPending}
             onClick={() => importRelease.mutate()}
           >
             {importRelease.isPending ? <LoaderCircle className="animate-spin" /> : <FolderInput />}
-            Import into library
+            {!canImport ? "Waiting for an admin" : requester ? "Approve and import" : "Import into library"}
           </Button>
         </div>
       </header>

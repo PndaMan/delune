@@ -2,9 +2,12 @@ import { Link, Outlet } from "@tanstack/react-router"
 import { ArrowDownToLine, Inbox, Search, SlidersHorizontal } from "lucide-react"
 
 import { Moon } from "@/components/moon"
-import { SoulseekIndicator } from "@/components/soulseek-indicator"
+import { ProfileMenu } from "@/components/profile-menu"
+import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { moonPhase } from "@/lib/moon-phase"
+import { useSession } from "@/lib/session"
+import { SignInPage } from "@/pages/sign-in-page"
 
 const NAV = [
   { to: "/", label: "Search", icon: Search },
@@ -14,6 +17,24 @@ const NAV = [
 ] as const
 
 export function AppShell() {
+  const session = useSession()
+  if (session.isPending) return <div className="night-sky min-h-dvh" />
+  if (session.isError) {
+    return (
+      <main className="night-sky flex min-h-dvh flex-col items-center justify-center gap-5 px-6 text-center">
+        <Moon illumination={0} size={96} />
+        <p className="max-w-[40ch] text-muted-foreground">Can't reach the delune server. Check that it's running.</p>
+        <Button variant="outline" onClick={() => void session.refetch()}>
+          Try again
+        </Button>
+      </main>
+    )
+  }
+  if (!session.data) return <SignInPage />
+  return <SignedIn />
+}
+
+function SignedIn() {
   const tonight = moonPhase()
 
   return (
@@ -48,7 +69,7 @@ export function AppShell() {
           ))}
         </ul>
         <div className="mt-auto">
-          <SoulseekIndicator />
+          <ProfileMenu />
         </div>
       </nav>
 
