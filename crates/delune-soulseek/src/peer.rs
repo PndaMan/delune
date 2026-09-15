@@ -1,10 +1,15 @@
-//! Peer messages — above all, search results.
+//! Peer messages: search results and the handshake that starts a download.
 //!
 //! When we search, the server fans the query out and matching peers open a
 //! connection *to us* and send a zlib-compressed [`SearchResponse`]. Everything the
 //! ranking engine knows about a Soulseek candidate comes from this one message: the
 //! file list, the audio attributes each peer chose to report, and the peer's upload
 //! slot, speed and queue.
+//!
+//! Downloading is a conversation over the same kind of connection (see
+//! [`PeerMessage`]): we ask the peer to queue a file, the peer tells us when it's
+//! ready, and the bytes then flow over a separate file connection
+//! ([`crate::transfer`]).
 
 use std::io::{Read, Write as _};
 
@@ -20,6 +25,132 @@ pub mod code {
     /// Peer init: sent first on a connection we opened directly.
     pub const PEER_INIT: u8 = 1;
     pub const SEARCH_RESPONSE: u32 = 9;
+    pub const TRANSFER_REQUEST: u32 = 40;
+    pub const TRANSFER_RESPONSE: u32 = 41;
+    pub const QUEUE_UPLOAD: u32 = 43;
+    pub const PLACE_IN_QUEUE_RESPONSE: u32 = 44;
+    pub const UPLOAD_FAILED: u32 = 46;
+    pub const UPLOAD_DENIED: u32 = 50;
+    pub const PLACE_IN_QUEUE_REQUEST: u32 = 51;
+}
+
+/// Direction field of [`PeerMessage::TransferRequest`], from the sender's side.
+pub mod direction {
+    /// The sender wants to download from us (legacy clients).
+    pub const DOWNLOAD: u32 = 0;
+    /// The sender is ready to upload to us.
+    pub const UPLOAD: u32 = 1;
+}
+
+/// Messages on a peer ("P") connection, other than search responses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerMessage {
+    /// Ask the peer to put `filename` in its upload queue.
+    QueueUpload {
+        filename: String,
+    },
+    /// The peer is ready to send `filename` (direction [`direction::UPLOAD`]) or,
+    /// from old clients, wants to download it from us.
+    TransferRequest {
+        direction: u32,
+        token: u32,
+        filename: String,
+        size: Option<u64>,
+    },
+    /// Our answer to a transfer request. For uploads to us, only `allowed` and an
+    /// optional rejection reason are sent.
+    TransferResponse {
+        token: u32,
+        allowed: bool,
+        reason: Option<String>,
+    },
+    PlaceInQueueRequest {
+        filename: String,
+    },
+    PlaceInQueueResponse {
+        filename: String,
+        place: u32,
+    },
+    /// The file connection for an upload closed before completion.
+    UploadFailed {
+        filename: String,
+    },
+    /// The peer won't send this file, e.g. "File not shared." or "Queued".
+    UploadDenied {
+        filename: String,
+        reason: String,
+    },
+}
+
+impl PeerMessage {
+    /// Decode a framed peer message body. Returns `None` for codes this client
+    /// doesn't handle (and for search responses, which have their own decoder).
+    pub fn decode(message_code: u32, body: &[u8]) -> Result<Option<Self>, DecodeError> {
+        let mut r = Reader::new(body);
+        Ok(Some(match message_code {
+            code::QUEUE_UPLOAD => Self::QueueUpload { filename: r.string()? },
+            code::TRANSFER_REQUEST => {
+                let direction = r.u32()?;
+                let token = r.u32()?;
+                let filename = r.string()?;
+                let size = if direction == direction::UPLOAD && r.remaining() >= 8 { Some(r.u64()?) } else { None };
+                Self::TransferRequest { direction, token, filename, size }
+            }
+            code::TRANSFER_RESPONSE => {
+                let token = r.u32()?;
+                let allowed = r.bool()?;
+                let reason = if !allowed && r.remaining() >= 4 { Some(r.string()?) } else { None };
+                Self::TransferResponse { token, allowed, reason }
+            }
+            code::PLACE_IN_QUEUE_REQUEST => Self::PlaceInQueueRequest { filename: r.string()? },
+            code::PLACE_IN_QUEUE_RESPONSE => Self::PlaceInQueueResponse { filename: r.string()?, place: r.u32()? },
+            code::UPLOAD_FAILED => Self::UploadFailed { filename: r.string()? },
+            code::UPLOAD_DENIED => Self::UploadDenied { filename: r.string()?, reason: r.string()? },
+            _ => return Ok(None),
+        }))
+    }
+
+    #[must_use]
+    pub fn encode(&self) -> BytesMut {
+        let mut w = Writer::new();
+        let message_code = match self {
+            Self::QueueUpload { filename } => {
+                w.string(filename);
+                code::QUEUE_UPLOAD
+            }
+            Self::TransferRequest { direction, token, filename, size } => {
+                w.u32(*direction).u32(*token).string(filename);
+                if let Some(size) = size {
+                    w.u64(*size);
+                }
+                code::TRANSFER_REQUEST
+            }
+            Self::TransferResponse { token, allowed, reason } => {
+                w.u32(*token).bool(*allowed);
+                if let (false, Some(reason)) = (allowed, reason) {
+                    w.string(reason);
+                }
+                code::TRANSFER_RESPONSE
+            }
+            Self::PlaceInQueueRequest { filename } => {
+                w.string(filename);
+                code::PLACE_IN_QUEUE_REQUEST
+            }
+            Self::PlaceInQueueResponse { filename, place } => {
+                w.string(filename).u32(*place);
+                code::PLACE_IN_QUEUE_RESPONSE
+            }
+            Self::UploadFailed { filename } => {
+                w.string(filename);
+                code::UPLOAD_FAILED
+            }
+            Self::UploadDenied { filename, reason } => {
+                w.string(filename).string(reason);
+                code::UPLOAD_DENIED
+            }
+        };
+        w.finish(message_code)
+    }
 }
 
 /// Decompressed search responses bigger than this are dropped (zip-bomb guard).
@@ -358,6 +489,37 @@ mod tests {
         assert_eq!(mp3.quality().unwrap().to_string(), "MP3 320");
         let no_duration = SharedFile { duration_secs: None, ..mp3 };
         assert_eq!(no_duration.quality().unwrap().to_string(), "MP3");
+    }
+
+    #[test]
+    fn peer_messages_round_trip() {
+        let messages = [
+            PeerMessage::QueueUpload { filename: r"@@moon\Album\01.flac".into() },
+            PeerMessage::TransferRequest {
+                direction: direction::UPLOAD,
+                token: 7,
+                filename: "a.flac".into(),
+                size: Some(30_000_000),
+            },
+            PeerMessage::TransferRequest {
+                direction: direction::DOWNLOAD,
+                token: 8,
+                filename: "b.flac".into(),
+                size: None,
+            },
+            PeerMessage::TransferResponse { token: 7, allowed: true, reason: None },
+            PeerMessage::TransferResponse { token: 9, allowed: false, reason: Some("Cancelled".into()) },
+            PeerMessage::PlaceInQueueRequest { filename: "a.flac".into() },
+            PeerMessage::PlaceInQueueResponse { filename: "a.flac".into(), place: 12 },
+            PeerMessage::UploadFailed { filename: "a.flac".into() },
+            PeerMessage::UploadDenied { filename: "a.flac".into(), reason: "File not shared.".into() },
+        ];
+        for message in messages {
+            let frame = message.encode();
+            let (message_code, body) = crate::frame::split_code(&frame[4..]).unwrap();
+            assert_eq!(PeerMessage::decode(message_code, body).unwrap(), Some(message));
+        }
+        assert_eq!(PeerMessage::decode(code::SEARCH_RESPONSE, &[]).unwrap(), None);
     }
 
     #[test]

@@ -29,21 +29,21 @@
 
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Semaphore, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep, timeout};
 use tokio_util::codec::Framed;
 
-use crate::connection;
+use crate::connection::{self, Shared};
 use crate::frame::{FrameCodec, MAX_SERVER_FRAME, split_code};
 use crate::limiter::{DEFAULT_MAX_SEARCHES, DEFAULT_WINDOW, SearchLimiter};
 use crate::peer::SearchResponse;
 use crate::server::{ConnectionType, LoginRejection, ServerEvent, ServerRequest, Status};
+use crate::transfer::{self, Download, DownloadRequest};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const PING_INTERVAL: Duration = Duration::from_secs(300);
@@ -133,8 +133,7 @@ struct Inner {
     commands: mpsc::Sender<Command>,
     state: watch::Receiver<SessionState>,
     limiter: tokio::sync::Mutex<SearchLimiter>,
-    registry: Registry,
-    tokens: AtomicU32,
+    shared: Arc<Shared>,
     search_timeout: Duration,
 }
 
@@ -149,16 +148,15 @@ impl Client {
     pub fn start(config: Config) -> Self {
         let (commands, command_rx) = mpsc::channel(64);
         let (state_tx, state) = watch::channel(SessionState::Connecting { attempt: 1 });
-        let registry = Registry::default();
+        let shared = Arc::new(Shared::new(config.username.clone(), config.max_peer_connections, initial_token()));
         let inner = Arc::new(Inner {
             commands,
             state,
             limiter: tokio::sync::Mutex::new(SearchLimiter::new(config.max_searches, config.search_window)),
-            registry: registry.clone(),
-            tokens: AtomicU32::new(initial_token()),
+            shared: shared.clone(),
             search_timeout: config.search_timeout,
         });
-        tokio::spawn(supervise(config, command_rx, state_tx, registry));
+        tokio::spawn(supervise(config, command_rx, state_tx, shared));
         Self { inner }
     }
 
@@ -189,10 +187,10 @@ impl Client {
         }
         self.ensure_online()?;
 
-        let token = self.inner.tokens.fetch_add(1, Ordering::Relaxed);
+        let token = self.inner.shared.next_token();
         let (tx, rx) = mpsc::channel(256);
-        self.inner.registry.insert(token, tx);
-        let guard = SearchGuard { token, registry: self.inner.registry.clone() };
+        self.inner.shared.registry.insert(token, tx);
+        let guard = SearchGuard { token, shared: self.inner.shared.clone() };
 
         self.inner
             .commands
@@ -201,6 +199,13 @@ impl Client {
             .map_err(|_| Error::Closed)?;
 
         Ok(Search { token, rx, deadline: Instant::now() + self.inner.search_timeout, _guard: guard })
+    }
+
+    /// Download one file from a peer. Progress is reported through the returned
+    /// [`Download`]; connection problems and dropped transfers are retried.
+    #[must_use]
+    pub fn download(&self, request: DownloadRequest) -> Download {
+        transfer::start(self.inner.shared.clone(), request)
     }
 
     fn ensure_online(&self) -> Result<(), Error> {
@@ -235,12 +240,12 @@ impl Search {
 #[derive(Debug)]
 struct SearchGuard {
     token: u32,
-    registry: Registry,
+    shared: Arc<Shared>,
 }
 
 impl Drop for SearchGuard {
     fn drop(&mut self) {
-        self.registry.remove(self.token);
+        self.shared.registry.remove(self.token);
     }
 }
 
@@ -249,11 +254,11 @@ impl Drop for SearchGuard {
 pub(crate) struct Registry(Arc<Mutex<HashMap<u32, mpsc::Sender<SearchResponse>>>>);
 
 impl Registry {
-    fn insert(&self, token: u32, tx: mpsc::Sender<SearchResponse>) {
+    pub(crate) fn insert(&self, token: u32, tx: mpsc::Sender<SearchResponse>) {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).insert(token, tx);
     }
 
-    fn remove(&self, token: u32) {
+    pub(crate) fn remove(&self, token: u32) {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).remove(&token);
     }
 
@@ -272,13 +277,6 @@ impl Registry {
     }
 }
 
-/// Shared by every peer connection task.
-#[derive(Debug, Clone)]
-pub(crate) struct PeerContext {
-    pub registry: Registry,
-    pub permits: Arc<Semaphore>,
-}
-
 fn initial_token() -> u32 {
     // Tokens only need to be unique within this client; start somewhere arbitrary so
     // restarts don't reuse recent tokens.
@@ -295,15 +293,13 @@ async fn supervise(
     config: Config,
     mut commands: mpsc::Receiver<Command>,
     state: watch::Sender<SessionState>,
-    registry: Registry,
+    shared: Arc<Shared>,
 ) {
-    let ctx = PeerContext { registry, permits: Arc::new(Semaphore::new(config.max_peer_connections)) };
-
     let (listen_port, listener_task) = match config.listen_port {
         Some(port) => match TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).await {
             Ok(listener) => {
                 let port = listener.local_addr().ok().map(|a| a.port());
-                (port, Some(tokio::spawn(connection::accept_loop(listener, ctx.clone()))))
+                (port, Some(tokio::spawn(connection::accept_loop(listener, shared.clone()))))
             }
             Err(error) => {
                 tracing::warn!(port, %error, "can't listen for peers; results will be slower and fewer");
@@ -316,7 +312,9 @@ async fn supervise(
     let mut attempt = 1;
     loop {
         state.send_replace(SessionState::Connecting { attempt });
-        match run_session(&config, listen_port, &mut commands, &state, &ctx).await {
+        let end = run_session(&config, listen_port, &mut commands, &state, &shared).await;
+        shared.set_server(None);
+        match end {
             SessionEnd::Shutdown => {
                 state.send_replace(SessionState::Stopped(StopReason::Shutdown));
                 break;
@@ -372,7 +370,7 @@ async fn run_session(
     listen_port: Option<u16>,
     commands: &mut mpsc::Receiver<Command>,
     state: &watch::Sender<SessionState>,
-    ctx: &PeerContext,
+    shared: &Arc<Shared>,
 ) -> SessionEnd {
     let lost = |reason: String| SessionEnd::Lost { reason, was_online: false };
 
@@ -425,8 +423,9 @@ async fn run_session(
     state.send_replace(SessionState::Online { public_ip, listen_port, supporter });
     let lost = |reason: String| SessionEnd::Lost { reason, was_online: true };
 
-    // Peer tasks report failed indirect connections back to the server through this.
+    // Connection and transfer tasks talk to the server through this outbox.
     let (server_out, mut server_out_rx) = mpsc::channel::<ServerRequest>(256);
+    shared.set_server(Some(server_out));
     let mut ping = tokio::time::interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
 
     loop {
@@ -434,16 +433,15 @@ async fn run_session(
             frame = server.next() => match frame {
                 Some(Ok(frame)) => {
                     match decode_server(&frame) {
-                        Some(ServerEvent::ConnectToPeer { username, kind: Some(ConnectionType::Peer), ip, port, token }) => {
-                            tracing::trace!(%username, %ip, port, token, "server asks us to connect to peer");
+                        Some(ServerEvent::ConnectToPeer { username, kind: Some(kind @ (ConnectionType::Peer | ConnectionType::File)), ip, port, token }) => {
+                            tracing::trace!(%username, %ip, port, token, ?kind, "server asks us to connect to peer");
                             let Ok(port) = u16::try_from(port) else { continue };
-                            tokio::spawn(connection::pierce(
-                                SocketAddr::from((ip, port)),
-                                token,
-                                username,
-                                ctx.clone(),
-                                server_out.clone(),
-                            ));
+                            tokio::spawn(connection::pierce(SocketAddr::from((ip, port)), token, username, kind, shared.clone()));
+                        }
+                        Some(ServerEvent::PeerAddress { username, ip, port }) => {
+                            if let Ok(port) = u16::try_from(port) {
+                                shared.deliver_address(&username, SocketAddr::from((ip, port)));
+                            }
                         }
                         Some(ServerEvent::Relogged) => return SessionEnd::Stopped(StopReason::LoggedInElsewhere),
                         Some(other) => tracing::trace!(?other, "server message"),

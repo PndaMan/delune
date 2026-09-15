@@ -11,10 +11,11 @@
 //! - [`server`] — messages to and from the central server (login, search, peer lookup).
 //! - [`peer`] — peer-to-peer messages: connection init and compressed search responses.
 //! - [`limiter`] — the search rate limiter.
-//! - [`client`] — the running client: session supervision, peer connections, searches.
+//! - [`client`] — the running client: session supervision and searches.
+//! - [`transfer`] — downloads: queueing, file connections, resuming and retrying.
 //!
-//! Still to come: file transfers, share indexing and answering other people's
-//! searches, and the distributed search network.
+//! Still to come: share indexing, answering other people's searches and uploads,
+//! and the distributed search network.
 //!
 //! ```no_run
 //! # async fn demo() -> Result<(), delune_soulseek::client::Error> {
@@ -40,9 +41,12 @@ pub mod frame;
 pub mod limiter;
 pub mod peer;
 pub mod server;
+pub mod transfer;
 pub mod wire;
 
 pub use client::{Client, Config, Search, SessionState, StopReason};
+pub use connection::PeerError;
+pub use transfer::{Download, DownloadRequest, DownloadState};
 
 /// Default Soulseek server address.
 pub const DEFAULT_SERVER: &str = "server.slsknet.org:2242";

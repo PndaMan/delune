@@ -1,45 +1,138 @@
-//! Peer connection tasks.
+//! Peer connections.
 //!
-//! Search results arrive over peer ("P") connections, which get established in one
-//! of two ways:
+//! Every conversation with another user happens over a peer ("P") connection, and
+//! every file arrives over a file ("F") connection. Connections get established in
+//! one of two ways:
 //!
-//! 1. **Direct** — the peer connects to our listening port and opens with
-//!    `PeerInit`. Needs our port to be reachable.
-//! 2. **Indirect** — the peer couldn't reach us, so it asked the server to tell us to
-//!    connect to *them*. We receive `ConnectToPeer`, dial out, and open with
-//!    `PierceFirewall` carrying their token. If we can't reach them either, we say
-//!    so with `CantConnectToPeer` so they stop waiting.
+//! 1. **Direct**: one side connects to the other's listening port and opens with
+//!    `PeerInit`.
+//! 2. **Indirect**: when the direct attempt can't get through (usually NAT), the
+//!    initiator asks the server to pass a token to the other side, which connects
+//!    back and opens with `PierceFirewall` carrying that token.
 //!
-//! After the init message both paths are identical: read framed peer messages until
-//! the peer goes quiet. Every connection holds a semaphore permit, and every read has
-//! a timeout, so misbehaving peers can't exhaust sockets or memory.
+//! [`connect_peer`] runs both at once, as modern clients do, and returns whichever
+//! connects first. Established P connections are shared: one per user, reused for
+//! every message until the peer goes quiet. Every read has a timeout and P
+//! connections hold a semaphore permit, so misbehaving peers can't exhaust sockets
+//! or memory.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use bytes::BytesMut;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::time::timeout;
 use tokio_util::codec::Framed;
 
-use crate::client::PeerContext;
+use crate::client::Registry;
 use crate::frame::{FrameCodec, MAX_PEER_FRAME, split_code};
-use crate::peer::{PeerInit, SearchResponse, code};
-use crate::server::ServerRequest;
+use crate::peer::{PeerInit, PeerMessage, SearchResponse, code};
+use crate::server::{ConnectionType, ServerRequest};
+use crate::transfer::{self, Transfers};
 
 const PEER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Close a peer connection after this long without a message.
-const PEER_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+const PEER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long [`connect_peer`] waits for either connection path to succeed.
+const PEER_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(30);
 
-type PeerStream = Framed<TcpStream, FrameCodec>;
+pub(crate) type PeerStream = Framed<TcpStream, FrameCodec>;
+/// Sends framed messages to one peer.
+pub(crate) type PeerSender = mpsc::Sender<BytesMut>;
 
-/// Accept incoming peer connections until the task is aborted.
-pub(crate) async fn accept_loop(listener: TcpListener, ctx: PeerContext) {
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PeerError {
+    #[error("not connected to Soulseek")]
+    Offline,
+    #[error("couldn't connect to {0}; they may be offline or behind a firewall")]
+    Unreachable(String),
+}
+
+/// State shared by the session, every connection task and every transfer.
+#[derive(Debug)]
+pub(crate) struct Shared {
+    pub own_username: String,
+    pub registry: Registry,
+    pub transfers: Transfers,
+    permits: Arc<Semaphore>,
+    tokens: AtomicU32,
+    /// Outbox of the current server session, when there is one.
+    server: Mutex<Option<mpsc::Sender<ServerRequest>>>,
+    peers: Mutex<HashMap<String, PeerSender>>,
+    peer_waiters: Mutex<HashMap<String, Vec<oneshot::Sender<PeerSender>>>>,
+    /// Tokens we sent in `ConnectToPeer`, awaiting a `PierceFirewall` from that user.
+    pending_indirect: Mutex<HashMap<u32, String>>,
+    address_waiters: Mutex<HashMap<String, Vec<oneshot::Sender<SocketAddr>>>>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl Shared {
+    pub fn new(own_username: String, max_peer_connections: usize, first_token: u32) -> Self {
+        Self {
+            own_username,
+            registry: Registry::default(),
+            transfers: Transfers::default(),
+            permits: Arc::new(Semaphore::new(max_peer_connections)),
+            tokens: AtomicU32::new(first_token),
+            server: Mutex::default(),
+            peers: Mutex::default(),
+            peer_waiters: Mutex::default(),
+            pending_indirect: Mutex::default(),
+            address_waiters: Mutex::default(),
+        }
+    }
+
+    pub fn next_token(&self) -> u32 {
+        self.tokens.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub fn set_server(&self, outbox: Option<mpsc::Sender<ServerRequest>>) {
+        *lock(&self.server) = outbox;
+    }
+
+    pub fn server(&self) -> Option<mpsc::Sender<ServerRequest>> {
+        lock(&self.server).clone()
+    }
+
+    fn peer(&self, username: &str) -> Option<PeerSender> {
+        lock(&self.peers).get(username).filter(|tx| !tx.is_closed()).cloned()
+    }
+
+    fn register_peer(&self, username: &str, tx: &PeerSender) {
+        lock(&self.peers).insert(username.to_owned(), tx.clone());
+        for waiter in lock(&self.peer_waiters).remove(username).unwrap_or_default() {
+            let _ = waiter.send(tx.clone());
+        }
+    }
+
+    fn unregister_peer(&self, username: &str, tx: &PeerSender) {
+        let mut peers = lock(&self.peers);
+        if peers.get(username).is_some_and(|current| current.same_channel(tx)) {
+            peers.remove(username);
+        }
+    }
+
+    pub fn deliver_address(&self, username: &str, addr: SocketAddr) {
+        for waiter in lock(&self.address_waiters).remove(username).unwrap_or_default() {
+            let _ = waiter.send(addr);
+        }
+    }
+}
+
+/// Accept incoming connections until the task is aborted.
+pub(crate) async fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
-                tokio::spawn(handle_incoming(stream, addr, ctx.clone()));
+                tokio::spawn(handle_incoming(stream, addr, shared.clone()));
             }
             Err(error) => {
                 // Usually file-descriptor exhaustion; pause instead of spinning.
@@ -50,58 +143,157 @@ pub(crate) async fn accept_loop(listener: TcpListener, ctx: PeerContext) {
     }
 }
 
-async fn handle_incoming(stream: TcpStream, addr: SocketAddr, ctx: PeerContext) {
-    let Ok(_permit) = ctx.permits.clone().try_acquire_owned() else {
-        tracing::debug!(%addr, "too many peer connections; refusing");
-        return;
-    };
-    let mut peer = Framed::new(stream, FrameCodec::new(MAX_PEER_FRAME));
-    let Ok(Some(Ok(first))) = timeout(PEER_IDLE_TIMEOUT, peer.next()).await else { return };
+async fn handle_incoming(stream: TcpStream, addr: SocketAddr, shared: Arc<Shared>) {
+    let mut conn = Framed::new(stream, FrameCodec::new(MAX_PEER_FRAME));
+    let Ok(Some(Ok(first))) = timeout(PEER_IDLE_TIMEOUT, conn.next()).await else { return };
 
     match PeerInit::decode(&first) {
         Ok(PeerInit::PeerInit { username, kind, .. }) if kind == "P" => {
+            let Ok(permit) = shared.permits.clone().try_acquire_owned() else {
+                tracing::debug!(%addr, "too many peer connections; refusing");
+                return;
+            };
             tracing::trace!(%addr, %username, "direct peer connection");
-            read_messages(peer, &ctx).await;
+            run_peer(username, conn, shared, permit).await;
         }
-        // File and distributed connections aren't supported yet; neither is a
-        // PierceFirewall we didn't ask for.
-        Ok(other) => tracing::trace!(%addr, ?other, "ignoring peer connection"),
+        Ok(PeerInit::PeerInit { username, kind, .. }) if kind == "F" => {
+            tracing::trace!(%addr, %username, "direct file connection");
+            transfer::accept_file_connection(conn, &shared).await;
+        }
+        Ok(PeerInit::PierceFirewall { token }) => {
+            let username = lock(&shared.pending_indirect).remove(&token);
+            if let Some(username) = username {
+                let Ok(permit) = shared.permits.clone().try_acquire_owned() else { return };
+                tracing::trace!(%addr, %username, "peer answered our indirect request");
+                run_peer(username, conn, shared, permit).await;
+            } else {
+                tracing::trace!(%addr, token, "PierceFirewall with unknown token");
+            }
+        }
+        // Distributed search connections aren't supported yet.
+        Ok(other) => tracing::trace!(%addr, ?other, "ignoring connection"),
         Err(error) => tracing::debug!(%addr, %error, "bad peer init"),
     }
 }
 
 /// Answer a `ConnectToPeer` from the server by dialling the peer ourselves.
-pub(crate) async fn pierce(
-    addr: SocketAddr,
-    token: u32,
-    username: String,
-    ctx: PeerContext,
-    server_out: mpsc::Sender<ServerRequest>,
-) {
-    let Ok(_permit) = ctx.permits.clone().try_acquire_owned() else { return };
+pub(crate) async fn pierce(addr: SocketAddr, token: u32, username: String, kind: ConnectionType, shared: Arc<Shared>) {
+    let permit = match kind {
+        ConnectionType::Peer => match shared.permits.clone().try_acquire_owned() {
+            Ok(permit) => Some(permit),
+            Err(_) => return,
+        },
+        // File connections carry downloads we asked for; never refuse them.
+        _ => None,
+    };
 
     let Ok(Ok(stream)) = timeout(PEER_CONNECT_TIMEOUT, TcpStream::connect(addr)).await else {
-        tracing::trace!(%addr, %username, "can't reach peer");
-        let _ = server_out.try_send(ServerRequest::CantConnectToPeer { token, username });
+        tracing::trace!(%addr, %username, ?kind, "can't reach peer");
+        if let Some(server) = shared.server() {
+            let _ = server.try_send(ServerRequest::CantConnectToPeer { token, username });
+        }
         return;
     };
-    let mut peer = Framed::new(stream, FrameCodec::new(MAX_PEER_FRAME));
-    if peer.send(PeerInit::PierceFirewall { token }.encode()).await.is_ok() {
-        read_messages(peer, &ctx).await;
+    let mut conn = Framed::new(stream, FrameCodec::new(MAX_PEER_FRAME));
+    if conn.send(PeerInit::PierceFirewall { token }.encode()).await.is_err() {
+        return;
+    }
+    match (kind, permit) {
+        (ConnectionType::Peer, Some(permit)) => run_peer(username, conn, shared, permit).await,
+        (ConnectionType::File, _) => transfer::accept_file_connection(conn, &shared).await,
+        _ => {}
     }
 }
 
-async fn read_messages(mut peer: PeerStream, ctx: &PeerContext) {
-    while let Ok(Some(Ok(frame))) = timeout(PEER_IDLE_TIMEOUT, peer.next()).await {
-        let Ok((message_code, body)) = split_code(&frame) else { return };
-        if message_code == code::SEARCH_RESPONSE {
-            match SearchResponse::decode(body) {
-                Ok(response) => {
-                    tracing::trace!(username = %response.username, token = response.token, files = response.files.len(), "search response");
-                    ctx.registry.deliver(response);
-                }
-                Err(error) => tracing::debug!(%error, "bad search response"),
+/// Get a connection to `username`, reusing an open one or establishing a new one
+/// directly and indirectly at the same time.
+pub(crate) async fn connect_peer(shared: &Arc<Shared>, username: &str) -> Result<PeerSender, PeerError> {
+    if let Some(tx) = shared.peer(username) {
+        return Ok(tx);
+    }
+    let server = shared.server().ok_or(PeerError::Offline)?;
+
+    let (ready_tx, ready_rx) = oneshot::channel();
+    lock(&shared.peer_waiters).entry(username.to_owned()).or_default().push(ready_tx);
+
+    let token = shared.next_token();
+    lock(&shared.pending_indirect).insert(token, username.to_owned());
+    let (address_tx, address_rx) = oneshot::channel();
+    lock(&shared.address_waiters).entry(username.to_owned()).or_default().push(address_tx);
+
+    let _ = server.send(ServerRequest::GetPeerAddress { username: username.to_owned() }).await;
+    let _ = server
+        .send(ServerRequest::ConnectToPeer { token, username: username.to_owned(), kind: ConnectionType::Peer })
+        .await;
+
+    // The direct attempt runs on its own: if it connects after we've given up, the
+    // connection is still registered and reused next time.
+    {
+        let shared = shared.clone();
+        let username = username.to_owned();
+        tokio::spawn(async move {
+            let Ok(Ok(addr)) = timeout(PEER_CONNECT_TIMEOUT, address_rx).await else { return };
+            if addr.port() == 0 || addr.ip().is_unspecified() {
+                return;
+            }
+            let Ok(Ok(stream)) = timeout(PEER_CONNECT_TIMEOUT, TcpStream::connect(addr)).await else { return };
+            let mut conn = Framed::new(stream, FrameCodec::new(MAX_PEER_FRAME));
+            let init = PeerInit::PeerInit { username: shared.own_username.clone(), kind: "P".into(), token: 0 };
+            if conn.send(init.encode()).await.is_err() {
+                return;
+            }
+            let Ok(permit) = shared.permits.clone().try_acquire_owned() else { return };
+            tracing::trace!(%addr, %username, "connected to peer directly");
+            run_peer(username, conn, shared, permit).await;
+        });
+    }
+
+    let result = timeout(PEER_ESTABLISH_TIMEOUT, ready_rx).await;
+    lock(&shared.pending_indirect).remove(&token);
+    match result {
+        Ok(Ok(tx)) => Ok(tx),
+        _ => Err(PeerError::Unreachable(username.to_owned())),
+    }
+}
+
+/// Serve one P connection: register it for reuse, write queued messages, and route
+/// everything the peer sends.
+async fn run_peer(username: String, conn: PeerStream, shared: Arc<Shared>, _permit: OwnedSemaphorePermit) {
+    let (mut sink, mut stream) = conn.split();
+    let (tx, mut rx) = mpsc::channel::<BytesMut>(32);
+    shared.register_peer(&username, &tx);
+
+    let writer = async {
+        while let Some(message) = rx.recv().await {
+            if sink.send(message).await.is_err() {
+                break;
             }
         }
+    };
+    let reader = async {
+        while let Ok(Some(Ok(frame))) = timeout(PEER_IDLE_TIMEOUT, stream.next()).await {
+            let Ok((message_code, body)) = split_code(&frame) else { break };
+            if message_code == code::SEARCH_RESPONSE {
+                match SearchResponse::decode(body) {
+                    Ok(response) => {
+                        tracing::trace!(%username, token = response.token, files = response.files.len(), "search response");
+                        shared.registry.deliver(response);
+                    }
+                    Err(error) => tracing::debug!(%username, %error, "bad search response"),
+                }
+                continue;
+            }
+            match PeerMessage::decode(message_code, body) {
+                Ok(Some(message)) => shared.transfers.on_peer_message(&username, message, &tx),
+                Ok(None) => tracing::trace!(%username, message_code, "unhandled peer message"),
+                Err(error) => tracing::debug!(%username, message_code, %error, "bad peer message"),
+            }
+        }
+    };
+
+    tokio::select! {
+        () = writer => {},
+        () = reader => {},
     }
+    shared.unregister_peer(&username, &tx);
 }
