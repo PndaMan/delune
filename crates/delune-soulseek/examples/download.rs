@@ -44,7 +44,7 @@ async fn main() {
             candidates.push((response.avg_speed, response.username.clone(), file.path.clone(), file.size));
         }
     }
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates.sort_by_key(|c| std::cmp::Reverse(c.0));
     println!("{} peers with a free slot and FLAC files", candidates.len());
 
     for (speed, peer, path, size) in candidates.into_iter().take(3) {
