@@ -33,7 +33,7 @@ export function UserPage() {
   }, [user.data, remember])
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 pb-24 sm:px-10">
+    <div className="pb-24">
       <Profile username={username} user={user.data} pending={user.isPending} error={user.error?.message} />
       {user.data?.exists === false ? (
         <EmptyState illumination={0} title={`There's nobody called ${username}`}>

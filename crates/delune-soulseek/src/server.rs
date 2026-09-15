@@ -25,6 +25,14 @@ pub mod code {
     pub const WATCH_USER: u32 = 5;
     pub const UNWATCH_USER: u32 = 6;
     pub const GET_USER_STATUS: u32 = 7;
+    pub const SAY_CHATROOM: u32 = 13;
+    pub const JOIN_ROOM: u32 = 14;
+    pub const LEAVE_ROOM: u32 = 15;
+    pub const USER_JOINED_ROOM: u32 = 16;
+    pub const USER_LEFT_ROOM: u32 = 17;
+    pub const MESSAGE_USER: u32 = 22;
+    pub const MESSAGE_ACKED: u32 = 23;
+    pub const ROOM_LIST: u32 = 64;
     pub const GET_USER_STATS: u32 = 36;
     pub const CONNECT_TO_PEER: u32 = 18;
     pub const FILE_SEARCH: u32 = 26;
@@ -69,6 +77,25 @@ pub struct UserPresence {
     pub folders: u32,
     /// Uppercase country code, when the user is online.
     pub country: Option<String>,
+}
+
+/// Someone in a chat room, as the server describes them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomMember {
+    pub username: String,
+    pub status: Status,
+    pub avg_speed: u32,
+    pub files: u32,
+    pub folders: u32,
+    pub slots_full: bool,
+    pub country: Option<String>,
+}
+
+/// A public room and how many people are in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomSummary {
+    pub name: String,
+    pub users: u32,
 }
 
 /// The kind of peer connection being requested.
@@ -129,6 +156,26 @@ pub enum ServerRequest {
     UnwatchUser {
         username: String,
     },
+    /// A private message to another user.
+    MessageUser {
+        username: String,
+        message: String,
+    },
+    /// Confirm we received a private message, so the server stops resending it.
+    MessageAcked {
+        id: u32,
+    },
+    JoinRoom {
+        room: String,
+    },
+    LeaveRoom {
+        room: String,
+    },
+    SayChatroom {
+        room: String,
+        message: String,
+    },
+    RoomList,
     ConnectToPeer {
         token: u32,
         username: String,
@@ -183,6 +230,28 @@ impl ServerRequest {
                 w.string(username);
                 code::UNWATCH_USER
             }
+            Self::MessageUser { username, message } => {
+                w.string(username).string(message);
+                code::MESSAGE_USER
+            }
+            Self::MessageAcked { id } => {
+                w.u32(*id);
+                code::MESSAGE_ACKED
+            }
+            Self::JoinRoom { room } => {
+                // Rooms we create are public.
+                w.string(room).u32(0);
+                code::JOIN_ROOM
+            }
+            Self::LeaveRoom { room } => {
+                w.string(room);
+                code::LEAVE_ROOM
+            }
+            Self::SayChatroom { room, message } => {
+                w.string(room).string(message);
+                code::SAY_CHATROOM
+            }
+            Self::RoomList => code::ROOM_LIST,
             Self::ConnectToPeer { token, username, kind } => {
                 w.u32(*token).string(username).string(kind.as_str());
                 code::CONNECT_TO_PEER
@@ -255,6 +324,37 @@ pub enum ServerEvent {
         files: u32,
         folders: u32,
     },
+    PrivateMessage {
+        id: u32,
+        /// Unix seconds.
+        timestamp: u32,
+        username: String,
+        message: String,
+        /// False when the server is resending something we missed while offline.
+        new: bool,
+    },
+    /// We joined a room; everyone in it.
+    JoinedRoom {
+        room: String,
+        members: Vec<RoomMember>,
+    },
+    LeftRoom {
+        room: String,
+    },
+    RoomMessage {
+        room: String,
+        username: String,
+        message: String,
+    },
+    UserJoinedRoom {
+        room: String,
+        member: RoomMember,
+    },
+    UserLeftRoom {
+        room: String,
+        username: String,
+    },
+    RoomList(Vec<RoomSummary>),
     /// Phrases the network excludes from search results. Peers drop matching files,
     /// so searching for one of these returns nothing.
     ExcludedSearchPhrases(Vec<String>),
@@ -294,37 +394,30 @@ impl ServerEvent {
             }
             code::FILE_SEARCH => Self::FileSearch { username: r.string()?, token: r.u32()?, query: r.string()? },
             code::RELOGGED => Self::Relogged,
-            code::WATCH_USER => {
-                let username = r.string()?;
-                let exists = r.bool()?;
-                let mut presence = UserPresence {
-                    username,
-                    exists,
-                    status: Status::Offline,
-                    avg_speed: 0,
-                    upload_count: 0,
-                    files: 0,
-                    folders: 0,
-                    country: None,
-                };
-                if exists {
-                    presence.status = Status::from_u32(r.u32()?);
-                    presence.avg_speed = r.u32()?;
-                    presence.upload_count = r.u32()?;
-                    let _unknown = r.u32()?;
-                    presence.files = r.u32()?;
-                    presence.folders = r.u32()?;
-                    if presence.status != Status::Offline && r.remaining() >= 4 {
-                        presence.country = Some(r.string()?).filter(|c| !c.is_empty());
-                    }
-                }
-                Self::WatchedUser(presence)
-            }
+            code::WATCH_USER => decode_watched_user(&mut r)?,
             code::GET_USER_STATUS => {
                 let username = r.string()?;
                 let status = Status::from_u32(r.u32()?);
                 let privileged = r.remaining() > 0 && r.bool()?;
                 Self::UserStatus { username, status, privileged }
+            }
+            code::MESSAGE_USER => Self::PrivateMessage {
+                id: r.u32()?,
+                timestamp: r.u32()?,
+                username: r.string()?,
+                message: r.string()?,
+                new: r.remaining() == 0 || r.bool()?,
+            },
+            code::SAY_CHATROOM => Self::RoomMessage { room: r.string()?, username: r.string()?, message: r.string()? },
+            code::LEAVE_ROOM => Self::LeftRoom { room: r.string()? },
+            code::USER_LEFT_ROOM => Self::UserLeftRoom { room: r.string()?, username: r.string()? },
+            code::USER_JOINED_ROOM => decode_member_joined(&mut r)?,
+            code::JOIN_ROOM => decode_joined_room(&mut r)?,
+            code::ROOM_LIST => {
+                let names: Vec<String> = (0..r.count(4)?).map(|_| r.string()).collect::<Result<_, _>>()?;
+                let counts: Vec<u32> = (0..r.count(4)?).map(|_| r.u32()).collect::<Result<_, _>>()?;
+                // Private room sections follow; delune only lists public rooms.
+                Self::RoomList(names.into_iter().zip(counts).map(|(name, users)| RoomSummary { name, users }).collect())
             }
             code::GET_USER_STATS => {
                 let username = r.string()?;
@@ -340,6 +433,76 @@ impl ServerEvent {
             other => Self::Unhandled { code: other, len: body.len() },
         })
     }
+}
+
+fn decode_joined_room(r: &mut Reader<'_>) -> Result<ServerEvent, DecodeError> {
+    let room = r.string()?;
+    let names: Vec<String> = (0..r.count(4)?).map(|_| r.string()).collect::<Result<_, _>>()?;
+    let statuses: Vec<u32> = (0..r.count(4)?).map(|_| r.u32()).collect::<Result<_, _>>()?;
+    let stats: Vec<[u32; 5]> = (0..r.count(20)?)
+        .map(|_| Ok([r.u32()?, r.u32()?, r.u32()?, r.u32()?, r.u32()?]))
+        .collect::<Result<_, DecodeError>>()?;
+    let slots: Vec<u32> = (0..r.count(4)?).map(|_| r.u32()).collect::<Result<_, _>>()?;
+    let countries: Vec<String> =
+        if r.remaining() >= 4 { (0..r.count(4)?).map(|_| r.string()).collect::<Result<_, _>>()? } else { Vec::new() };
+    let members = names
+        .into_iter()
+        .enumerate()
+        .map(|(i, username)| RoomMember {
+            username,
+            status: statuses.get(i).map_or(Status::Online, |s| Status::from_u32(*s)),
+            avg_speed: stats.get(i).map_or(0, |s| s[0]),
+            files: stats.get(i).map_or(0, |s| s[3]),
+            folders: stats.get(i).map_or(0, |s| s[4]),
+            slots_full: slots.get(i).is_some_and(|s| *s != 0),
+            country: countries.get(i).filter(|c| !c.is_empty()).cloned(),
+        })
+        .collect();
+    Ok(ServerEvent::JoinedRoom { room, members })
+}
+
+fn decode_member_joined(r: &mut Reader<'_>) -> Result<ServerEvent, DecodeError> {
+    let room = r.string()?;
+    let username = r.string()?;
+    let status = Status::from_u32(r.u32()?);
+    let avg_speed = r.u32()?;
+    let _uploads = r.u32()?;
+    let _unknown = r.u32()?;
+    let files = r.u32()?;
+    let folders = r.u32()?;
+    let slots_full = r.u32()? != 0;
+    let country = if r.remaining() >= 4 { Some(r.string()?).filter(|c| !c.is_empty()) } else { None };
+    Ok(ServerEvent::UserJoinedRoom {
+        room,
+        member: RoomMember { username, status, avg_speed, files, folders, slots_full, country },
+    })
+}
+
+fn decode_watched_user(r: &mut Reader<'_>) -> Result<ServerEvent, DecodeError> {
+    let username = r.string()?;
+    let exists = r.bool()?;
+    let mut presence = UserPresence {
+        username,
+        exists,
+        status: Status::Offline,
+        avg_speed: 0,
+        upload_count: 0,
+        files: 0,
+        folders: 0,
+        country: None,
+    };
+    if exists {
+        presence.status = Status::from_u32(r.u32()?);
+        presence.avg_speed = r.u32()?;
+        presence.upload_count = r.u32()?;
+        let _unknown = r.u32()?;
+        presence.files = r.u32()?;
+        presence.folders = r.u32()?;
+        if presence.status != Status::Offline && r.remaining() >= 4 {
+            presence.country = Some(r.string()?).filter(|c| !c.is_empty());
+        }
+    }
+    Ok(ServerEvent::WatchedUser(presence))
 }
 
 #[cfg(test)]
@@ -435,6 +598,56 @@ mod tests {
             panic!("expected a watched user")
         };
         assert!(!presence.exists);
+    }
+
+    #[test]
+    fn decodes_chat() {
+        let mut w = Writer::new();
+        w.u32(12).u32(1_789_000_000).string("alice").string("hello there").bool(true);
+        assert_eq!(
+            ServerEvent::decode(code::MESSAGE_USER, &w.into_body()).unwrap(),
+            ServerEvent::PrivateMessage {
+                id: 12,
+                timestamp: 1_789_000_000,
+                username: "alice".into(),
+                message: "hello there".into(),
+                new: true
+            }
+        );
+
+        let mut w = Writer::new();
+        w.string("ambient").u32(2).string("alice").string("bob");
+        w.u32(2).u32(2).u32(1);
+        w.u32(2);
+        for files in [100, 200] {
+            w.u32(1000).u32(0).u32(0).u32(files).u32(10);
+        }
+        w.u32(2).u32(0).u32(1);
+        w.u32(2).string("NZ").string("");
+        let ServerEvent::JoinedRoom { room, members } = ServerEvent::decode(code::JOIN_ROOM, &w.into_body()).unwrap()
+        else {
+            panic!("expected a joined room")
+        };
+        assert_eq!(room, "ambient");
+        assert_eq!(members.len(), 2);
+        assert_eq!(
+            (members[0].status, members[0].files, members[0].country.as_deref()),
+            (Status::Online, 100, Some("NZ"))
+        );
+        assert_eq!(
+            (members[1].status, members[1].slots_full, members[1].country.as_deref()),
+            (Status::Away, true, None)
+        );
+
+        let mut w = Writer::new();
+        w.u32(2).string("ambient").string("jazz").u32(2).u32(40).u32(12).u32(0).u32(0).u32(0).u32(0).u32(0);
+        assert_eq!(
+            ServerEvent::decode(code::ROOM_LIST, &w.into_body()).unwrap(),
+            ServerEvent::RoomList(vec![
+                RoomSummary { name: "ambient".into(), users: 40 },
+                RoomSummary { name: "jazz".into(), users: 12 }
+            ])
+        );
     }
 
     #[test]

@@ -5,7 +5,9 @@ import { DownloadsPage } from "@/pages/downloads-page"
 import { ReviewPage } from "@/pages/review-page"
 import { SearchPage } from "@/pages/search-page"
 import { SettingsPage } from "@/pages/settings-page"
-import { SoulseekPage } from "@/pages/soulseek-page"
+import { MessagesPage } from "@/pages/messages-page"
+import { RoomsPage } from "@/pages/rooms-page"
+import { PeopleTab, SoulseekLayout } from "@/pages/soulseek-page"
 import { UserPage } from "@/pages/user-page"
 
 const rootRoute = createRootRoute({ component: AppShell })
@@ -25,10 +27,21 @@ const downloadsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/do
 const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage })
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage })
 
-const soulseekRoute = createRoute({ getParentRoute: () => rootRoute, path: "/soulseek", component: SoulseekPage })
-const userRoute = createRoute({ getParentRoute: () => rootRoute, path: "/soulseek/users/$username", component: UserPage })
+const soulseekRoute = createRoute({ getParentRoute: () => rootRoute, path: "/soulseek", component: SoulseekLayout })
+const peopleRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/", component: PeopleTab })
+const userRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/users/$username", component: UserPage })
+const messagesRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/messages", component: MessagesPage })
+const conversationRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/messages/$username", component: MessagesPage })
+const roomsRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/rooms", component: RoomsPage })
+const roomRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/rooms/$room", component: RoomsPage })
 
-const routeTree = rootRoute.addChildren([searchRoute, downloadsRoute, reviewRoute, soulseekRoute, userRoute, settingsRoute])
+const routeTree = rootRoute.addChildren([
+  searchRoute,
+  downloadsRoute,
+  reviewRoute,
+  soulseekRoute.addChildren([peopleRoute, userRoute, messagesRoute, conversationRoute, roomsRoute, roomRoute]),
+  settingsRoute,
+])
 
 export const router = createRouter({ routeTree, defaultPreload: "intent", scrollRestoration: true })
 

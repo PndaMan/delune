@@ -34,7 +34,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{Instant, sleep, timeout};
 use tokio_util::codec::Framed;
 
@@ -42,7 +42,9 @@ use crate::connection::{self, PeerError, Shared};
 use crate::frame::{FrameCodec, MAX_SERVER_FRAME, split_code};
 use crate::limiter::{DEFAULT_MAX_SEARCHES, DEFAULT_WINDOW, SearchLimiter};
 use crate::peer::{PeerMessage, SearchResponse};
-use crate::server::{ConnectionType, LoginRejection, ServerEvent, ServerRequest, Status, UserPresence};
+use crate::server::{
+    ConnectionType, LoginRejection, RoomMember, RoomSummary, ServerEvent, ServerRequest, Status, UserPresence,
+};
 use crate::shares::{FolderContents, SharedFileList, UserInfo};
 use crate::transfer::{self, Download, DownloadRequest};
 
@@ -122,6 +124,19 @@ pub enum Error {
     EmptyQuery,
     #[error("the Soulseek client has stopped")]
     Closed,
+}
+
+/// Chat activity on the account: private messages and the rooms it's in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChatEvent {
+    PrivateMessage { timestamp: u32, username: String, message: String },
+    JoinedRoom { room: String, members: Vec<RoomMember> },
+    LeftRoom { room: String },
+    RoomMessage { room: String, username: String, message: String },
+    UserJoinedRoom { room: String, member: RoomMember },
+    UserLeftRoom { room: String, username: String },
+    RoomList(Vec<RoomSummary>),
+    UserStatus { username: String, status: Status },
 }
 
 /// Handle to a running client. Cloning is cheap; the client stops when the last
@@ -287,6 +302,71 @@ impl Client {
         // One answer is all we want; don't keep receiving their status changes.
         let _ = server.send(ServerRequest::UnwatchUser { username: username.to_owned() }).await;
         Ok(presence)
+    }
+
+    /// Chat activity from now on. Slow listeners miss old events rather than stall the client.
+    #[must_use]
+    pub fn chat_events(&self) -> broadcast::Receiver<ChatEvent> {
+        self.inner.shared.chat.subscribe()
+    }
+
+    fn to_server(&self, request: ServerRequest) -> Result<(), Error> {
+        self.ensure_online()?;
+        let server = self.inner.shared.server().ok_or(Error::Closed)?;
+        server.try_send(request).map_err(|_| Error::Closed)
+    }
+
+    /// Send a private message.
+    ///
+    /// # Errors
+    ///
+    /// When offline, or the message is empty.
+    pub fn send_message(&self, username: &str, message: &str) -> Result<(), Error> {
+        if message.trim().is_empty() {
+            return Err(Error::EmptyQuery);
+        }
+        self.to_server(ServerRequest::MessageUser { username: username.to_owned(), message: message.to_owned() })
+    }
+
+    /// Join a chat room, now and after every reconnect.
+    ///
+    /// # Errors
+    ///
+    /// When offline.
+    pub fn join_room(&self, room: &str) -> Result<(), Error> {
+        self.inner.shared.rooms.lock().unwrap_or_else(PoisonError::into_inner).insert(room.to_owned());
+        self.to_server(ServerRequest::JoinRoom { room: room.to_owned() })
+    }
+
+    /// Leave a chat room.
+    ///
+    /// # Errors
+    ///
+    /// When offline (the room is still forgotten).
+    pub fn leave_room(&self, room: &str) -> Result<(), Error> {
+        self.inner.shared.rooms.lock().unwrap_or_else(PoisonError::into_inner).remove(room);
+        self.to_server(ServerRequest::LeaveRoom { room: room.to_owned() })
+    }
+
+    /// Say something in a room we're in.
+    ///
+    /// # Errors
+    ///
+    /// When offline, or the message is empty.
+    pub fn say(&self, room: &str, message: &str) -> Result<(), Error> {
+        if message.trim().is_empty() {
+            return Err(Error::EmptyQuery);
+        }
+        self.to_server(ServerRequest::SayChatroom { room: room.to_owned(), message: message.to_owned() })
+    }
+
+    /// Ask for the public room list; it arrives as [`ChatEvent::RoomList`].
+    ///
+    /// # Errors
+    ///
+    /// When offline.
+    pub fn request_room_list(&self) -> Result<(), Error> {
+        self.to_server(ServerRequest::RoomList)
     }
 
     /// Replace what we answer to people browsing us.
@@ -496,7 +576,10 @@ async fn run_session(
         ServerRequest::SharedFoldersFiles { folders: 0, files: 0 },
         ServerRequest::HaveNoParent(true),
         ServerRequest::SetStatus(Status::Online),
+        ServerRequest::RoomList,
     ];
+    let rooms: Vec<String> = shared.rooms.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect();
+    greeting.extend(rooms.into_iter().map(|room| ServerRequest::JoinRoom { room }));
     if let Some(port) = listen_port {
         greeting.insert(0, ServerRequest::SetWaitPort { port: u32::from(port) });
     }
@@ -518,24 +601,10 @@ async fn run_session(
         let outgoing = tokio::select! {
             frame = server.next() => match frame {
                 Some(Ok(frame)) => {
-                    match decode_server(&frame) {
-                        Some(ServerEvent::ConnectToPeer { username, kind: Some(kind @ (ConnectionType::Peer | ConnectionType::File)), ip, port, token }) => {
-                            tracing::trace!(%username, %ip, port, token, ?kind, "server asks us to connect to peer");
-                            let Ok(port) = u16::try_from(port) else { continue };
-                            tokio::spawn(connection::pierce(SocketAddr::from((ip, port)), token, username, kind, shared.clone()));
-                        }
-                        Some(ServerEvent::PeerAddress { username, ip, port }) => {
-                            if let Ok(port) = u16::try_from(port) {
-                                shared.deliver_address(&username, SocketAddr::from((ip, port)));
-                            }
-                        }
-                        Some(ServerEvent::Relogged) => return SessionEnd::Stopped(StopReason::LoggedInElsewhere),
-                        Some(ServerEvent::WatchedUser(presence)) => {
-                            let username = presence.username.clone();
-                            shared.presences.deliver(&username, presence);
-                        }
-                        Some(other) => tracing::trace!(?other, "server message"),
-                        None => {}
+                    if let Some(event) = decode_server(&frame)
+                        && let Some(end) = on_server_event(event, shared)
+                    {
+                        return end;
                     }
                     continue;
                 }
@@ -556,6 +625,55 @@ async fn run_session(
             return lost(format!("server connection error: {e}"));
         }
     }
+}
+
+/// Act on one server message during a session. Returns how the session ends, if it does.
+fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEnd> {
+    let chat = |event: ChatEvent| {
+        let _ = shared.chat.send(event);
+    };
+    match event {
+        ServerEvent::ConnectToPeer {
+            username,
+            kind: Some(kind @ (ConnectionType::Peer | ConnectionType::File)),
+            ip,
+            port,
+            token,
+        } => {
+            tracing::trace!(%username, %ip, port, token, ?kind, "server asks us to connect to peer");
+            if let Ok(port) = u16::try_from(port) {
+                tokio::spawn(connection::pierce(SocketAddr::from((ip, port)), token, username, kind, shared.clone()));
+            }
+        }
+        ServerEvent::PeerAddress { username, ip, port } => {
+            if let Ok(port) = u16::try_from(port) {
+                shared.deliver_address(&username, SocketAddr::from((ip, port)));
+            }
+        }
+        ServerEvent::Relogged => return Some(SessionEnd::Stopped(StopReason::LoggedInElsewhere)),
+        ServerEvent::WatchedUser(presence) => {
+            let username = presence.username.clone();
+            shared.presences.deliver(&username, presence);
+        }
+        ServerEvent::PrivateMessage { id, timestamp, username, message, .. } => {
+            // Acknowledge, or the server keeps resending it.
+            if let Some(outbox) = shared.server() {
+                let _ = outbox.try_send(ServerRequest::MessageAcked { id });
+            }
+            chat(ChatEvent::PrivateMessage { timestamp, username, message });
+        }
+        ServerEvent::JoinedRoom { room, members } => chat(ChatEvent::JoinedRoom { room, members }),
+        ServerEvent::LeftRoom { room } => chat(ChatEvent::LeftRoom { room }),
+        ServerEvent::RoomMessage { room, username, message } => {
+            chat(ChatEvent::RoomMessage { room, username, message });
+        }
+        ServerEvent::UserJoinedRoom { room, member } => chat(ChatEvent::UserJoinedRoom { room, member }),
+        ServerEvent::UserLeftRoom { room, username } => chat(ChatEvent::UserLeftRoom { room, username }),
+        ServerEvent::RoomList(rooms) => chat(ChatEvent::RoomList(rooms)),
+        ServerEvent::UserStatus { username, status, .. } => chat(ChatEvent::UserStatus { username, status }),
+        other => tracing::trace!(?other, "server message"),
+    }
+    None
 }
 
 fn decode_server(frame: &[u8]) -> Option<ServerEvent> {

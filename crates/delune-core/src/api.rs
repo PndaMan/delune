@@ -466,6 +466,69 @@ pub struct ShareTree {
     pub private_folders: u32,
 }
 
+/// One line of chat, private or in a room.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: u64,
+    /// Unix seconds.
+    pub at: u64,
+    pub from: String,
+    pub text: String,
+    /// Sent by this delune's Soulseek account.
+    pub outgoing: bool,
+}
+
+/// A private conversation, as listed in `GET /api/v1/soulseek/chat`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConversationSummary {
+    pub username: String,
+    pub last: Option<ChatMessage>,
+    pub unread: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomSummary {
+    pub name: String,
+    pub members: u32,
+    pub joined: bool,
+    pub unread: u32,
+}
+
+/// `GET /api/v1/soulseek/chat`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatOverview {
+    pub conversations: Vec<ConversationSummary>,
+    /// Rooms we're in first, then the busiest public rooms.
+    pub rooms: Vec<RoomSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomPerson {
+    pub username: String,
+    pub presence: Presence,
+    pub files: u32,
+    pub avg_speed: u32,
+    pub country: Option<String>,
+}
+
+/// `GET /api/v1/soulseek/chat/rooms/{room}`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomView {
+    pub name: String,
+    pub joined: bool,
+    pub members: Vec<RoomPerson>,
+    pub messages: Vec<ChatMessage>,
+}
+
+/// Streamed from `GET /api/v1/soulseek/chat/events` so pages can refresh what changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ChatUpdate {
+    Conversation { username: String, message: ChatMessage },
+    Room { room: String, message: Option<ChatMessage> },
+    Rooms,
+}
+
 /// A link someone pasted, resolved to the release or track it points at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedLink {

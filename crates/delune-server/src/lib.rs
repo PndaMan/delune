@@ -9,6 +9,7 @@
 
 pub mod accounts;
 pub mod artwork;
+pub mod chat;
 pub mod downloads;
 pub mod library;
 pub mod naming;
@@ -75,6 +76,7 @@ pub struct AppState {
     pub resolver: Arc<delune_resolve::Resolver>,
     pub accounts: Arc<accounts::Accounts>,
     pub browse: Arc<users::BrowseCache>,
+    pub chat: Arc<chat::Chat>,
 }
 
 impl Default for AppState {
@@ -92,6 +94,7 @@ impl Default for AppState {
             resolver: Arc::default(),
             accounts: Arc::new(accounts::Accounts::in_memory(None)),
             browse: Arc::default(),
+            chat: Arc::default(),
         }
     }
 }
@@ -102,6 +105,7 @@ impl AppState {
     pub fn start(config: ServerConfig) -> Self {
         let navidrome_url = config.navidrome.as_ref().map(|(url, _)| url.clone());
         let accounts = Arc::new(accounts::Accounts::open(&config.data_dir, navidrome_url));
+        let chat = Arc::new(chat::Chat::open(&config.data_dir));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -117,6 +121,7 @@ impl AppState {
             library: Arc::new(config.library),
             navidrome,
             accounts,
+            chat,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -132,6 +137,7 @@ impl AppState {
             }
         });
         downloads::resume(&state);
+        chat::start(&state);
         state
     }
 }
@@ -151,6 +157,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/users/{username}/picture", get(users::picture))
         .route("/api/v1/soulseek/users/{username}/shares", get(users::share_tree))
         .route("/api/v1/soulseek/users/{username}/folder", get(users::folder))
+        .route("/api/v1/soulseek/chat", get(chat::overview))
+        .route("/api/v1/soulseek/chat/events", get(chat::events))
+        .route("/api/v1/soulseek/chat/users/{username}", get(chat::conversation).post(chat::send).delete(chat::forget))
+        .route("/api/v1/soulseek/chat/rooms", post(chat::refresh_rooms))
+        .route("/api/v1/soulseek/chat/rooms/{room}", get(chat::room).put(chat::join).delete(chat::leave))
+        .route("/api/v1/soulseek/chat/rooms/{room}/messages", post(chat::say))
         .route("/api/v1/search", get(search::stream))
         .route("/api/v1/downloads", get(downloads::list).post(downloads::create))
         .route("/api/v1/downloads/{id}", delete(downloads::remove))

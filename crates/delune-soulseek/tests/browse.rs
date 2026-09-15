@@ -1,4 +1,4 @@
-//! Browsing and profiles against a fake server and fake peers, over real TCP sockets.
+//! Browsing, profiles and chat against a fake server and fake peers, over real TCP sockets.
 
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -10,7 +10,7 @@ use delune_soulseek::peer::{PeerInit, PeerMessage, SharedFile, code as peer_code
 use delune_soulseek::server::code;
 use delune_soulseek::shares::{SharedDirectory, SharedFileList, UserInfo};
 use delune_soulseek::wire::{Reader, Writer};
-use delune_soulseek::{PeerError, UserStatus};
+use delune_soulseek::{ChatEvent, PeerError, UserStatus};
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
@@ -160,4 +160,67 @@ async fn answers_people_browsing_us() {
 async fn browsing_offline_fails_fast() {
     let client = Client::start(Config { server: "127.0.0.1:1".into(), listen_port: None, ..Config::new("x", "y") });
     assert_eq!(client.browse("anyone").await.unwrap_err(), PeerError::Offline);
+}
+
+#[tokio::test]
+async fn private_messages_arrive_and_are_acknowledged() {
+    let (client, mut server, _) = online_client().await;
+    let mut chat = client.chat_events();
+
+    let mut w = Writer::new();
+    w.u32(77).u32(1_789_000_000).string("alice").string("got any Talk Talk?").bool(true);
+    server.send(w.finish(code::MESSAGE_USER)).await.unwrap();
+
+    let event = timeout(WAIT, chat.recv()).await.unwrap().unwrap();
+    assert_eq!(
+        event,
+        ChatEvent::PrivateMessage {
+            timestamp: 1_789_000_000,
+            username: "alice".into(),
+            message: "got any Talk Talk?".into()
+        }
+    );
+    assert_eq!(Reader::new(&expect_code(&mut server, code::MESSAGE_ACKED).await).u32().unwrap(), 77);
+
+    client.send_message("alice", "Spirit of Eden, yes").unwrap();
+    let body = expect_code(&mut server, code::MESSAGE_USER).await;
+    let mut r = Reader::new(&body);
+    assert_eq!((r.string().unwrap(), r.string().unwrap()), ("alice".into(), "Spirit of Eden, yes".into()));
+}
+
+#[tokio::test]
+async fn rooms_can_be_joined_and_spoken_in() {
+    let (client, mut server, _) = online_client().await;
+    let mut chat = client.chat_events();
+
+    client.join_room("ambient").unwrap();
+    assert_eq!(Reader::new(&expect_code(&mut server, code::JOIN_ROOM).await).string().unwrap(), "ambient");
+    let mut w = Writer::new();
+    w.string("ambient")
+        .u32(1)
+        .string("bob")
+        .u32(1)
+        .u32(2)
+        .u32(1)
+        .u32(0)
+        .u32(0)
+        .u32(0)
+        .u32(10)
+        .u32(1)
+        .u32(1)
+        .u32(0)
+        .u32(1)
+        .string("GB");
+    server.send(w.finish(code::JOIN_ROOM)).await.unwrap();
+    let ChatEvent::JoinedRoom { room, members } = timeout(WAIT, chat.recv()).await.unwrap().unwrap() else {
+        panic!("expected to join")
+    };
+    assert_eq!((room.as_str(), members[0].username.as_str()), ("ambient", "bob"));
+
+    client.say("ambient", "hello").unwrap();
+    let body = expect_code(&mut server, code::SAY_CHATROOM).await;
+    let mut r = Reader::new(&body);
+    assert_eq!((r.string().unwrap(), r.string().unwrap()), ("ambient".into(), "hello".into()));
+
+    assert!(client.say("ambient", "   ").is_err(), "blank messages aren't sent");
 }

@@ -46,9 +46,9 @@ pub mod shares;
 pub mod transfer;
 pub mod wire;
 
-pub use client::{Client, Config, Search, SessionState, StopReason};
+pub use client::{ChatEvent, Client, Config, Search, SessionState, StopReason};
 pub use connection::PeerError;
-pub use server::{Status as UserStatus, UserPresence};
+pub use server::{RoomMember, RoomSummary, Status as UserStatus, UserPresence};
 pub use shares::{FolderContents, SharedDirectory, SharedFileList, UserInfo};
 pub use transfer::{Download, DownloadRequest, DownloadState};
 

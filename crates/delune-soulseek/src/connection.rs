@@ -25,11 +25,11 @@ use std::time::Duration;
 use bytes::BytesMut;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot};
 use tokio::time::timeout;
 use tokio_util::codec::Framed;
 
-use crate::client::Registry;
+use crate::client::{ChatEvent, Registry};
 use crate::frame::{FrameCodec, MAX_PEER_FRAME, split_code};
 use crate::peer::{PeerInit, PeerMessage, SearchResponse, code};
 use crate::server::{ConnectionType, ServerRequest, UserPresence};
@@ -107,6 +107,10 @@ pub(crate) struct Shared {
     pub presences: Waiters<String, UserPresence>,
     /// What we share, as answered to browse requests.
     pub own_shares: Mutex<Arc<SharedFileList>>,
+    /// Private messages and room activity, for whoever is listening.
+    pub chat: broadcast::Sender<ChatEvent>,
+    /// Rooms to be in, rejoined after every reconnect.
+    pub rooms: Mutex<std::collections::BTreeSet<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -131,6 +135,8 @@ impl Shared {
             folders: Waiters::default(),
             presences: Waiters::default(),
             own_shares: Mutex::default(),
+            chat: broadcast::channel(512).0,
+            rooms: Mutex::default(),
         }
     }
 
