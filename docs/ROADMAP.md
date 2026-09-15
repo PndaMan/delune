@@ -94,7 +94,7 @@ Navidrome, from both the web UI and the TUI.
 
 **Mobile**
 - [x] Phone layouts for search results, filters, release view (sticky action), downloads
-- [ ] Phone layouts for review and settings
+- [x] Phone layouts for review (sticky import bar) and settings (section links)
 - [x] Installable web app (manifest, icons, offline shell)
 
 **Search and release view**

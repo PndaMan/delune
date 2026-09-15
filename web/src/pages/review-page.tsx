@@ -87,21 +87,8 @@ function ReviewCard({ job }: { job: DownloadJob }) {
     onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
   })
   const discard = useRemoveDownload()
-
-  return (
-    <li className="overflow-hidden rounded-3xl border bg-card/60">
-      <header className="flex flex-wrap items-center gap-5 p-5 sm:p-6">
-        <Cover src={artwork.data?.cover} pending={artwork.isPending} alt="" className="size-24 rounded-2xl shadow-lg sm:size-28" />
-        <div className="min-w-0 flex-1">
-          <h2 className="type-title truncate text-[24px]">{report.data?.album ?? artwork.data?.album ?? job.title}</h2>
-          <p className="truncate text-muted-foreground">
-            {report.data?.album_artist ?? artwork.data?.artist ?? job.parent}
-            {report.data?.year ? `, ${report.data.year}` : ""}
-          </p>
-          {requester && <p className="mt-0.5 text-[13.5px] text-muted-foreground">Requested by {requester}</p>}
-          <Verdict job={job} report={report.data ?? null} />
-        </div>
-        <div className="flex w-full items-center gap-2 sm:w-auto">
+  const actions = (
+    <>
           <Button
             variant="ghost"
             onClick={() => discard.mutate(job.id)}
@@ -119,7 +106,23 @@ function ReviewCard({ job }: { job: DownloadJob }) {
             {importRelease.isPending ? <LoaderCircle className="animate-spin" /> : <FolderInput />}
             {!canImport ? "Waiting for an admin" : requester ? "Approve and import" : "Import into library"}
           </Button>
+    </>
+  )
+
+  return (
+    <li className="overflow-clip rounded-3xl border bg-card/60">
+      <header className="flex flex-wrap items-center gap-5 p-5 sm:p-6">
+        <Cover src={artwork.data?.cover} pending={artwork.isPending} alt="" className="size-24 rounded-2xl shadow-lg sm:size-28" />
+        <div className="min-w-0 flex-1">
+          <h2 className="type-title line-clamp-2 text-[22px] sm:truncate sm:text-[24px]">{report.data?.album ?? artwork.data?.album ?? job.title}</h2>
+          <p className="truncate text-muted-foreground">
+            {report.data?.album_artist ?? artwork.data?.artist ?? job.parent}
+            {report.data?.year ? `, ${report.data.year}` : ""}
+          </p>
+          {requester && <p className="mt-0.5 text-[13.5px] text-muted-foreground">Requested by {requester}</p>}
+          <Verdict job={job} report={report.data ?? null} />
         </div>
+        <div className="hidden items-center gap-2 sm:flex">{actions}</div>
       </header>
 
       {importRelease.isError && (
@@ -135,6 +138,10 @@ function ReviewCard({ job }: { job: DownloadJob }) {
           Playing every file through and checking its sound. This takes a few seconds per album.
         </p>
       )}
+      {/* Phones: the decision stays in reach while scrolling a long tracklist. */}
+      <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-10 flex items-center gap-2 border-t bg-card/90 px-4 py-3 backdrop-blur-md sm:hidden">
+        {actions}
+      </div>
     </li>
   )
 }

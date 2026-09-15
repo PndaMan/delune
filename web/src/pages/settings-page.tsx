@@ -26,8 +26,9 @@ export function SettingsPage() {
         People, permissions and sharing save as you change them. The other sections show what delune uses today, and the
         file naming editor previews exactly how your library will be named.
       </p>
-      <div className="mt-10 divide-y border-t pb-24">
-        <Section title="Your account" description="delune uses your Navidrome account. Admins in Navidrome are admins here.">
+      <SectionNav manage={me.permissions.manage} />
+      <div className="mt-10 divide-y border-t pb-24 md:mt-10">
+        <Section id="account" title="Your account" description="delune uses your Navidrome account. Admins in Navidrome are admins here.">
           <Account />
         </Section>
         {me.permissions.manage && (
@@ -39,7 +40,7 @@ export function SettingsPage() {
             <PeopleSettings />
           </Section>
         )}
-        <Section title="Sources" description="Where delune looks for music, in order. Soulseek always comes first.">
+        <Section id="sources" title="Sources" description="Where delune looks for music, in order. Soulseek always comes first.">
           <Sources />
         </Section>
         {me.permissions.manage && (
@@ -51,10 +52,11 @@ export function SettingsPage() {
             <SharingSettingsPanel />
           </Section>
         )}
-        <Section title="Soulseek account" description="delune connects to Soulseek itself; no separate client needed.">
+        <Section id="soulseek" title="Soulseek account" description="delune connects to Soulseek itself; no separate client needed.">
           <SoulseekAccount />
         </Section>
         <Section
+          id="naming"
           title="File naming"
           description="How folders and files are named when a release is imported. Click a token to insert it."
         >
@@ -62,6 +64,39 @@ export function SettingsPage() {
         </Section>
       </div>
     </PageFrame>
+  )
+}
+
+/** Phones: jump between sections instead of scrolling past all of them. */
+function SectionNav({ manage }: { manage: boolean }) {
+  const sections = [
+    ["account", "Account"],
+    ...(manage ? [["people", "People"]] : []),
+    ["sources", "Sources"],
+    ...(manage ? [["sharing", "Sharing"]] : []),
+    ["soulseek", "Soulseek"],
+    ["naming", "File naming"],
+  ]
+  return (
+    <nav
+      aria-label="Settings sections"
+      className="sticky top-0 z-20 -mx-5 mt-6 flex gap-2 overflow-x-auto px-5 py-2.5 backdrop-blur-xl [scrollbar-width:none] supports-[backdrop-filter]:bg-background/60 md:hidden"
+    >
+      {sections.map(([id, label]) => (
+        <a
+          key={id}
+          href={`#${id}`}
+          onClick={(e) => {
+            e.preventDefault()
+            document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
+            history.replaceState(null, "", `#${id}`)
+          }}
+          className="flex h-9 shrink-0 items-center rounded-full border bg-card/60 px-3.5 text-[14px] whitespace-nowrap text-muted-foreground"
+        >
+          {label}
+        </a>
+      ))}
+    </nav>
   )
 }
 
@@ -77,7 +112,7 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section id={id} className="grid scroll-mt-6 gap-6 py-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12">
+    <section id={id} className="grid scroll-mt-16 gap-6 md:scroll-mt-6 py-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12">
       <div>
         <h2 className="type-title text-[21px]">{title}</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
