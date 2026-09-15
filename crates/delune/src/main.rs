@@ -53,13 +53,12 @@ enum Command {
 // Field names become the `--slsk-*` flags, so the shared prefix is the point.
 #[allow(clippy::struct_field_names)]
 #[derive(Debug, clap::Args)]
-#[group(requires_all = ["slsk_username", "slsk_password"], multiple = true)]
 struct SoulseekArgs {
     /// Soulseek account name. Search is disabled without one.
-    #[arg(long, env = "DELUNE_SLSK_USERNAME")]
+    #[arg(long, env = "DELUNE_SLSK_USERNAME", requires = "slsk_password")]
     slsk_username: Option<String>,
     /// Soulseek account password.
-    #[arg(long, env = "DELUNE_SLSK_PASSWORD", hide_env_values = true)]
+    #[arg(long, env = "DELUNE_SLSK_PASSWORD", hide_env_values = true, requires = "slsk_username")]
     slsk_password: Option<String>,
     /// Port other Soulseek users connect to. Forward it on your router for more
     /// and faster results.
@@ -151,5 +150,13 @@ mod tests {
     fn cli_definition_is_valid() {
         use clap::CommandFactory;
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn soulseek_port_alone_is_fine_but_half_an_account_is_not() {
+        assert!(Cli::try_parse_from(["delune", "serve", "--slsk-port", "2235"]).is_ok());
+        assert!(Cli::try_parse_from(["delune", "serve", "--slsk-username", "moon"]).is_err());
+        assert!(Cli::try_parse_from(["delune", "serve", "--slsk-password", "secret"]).is_err());
+        assert!(Cli::try_parse_from(["delune", "serve", "--slsk-username", "moon", "--slsk-password", "secret"]).is_ok());
     }
 }
