@@ -12,6 +12,7 @@ export type SharingSettings = {
   refuse_leechers: boolean
   downloads_at_once: number | null
   upnp: boolean
+  distributed_children: number
   banned: string[]
   schedule: SpeedSchedule | null
 }
@@ -34,6 +35,7 @@ export type SoulseekStats = {
   downloaded_bytes: number
   uploaded_bytes: number
   uploads_completed: number
+  distributed_children: number
 }
 
 export function useSoulseekStats() {

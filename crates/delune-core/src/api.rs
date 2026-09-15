@@ -813,6 +813,10 @@ pub struct SharingSettings {
     /// Ask the router to forward the Soulseek port (UPnP).
     #[serde(default)]
     pub upnp: bool,
+    /// Other clients delune may pass searches on to in the distributed network;
+    /// 0 keeps it a leaf.
+    #[serde(default)]
+    pub distributed_children: u32,
     /// People who can't download from us.
     pub banned: Vec<String>,
     /// Different speed limits for part of each day.
@@ -861,6 +865,7 @@ impl Default for SharingSettings {
             refuse_leechers: false,
             downloads_at_once: None,
             upnp: false,
+            distributed_children: 0,
             banned: Vec::new(),
             schedule: None,
         }
@@ -880,6 +885,9 @@ pub struct SoulseekStats {
     pub downloaded_bytes: u64,
     pub uploaded_bytes: u64,
     pub uploads_completed: u32,
+    /// Clients delune passes distributed searches on to right now.
+    #[serde(default)]
+    pub distributed_children: u32,
 }
 
 /// `GET /api/v1/sharing`

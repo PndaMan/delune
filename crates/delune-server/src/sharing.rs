@@ -162,6 +162,9 @@ pub fn refresh(app: &AppState) {
     apply_speeds(app, &settings);
     let Some(client) = app.soulseek.clone() else { return };
     client.set_banned(settings.banned.iter().cloned().collect::<HashSet<_>>());
+    // Relaying only makes sense while sharing: without shares delune doesn't join the tree.
+    let children = if settings.enabled { settings.distributed_children.min(50) } else { 0 };
+    client.set_distributed_children(usize::try_from(children).unwrap_or(0));
 
     let library = app.library.library_dir.clone();
     let (Some(library), true) = (library, settings.enabled) else {
@@ -371,6 +374,7 @@ pub async fn update(
     settings.slots = settings.slots.clamp(1, 20);
     settings.queue_per_user = settings.queue_per_user.clamp(1, 10_000);
     settings.downloads_at_once = settings.downloads_at_once.filter(|&n| n > 0).map(|n| n.min(100));
+    settings.distributed_children = settings.distributed_children.min(50);
     settings.banned = settings.banned.into_iter().map(|b| b.trim().to_owned()).filter(|b| !b.is_empty()).collect();
     if let Some(schedule) = &settings.schedule {
         if schedule.start_minute >= 24 * 60
@@ -520,6 +524,10 @@ pub async fn stats(State(app): State<AppState>, user: CurrentUser) -> Response {
         downloaded_bytes,
         uploaded_bytes,
         uploads_completed: count(|s| matches!(s, UploadState::Completed { .. })),
+        distributed_children: app
+            .soulseek
+            .as_ref()
+            .map_or(0, |c| u32::try_from(c.distributed_children()).unwrap_or(u32::MAX)),
     })
     .into_response()
 }

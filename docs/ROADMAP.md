@@ -89,7 +89,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Transfer controls: stop, resume, retry elsewhere, global upload and download speed limits
 - [x] Speed schedule: different upload and download limits between two times of day
 - [x] Limit albums downloading at once; the rest wait in line and can be moved to the front
-- [~] Distributed search network: joins as a leaf so shared files are found (relaying to children later)
+- [x] Distributed search network: joins so shared files are found, and (opt-in) relays searches to child clients
 - [x] Statistics: shared, running, transferred (kept across restarts)
 
 **Links**

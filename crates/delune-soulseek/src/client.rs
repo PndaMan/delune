@@ -328,6 +328,18 @@ impl Client {
         self.inner.shared.download_cap.set(bytes_per_second);
     }
 
+    /// Relay distributed searches to up to `max` other clients below us in the search
+    /// tree, while we have a parent. 0 (the default) keeps delune a leaf.
+    pub fn set_distributed_children(&self, max: usize) {
+        crate::distributed::set_max_children(&self.inner.shared, max);
+    }
+
+    /// Clients below us in the distributed search tree right now.
+    #[must_use]
+    pub fn distributed_children(&self) -> usize {
+        self.inner.shared.branch().children.len()
+    }
+
     /// How many peers have connected to our listening port from the internet since the
     /// client started. Any at all means the port is reachable.
     #[must_use]
@@ -720,7 +732,7 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
     match event {
         ServerEvent::ConnectToPeer {
             username,
-            kind: Some(kind @ (ConnectionType::Peer | ConnectionType::File)),
+            kind: Some(kind @ (ConnectionType::Peer | ConnectionType::File | ConnectionType::Distributed)),
             ip,
             port,
             token,

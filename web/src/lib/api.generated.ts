@@ -643,6 +643,11 @@ export type SharingSettings = {
    */
   upnp: boolean
   /**
+   * Other clients delune may pass searches on to in the distributed network;
+   * 0 keeps it a leaf.
+   */
+  distributed_children: number
+  /**
    * People who can't download from us.
    */
   banned: Array<string>
@@ -694,6 +699,10 @@ export type SoulseekStats = {
   downloaded_bytes: number
   uploaded_bytes: number
   uploads_completed: number
+  /**
+   * Clients delune passes distributed searches on to right now.
+   */
+  distributed_children: number
 }
 
 export type SoulseekStatus = {

@@ -120,6 +120,19 @@ export function SharingSettingsPanel() {
             className={input}
           />
         </Field>
+        <Field
+          label="Pass searches on to others"
+          hint="Other clients delune relays Soulseek searches to while sharing. 0 keeps it to answering its own."
+        >
+          <input
+            type="number"
+            min={0}
+            max={50}
+            value={settings.distributed_children}
+            onChange={(e) => edit({ distributed_children: Math.max(0, Number(e.target.value) || 0) })}
+            className={input}
+          />
+        </Field>
         <Field label="Albums downloading at once" hint="The rest wait their turn. Leave empty for no limit.">
           <input
             type="number"

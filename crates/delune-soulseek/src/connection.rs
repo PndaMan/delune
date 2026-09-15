@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -124,6 +124,10 @@ pub(crate) struct Shared {
     pub rooms: Mutex<std::collections::BTreeSet<String>>,
     /// Connections that reached our listening port from the internet, proving it's open.
     pub incoming_from_internet: AtomicU64,
+    /// Our place in the distributed tree and the children below us.
+    branch: Mutex<crate::distributed::Branch>,
+    /// Distributed children we'll take; 0 means we don't relay.
+    pub max_children: AtomicUsize,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -157,7 +161,13 @@ impl Shared {
             distributed_connecting: AtomicBool::new(false),
             distributed_reset: watch::channel(0).0,
             incoming_from_internet: AtomicU64::new(0),
+            branch: Mutex::default(),
+            max_children: AtomicUsize::new(0),
         }
+    }
+
+    pub(crate) fn branch(&self) -> std::sync::MutexGuard<'_, crate::distributed::Branch> {
+        lock(&self.branch)
     }
 
     pub fn next_token(&self) -> u32 {
@@ -244,6 +254,10 @@ async fn handle_incoming(stream: TcpStream, addr: SocketAddr, shared: Arc<Shared
             tracing::trace!(%addr, %username, "direct peer connection");
             run_peer(username, conn, shared, permit).await;
         }
+        Ok(PeerInit::PeerInit { username, kind, .. }) if kind == "D" => {
+            tracing::trace!(%addr, %username, "distributed child connection");
+            crate::distributed::run_child(shared, username, conn).await;
+        }
         Ok(PeerInit::PeerInit { username, kind, .. }) if kind == "F" => {
             tracing::trace!(%addr, %username, "direct file connection");
             transfer::accept_file_connection(conn, &shared).await;
@@ -261,7 +275,6 @@ async fn handle_incoming(stream: TcpStream, addr: SocketAddr, shared: Arc<Shared
                 }
             }
         }
-        // We don't accept distributed children.
         Ok(other) => tracing::trace!(%addr, ?other, "ignoring connection"),
         Err(error) => tracing::debug!(%addr, %error, "bad peer init"),
     }
@@ -292,6 +305,7 @@ pub(crate) async fn pierce(addr: SocketAddr, token: u32, username: String, kind:
     match (kind, permit) {
         (ConnectionType::Peer, Some(permit)) => run_peer(username, conn, shared, permit).await,
         (ConnectionType::File, _) => transfer::accept_file_connection(conn, &shared).await,
+        (ConnectionType::Distributed, _) => crate::distributed::run_child(shared, username, conn).await,
         _ => {}
     }
 }

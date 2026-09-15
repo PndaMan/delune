@@ -195,10 +195,11 @@ async fn answers_searches_that_match_our_shares() {
 }
 
 #[tokio::test]
-async fn joins_the_distributed_network_and_answers_relayed_searches() {
-    let (client, mut server, _) = online_client().await;
+async fn joins_the_distributed_network_answers_and_relays_searches() {
+    let (client, mut server, listen_port) = online_client().await;
     let dir = temp_dir("distributed");
     client.set_share_index(shared_file(&dir, b"flac"));
+    client.set_distributed_children(3);
 
     // The server suggests a parent.
     let parent_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -270,5 +271,45 @@ async fn joins_the_distributed_network_and_answers_relayed_searches() {
     let _init = next_frame(&mut conn).await;
     let response = SearchResponse::decode(&expect_code(&mut conn, peer_code::SEARCH_RESPONSE).await).unwrap();
     assert_eq!((response.token, response.files.len()), (9001, 1));
+
+    // Now another client joins below us, and learns where it sits.
+    let mut child = framed(TcpStream::connect(("127.0.0.1", listen_port)).await.unwrap());
+    child
+        .send(PeerInit::PeerInit { username: "slow-child".into(), kind: "D".into(), token: 0 }.encode())
+        .await
+        .unwrap();
+    let level = next_frame(&mut child).await;
+    assert_eq!((level[0], u32::from_le_bytes(level[1..5].try_into().unwrap())), (4, 2));
+    let root = next_frame(&mut child).await;
+    assert_eq!(root[0], 5);
+    assert_eq!(Reader::new(&root[1..]).string().unwrap(), "the-root");
+    timeout(WAIT, async {
+        while client.distributed_children() == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    // The next search from our parent reaches the child byte for byte.
+    let mut search = Writer::new();
+    search.u32(49).string("elsewhere").u32(9002).string("nothing we have");
+    let sent = distributed(3, search);
+    parent.send(sent.clone()).await.unwrap();
+    let relayed = next_frame(&mut child).await;
+    assert_eq!(&relayed[..], &sent[4..]);
+
+    // When our parent goes, the child is let go too, to find another.
+    drop(parent);
+    let closed = timeout(WAIT, async {
+        loop {
+            match child.next().await {
+                None | Some(Err(_)) => break,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await;
+    assert!(closed.is_ok(), "child wasn't disconnected");
     std::fs::remove_dir_all(dir).unwrap();
 }

@@ -21,7 +21,12 @@ export function SoulseekLayout() {
   const fill = /^\/soulseek\/(messages|rooms)/.test(path)
 
   return (
-    <div className={cn("mx-auto flex w-full max-w-[1200px] flex-col px-4 sm:px-10", fill && "h-[calc(100dvh-6rem)] md:h-dvh")}>
+    <div
+      className={cn(
+        "mx-auto flex w-full max-w-[1200px] flex-col px-4 sm:px-10",
+        fill && "h-[calc(100dvh-6rem)] md:h-dvh",
+      )}
+    >
       <header className="flex shrink-0 flex-wrap items-end justify-between gap-x-8 gap-y-3 pt-8 pb-5 sm:pt-12">
         <h1 className="type-display text-[40px] sm:text-[44px]">Soulseek</h1>
         {me.permissions.manage && <Tabs />}
@@ -52,17 +57,36 @@ function Tabs() {
       active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
     )
   return (
-    <nav aria-label="Soulseek" className="-mx-1 flex gap-1 overflow-x-auto rounded-2xl border bg-card/50 p-1 [scrollbar-width:none]">
-      <Link to="/soulseek" className={tab(section === "people")} aria-current={section === "people" ? "page" : undefined}>
+    <nav
+      aria-label="Soulseek"
+      className="-mx-1 flex gap-1 overflow-x-auto rounded-2xl border bg-card/50 p-1 [scrollbar-width:none]"
+    >
+      <Link
+        to="/soulseek"
+        className={tab(section === "people")}
+        aria-current={section === "people" ? "page" : undefined}
+      >
         People
       </Link>
-      <Link to="/soulseek/messages" className={tab(section === "messages")} aria-current={section === "messages" ? "page" : undefined}>
+      <Link
+        to="/soulseek/messages"
+        className={tab(section === "messages")}
+        aria-current={section === "messages" ? "page" : undefined}
+      >
         Messages {unreadMessages > 0 && <Count n={unreadMessages} />}
       </Link>
-      <Link to="/soulseek/rooms" className={tab(section === "rooms")} aria-current={section === "rooms" ? "page" : undefined}>
+      <Link
+        to="/soulseek/rooms"
+        className={tab(section === "rooms")}
+        aria-current={section === "rooms" ? "page" : undefined}
+      >
         Rooms {unreadRooms > 0 && <Count n={unreadRooms} />}
       </Link>
-      <Link to="/soulseek/uploads" className={tab(section === "uploads")} aria-current={section === "uploads" ? "page" : undefined}>
+      <Link
+        to="/soulseek/uploads"
+        className={tab(section === "uploads")}
+        aria-current={section === "uploads" ? "page" : undefined}
+      >
         Uploads
       </Link>
     </nav>
@@ -84,13 +108,22 @@ function Stats() {
   const s = stats.data
   const items = [
     ["Sharing", s.shared_files ? `${s.shared_files.toLocaleString()} files` : "Nothing yet"],
-    ["Uploading", s.uploads_running || s.uploads_waiting ? `${s.uploads_running} now, ${s.uploads_waiting} waiting` : "Idle"],
+    [
+      "Uploading",
+      s.uploads_running || s.uploads_waiting ? `${s.uploads_running} now, ${s.uploads_waiting} waiting` : "Idle",
+    ],
     ["Downloading", s.downloads_running ? plural(s.downloads_running, "release") : "Idle"],
     ["Downloaded", formatBytes(s.downloaded_bytes)],
     ["Uploaded", formatBytes(s.uploaded_bytes)],
+    ...(s.distributed_children ? [["Relaying searches to", plural(s.distributed_children, "client")]] : []),
   ]
   return (
-    <dl className="mb-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-5">
+    <dl
+      className={cn(
+        "mb-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border",
+        items.length > 5 ? "sm:grid-cols-6" : "sm:grid-cols-5",
+      )}
+    >
       {items.map(([label, value]) => (
         <div key={label} className="bg-card/80 px-4 py-3">
           <dt className="text-[12.5px] text-muted-foreground">{label}</dt>
@@ -112,8 +145,8 @@ export function PeopleTab() {
     <div className="pb-24">
       <Stats />
       <p className="max-w-[60ch] text-[15px] text-muted-foreground">
-        Look someone up to see their profile and browse everything they share. Any folder opens like a search result, ready
-        to download.
+        Look someone up to see their profile and browse everything they share. Any folder opens like a search result,
+        ready to download.
       </p>
 
       <form
@@ -145,8 +178,15 @@ export function PeopleTab() {
           <h2 className="type-title text-[19px]">Recently browsed</h2>
           <ul className="mt-4 grid gap-2 sm:grid-cols-2">
             {recent.map((username) => (
-              <li key={username} className="flex items-center rounded-xl border bg-card/50 transition-colors hover:bg-accent/60">
-                <button type="button" onClick={() => browse(username)} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left">
+              <li
+                key={username}
+                className="flex items-center rounded-xl border bg-card/50 transition-colors hover:bg-accent/60"
+              >
+                <button
+                  type="button"
+                  onClick={() => browse(username)}
+                  className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+                >
                   <span className="flex size-9 items-center justify-center rounded-full bg-primary/15 font-semibold text-primary">
                     {initial(username)}
                   </span>

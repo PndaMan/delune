@@ -8,15 +8,19 @@
 //! branch arrives from it, and we answer the ones our shares match, directly to the
 //! person searching.
 //!
-//! delune is a leaf: it doesn't accept children, so it never relays searches to
-//! anyone. That keeps its bandwidth use predictable on a home connection while still
-//! making its shares findable. The network works as long as faster clients relay.
+//! By default delune is a leaf: it doesn't accept children, so it never relays
+//! searches to anyone. That keeps its bandwidth use predictable on a home connection
+//! while still making its shares findable. People can let it relay: then, while it
+//! has a parent, other clients may join below it as children, it tells them where
+//! they sit in the tree, and it passes every search from its parent down to them.
 
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use bytes::{Bytes, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -35,6 +39,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PARENT_IDLE: Duration = Duration::from_secs(5 * 60);
 /// How long a candidate has to send its first search before we give up on it.
 const ADOPT_TIMEOUT: Duration = Duration::from_secs(60);
+/// Searches queued for a child before it's considered too slow to keep up.
+const CHILD_QUEUE: usize = 256;
 
 pub mod code {
     pub const PING: u8 = 0;
@@ -87,10 +93,135 @@ impl DistributedMessage {
     }
 }
 
-/// Tell the server whether we need a parent, and that we don't take children.
+/// Where we sit in the tree while we have a parent, and the children below us.
+#[derive(Debug, Default)]
+pub(crate) struct Branch {
+    /// Our level (our parent's plus one) and the branch root, while we have a parent.
+    pub place: Option<(u32, String)>,
+    /// Each child's outbox of framed messages.
+    pub children: HashMap<String, mpsc::Sender<Bytes>>,
+}
+
+/// Whether we'd take a child now: relaying is on, we have a parent, and there's room.
+fn taking_children(shared: &Shared, branch: &Branch) -> bool {
+    let max = shared.max_children.load(Ordering::Relaxed);
+    max > 0 && branch.place.is_some() && branch.children.len() < max
+}
+
+/// Tell the server whether we need a parent, and whether we take children.
 pub(crate) fn greeting(shared: &Shared) -> Vec<ServerRequest> {
     let has_parent = shared.distributed_parent.load(Ordering::Relaxed);
-    vec![ServerRequest::HaveNoParent(!has_parent), ServerRequest::AcceptChildren(false)]
+    let accept = taking_children(shared, &shared.branch());
+    vec![ServerRequest::HaveNoParent(!has_parent), ServerRequest::AcceptChildren(accept)]
+}
+
+/// Frame a distributed message payload (code byte and body) for sending.
+fn framed(payload: &[u8]) -> Bytes {
+    let mut frame = BytesMut::with_capacity(payload.len() + 4);
+    frame.extend_from_slice(&u32::try_from(payload.len()).unwrap_or(u32::MAX).to_le_bytes());
+    frame.extend_from_slice(payload);
+    frame.freeze()
+}
+
+fn level_message(level: u32) -> Bytes {
+    let mut payload = vec![code::BRANCH_LEVEL];
+    payload.extend_from_slice(&level.to_le_bytes());
+    framed(&payload)
+}
+
+fn root_message(root: &str) -> Bytes {
+    let mut payload = vec![code::BRANCH_ROOT];
+    payload.extend_from_slice(&u32::try_from(root.len()).unwrap_or(u32::MAX).to_le_bytes());
+    payload.extend_from_slice(root.as_bytes());
+    framed(&payload)
+}
+
+/// Send `frame` to every child, dropping children that have gone away.
+fn to_children(shared: &Shared, frame: &Bytes) {
+    let mut branch = shared.branch();
+    branch.children.retain(|username, child| match child.try_send(frame.clone()) {
+        Ok(()) => true,
+        // A slow child misses this search rather than holding up the others.
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tracing::trace!(%username, "distributed child is behind; skipping a message");
+            true
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => false,
+    });
+}
+
+/// Tell the server whether we take children, after something changed.
+fn announce_children(shared: &Shared) {
+    let accept = taking_children(shared, &shared.branch());
+    if let Some(server) = shared.server() {
+        let _ = server.try_send(ServerRequest::AcceptChildren(accept));
+    }
+}
+
+/// Settings changed: take up to `max` children (none turns relaying off).
+pub(crate) fn set_max_children(shared: &Shared, max: usize) {
+    shared.max_children.store(max, Ordering::Relaxed);
+    if max == 0 {
+        shared.branch().children.clear();
+    }
+    announce_children(shared);
+}
+
+/// A client connected to be our child, directly or by answering our pierce.
+pub(crate) async fn run_child(shared: Arc<Shared>, username: String, mut conn: Framed<TcpStream, FrameCodec>) {
+    let (tx, mut rx) = mpsc::channel::<Bytes>(CHILD_QUEUE);
+    let place = {
+        let mut branch = shared.branch();
+        if !taking_children(&shared, &branch) && !branch.children.contains_key(&username) {
+            tracing::debug!(%username, "not taking distributed children right now");
+            return;
+        }
+        branch.children.insert(username.clone(), tx.clone());
+        branch.place.clone()
+    };
+    // Only the branch holds a sender, so clearing it disconnects this child.
+    let ours = tx.downgrade();
+    drop(tx);
+    let Some((level, root)) = place else { return };
+    tracing::debug!(child = %username, "distributed child joined");
+    announce_children(&shared);
+
+    let greeting = [level_message(level), root_message(&root)];
+    let mut greeted = true;
+    for frame in greeting {
+        greeted &= conn.send(BytesMut::from(&frame[..])).await.is_ok();
+    }
+    if !greeted {
+        shared.branch().children.remove(&username);
+        return;
+    }
+    loop {
+        tokio::select! {
+            outgoing = rx.recv() => {
+                // No sender left: we lost our parent or stopped relaying.
+                let Some(frame) = outgoing else { break };
+                if conn.send(BytesMut::from(&frame[..])).await.is_err() {
+                    break;
+                }
+            }
+            incoming = conn.next() => {
+                // Children have nothing to tell us; this just notices them leaving.
+                if !matches!(incoming, Some(Ok(_))) {
+                    break;
+                }
+            }
+        }
+    }
+    {
+        let mut branch = shared.branch();
+        let still_ours =
+            ours.upgrade().is_some_and(|tx| branch.children.get(&username).is_some_and(|c| c.same_channel(&tx)));
+        if still_ours {
+            branch.children.remove(&username);
+        }
+    }
+    tracing::debug!(child = %username, "distributed child left");
+    announce_children(&shared);
 }
 
 /// The server suggested parents: try them all at once and keep the first that
@@ -175,12 +306,14 @@ async fn run_parent(
 ) {
     tracing::info!(parent = %username, level, %root, "joined the distributed search network");
     shared.distributed_parent.store(true, Ordering::Relaxed);
+    let our_level = u32::try_from(level.saturating_add(1)).unwrap_or(1);
+    shared.branch().place = Some((our_level, root.clone()));
     if let Some(server) = shared.server() {
-        let our_level = u32::try_from(level.saturating_add(1)).unwrap_or(1);
         let _ = server.try_send(ServerRequest::HaveNoParent(false));
         let _ = server.try_send(ServerRequest::BranchLevel(our_level));
         let _ = server.try_send(ServerRequest::BranchRoot(root));
     }
+    announce_children(&shared);
     let mut reset = shared.distributed_reset.subscribe();
     loop {
         let frame = tokio::select! {
@@ -190,17 +323,27 @@ async fn run_parent(
         let Ok(Some(Ok(frame))) = frame else { break };
         match DistributedMessage::decode(&frame) {
             Ok(DistributedMessage::Search { username: searcher, token, query }) => {
+                // Pass it down exactly as it came, then answer it ourselves.
+                to_children(&shared, &framed(&frame));
                 answer(&shared, searcher, token, &query);
             }
             Ok(DistributedMessage::BranchRoot(root)) => {
+                if let Some(place) = &mut shared.branch().place {
+                    place.1.clone_from(&root);
+                }
+                to_children(&shared, &root_message(&root));
                 if let Some(server) = shared.server() {
                     let _ = server.try_send(ServerRequest::BranchRoot(root));
                 }
             }
             Ok(DistributedMessage::BranchLevel(level)) => {
+                let ours = u32::try_from(level.saturating_add(1)).unwrap_or(1);
+                if let Some(place) = &mut shared.branch().place {
+                    place.0 = ours;
+                }
+                to_children(&shared, &level_message(ours));
                 if let Some(server) = shared.server() {
-                    let _ = server
-                        .try_send(ServerRequest::BranchLevel(u32::try_from(level.saturating_add(1)).unwrap_or(1)));
+                    let _ = server.try_send(ServerRequest::BranchLevel(ours));
                 }
             }
             _ => {}
@@ -208,8 +351,15 @@ async fn run_parent(
     }
     tracing::info!(parent = %username, "left the distributed search network; looking for a new parent");
     shared.distributed_parent.store(false, Ordering::Relaxed);
+    {
+        // Our children need a new parent too; dropping their outboxes disconnects them.
+        let mut branch = shared.branch();
+        branch.place = None;
+        branch.children.clear();
+    }
     if let Some(server) = shared.server() {
         let _ = server.try_send(ServerRequest::HaveNoParent(true));
+        let _ = server.try_send(ServerRequest::AcceptChildren(false));
     }
 }
 
@@ -222,6 +372,9 @@ pub(crate) fn answer(shared: &Arc<Shared>, username: String, token: u32, query: 
 pub(crate) fn reset(shared: &Shared) {
     shared.distributed_reset.send_modify(|n| *n += 1);
     shared.distributed_parent.store(false, Ordering::Relaxed);
+    let mut branch = shared.branch();
+    branch.place = None;
+    branch.children.clear();
 }
 
 #[cfg(test)]
