@@ -146,7 +146,7 @@ export type DownloadJobRequest = {
 
 export type ApiErrorBody = { code: string; message: string }
 
-export type ResolvedTrack = { title: string; artist: string | null; duration_secs: number | null }
+export type ResolvedTrack = { title: string; artist: string | null; album: string | null; duration_secs: number | null }
 
 /** A pasted link, resolved to what it points at. */
 export type ResolvedLink = {

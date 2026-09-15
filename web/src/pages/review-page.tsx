@@ -203,11 +203,12 @@ function ReviewCard({ job }: { job: DownloadJob }) {
     onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
   })
   const discard = useRemoveDownload()
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
   const actions = (
     <>
           <Button
             variant="ghost"
-            onClick={() => discard.mutate(job.id)}
+            onClick={() => setConfirmDiscard(true)}
             disabled={discard.isPending || importRelease.isPending}
             className="text-muted-foreground"
           >
@@ -240,6 +241,18 @@ function ReviewCard({ job }: { job: DownloadJob }) {
         </div>
         <div className="hidden items-center gap-2 sm:flex">{actions}</div>
       </header>
+
+      {confirmDiscard && (
+        <div className="mx-5 mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 sm:mx-6">
+          <p className="min-w-0 flex-1 text-[14px]">Discard this download and delete its files?</p>
+          <Button variant="ghost" size="sm" onClick={() => setConfirmDiscard(false)}>
+            Keep it
+          </Button>
+          <Button variant="destructive" size="sm" disabled={discard.isPending} onClick={() => discard.mutate(job.id)}>
+            Discard
+          </Button>
+        </div>
+      )}
 
       {importRelease.isError && (
         <p className="mx-6 mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm">

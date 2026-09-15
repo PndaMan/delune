@@ -183,6 +183,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/uploads/{id}", delete(sharing::cancel_upload))
         .route("/api/v1/sharing", get(sharing::status).put(sharing::update))
         .route("/api/v1/wishlist", get(wishlist::list).post(wishlist::add))
+        .route("/api/v1/wishlist/batch", post(wishlist::add_many))
         .route("/api/v1/wishlist/{id}", patch(wishlist::update).delete(wishlist::remove))
         .route("/api/v1/sharing/rescan", post(sharing::rescan))
         .route("/api/v1/soulseek/chat", get(chat::overview))

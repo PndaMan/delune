@@ -7,6 +7,8 @@ export type MinQuality = "any" | "lossless" | "hi-res"
 export type WishlistItem = {
   id: string
   query: string
+  track: string | null
+  playlist: string | null
   added_by: string
   added_at: number
   auto_download: boolean

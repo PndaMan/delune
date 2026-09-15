@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { EmptyState } from "@/components/empty-state"
 import { Moon } from "@/components/moon"
+import { PlaylistImport } from "@/components/playlist-import"
 import { ReleaseModal } from "@/components/release-modal"
 import { Cover } from "@/components/cover"
 import { ResultFilters, type TierFilter } from "@/components/results/result-filters"
@@ -233,7 +234,7 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
             {resolved ? (
               <>
                 <ResolvedHeading link={resolved} />
-                <StatusLine search={search} visible={visible.length} query={query} />
+                {resolved.kind !== "playlist" && <StatusLine search={search} visible={visible.length} query={query} />}
               </>
             ) : (
               <>
@@ -246,7 +247,9 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
           </div>
         </section>
 
-        {search.status === "failed" ? (
+        {resolved?.kind === "playlist" ? (
+          <PlaylistImport link={resolved} />
+        ) : search.status === "failed" ? (
           <EmptyState
             illumination={0}
             title="The search didn't go through"
@@ -327,8 +330,13 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
 
 /** A pasted link, named: title first, then who made it and where the link came from. */
 function ResolvedHeading({ link }: { link: ResolvedLink }) {
-  const kind = link.kind === "track" ? "track" : link.kind === "artist" ? "artist" : "album"
-  const facts = [link.artist, link.year, `${PROVIDER_NAMES[link.provider]} ${kind}`].filter(Boolean)
+  const kind = link.kind
+  const facts = [
+    link.artist,
+    link.year,
+    `${PROVIDER_NAMES[link.provider]} ${kind}`,
+    kind === "playlist" && plural(link.tracks.length, "song"),
+  ].filter(Boolean)
   return (
     <>
       <h1 className="type-display text-[clamp(1.9rem,4vw,2.75rem)] text-balance break-words">{link.title}</h1>

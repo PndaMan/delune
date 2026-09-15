@@ -92,7 +92,7 @@ Navidrome, from both the web UI and the TUI.
 **Links**
 - [x] Resolve pasted Spotify, Apple Music, YouTube Music, Deezer, Tidal, Qobuz, SoundCloud, Bandcamp and MusicBrainz links to a release, then search Soulseek for it
 - [x] Rank folders by how much of the linked tracklist they hold; track links download just that track
-- [ ] Playlist links (with playlist import)
+- [x] Playlist links from Spotify and Deezer: pick songs, add them (or their albums) to the wishlist, searched straight away
 
 **Profiles and look**
 - [x] Profile pictures: upload your own (rail, profile menu, people list); Soulseek users' pictures on their pages

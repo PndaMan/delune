@@ -17,8 +17,8 @@ import { PageFrame } from "@/pages/placeholder-pages"
 
 export function DownloadsPage() {
   const downloads = useDownloads()
-  const remove = useRemoveDownload()
-  const jobs = downloads.data ?? []
+  // Imported albums are done; they're listed under Review's "Recently imported".
+  const jobs = (downloads.data ?? []).filter((job) => job.status !== "imported")
 
   return (
     <PageFrame title="Downloads" wide>
@@ -38,25 +38,11 @@ export function DownloadsPage() {
           they're all in.
         </EmptyState>
       ) : (
-        <>
-          {jobs.some((j) => j.status === "imported") && (
-            <div className="mt-4 flex justify-end">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={remove.isPending}
-                onClick={() => jobs.filter((j) => j.status === "imported").forEach((j) => remove.mutate(j.id))}
-              >
-                Clear imported
-              </Button>
-            </div>
-          )}
-          <ul className="mt-2 space-y-3">
-            {jobs.map((job) => (
-              <JobCard key={job.id} job={job} />
-            ))}
-          </ul>
-        </>
+        <ul className="mt-6 space-y-3">
+          {jobs.map((job) => (
+            <JobCard key={job.id} job={job} />
+          ))}
+        </ul>
       )}
       <WishlistSection />
     </PageFrame>
@@ -65,6 +51,7 @@ export function DownloadsPage() {
 
 export function JobCard({ job }: { job: DownloadJob }) {
   const [open, setOpen] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const artwork = useArtwork(job.parent, job.title)
   const remove = useRemoveDownload()
   const toggle = useToggleDownload()
@@ -147,7 +134,7 @@ export function JobCard({ job }: { job: DownloadJob }) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => remove.mutate(job.id)}
+            onClick={() => setConfirming(true)}
             disabled={remove.isPending}
             aria-label={running ? "Cancel download" : "Remove download and its files"}
             title={running ? "Cancel download" : "Remove download and its files"}
@@ -156,6 +143,25 @@ export function JobCard({ job }: { job: DownloadJob }) {
           </Button>
         </div>
       </div>
+
+      {confirming && (
+        <div className="flex flex-wrap items-center gap-3 border-t bg-destructive/8 px-4 py-3 sm:px-5">
+          <p className="min-w-0 flex-1 text-[14px]">
+            {running ? "Cancel this download and delete what has arrived?" : "Remove this download and delete its files?"}
+          </p>
+          <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+            Keep it
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={remove.isPending}
+            onClick={() => remove.mutate(job.id, { onSettled: () => setConfirming(false) })}
+          >
+            {running ? "Cancel and delete" : "Remove"}
+          </Button>
+        </div>
+      )}
 
       <div className="h-1 bg-muted/60" aria-hidden>
         <div

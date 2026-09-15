@@ -70,7 +70,13 @@ pub async fn stream(State(app): State<AppState>, user: CurrentUser, Query(params
                         .then(|| search_query(None, &link.title))
                         .filter(|f| f.len() >= 4 && *f != link.query);
                     let query = link.query.clone();
+                    let playlist = link.kind == EntityKind::Playlist;
                     if tx.send(SearchEvent::Resolved { link }).await.is_err() {
+                        return;
+                    }
+                    // Playlists aren't one search: clients offer to import them instead.
+                    if playlist {
+                        let _ = tx.send(SearchEvent::Finished { peers: 0, candidates: 0 }).await;
                         return;
                     }
                     (query, fallback)

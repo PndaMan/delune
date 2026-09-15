@@ -80,9 +80,25 @@ impl Wishlist {
     }
 }
 
+fn squash(s: &str) -> String {
+    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
+/// The shared file that is this song, if the folder has it.
+fn track_file<'a>(candidate: &'a Candidate, title: &str) -> Option<&'a delune_core::api::CandidateFile> {
+    let wanted = squash(title);
+    if wanted.len() < 2 {
+        return None;
+    }
+    candidate.files.iter().find(|f| f.audio && squash(&f.name).contains(&wanted))
+}
+
 /// The best copy among `candidates` that `item` would accept.
 fn best_match(item: &WishlistItem, mut candidates: Vec<Candidate>) -> (u32, Option<Candidate>) {
     candidates.retain(|c| c.audio_files > 0 && item.min_quality.accepts(QualityTier::of(c.quality)));
+    if let Some(title) = &item.track {
+        candidates.retain(|c| track_file(c, title).is_some());
+    }
     Candidate::rank(&mut candidates);
     (u32::try_from(candidates.len()).unwrap_or(u32::MAX), candidates.into_iter().next())
 }
@@ -90,6 +106,29 @@ fn best_match(item: &WishlistItem, mut candidates: Vec<Candidate>) -> (u32, Opti
 /// Work through the wishlist for as long as the server runs. Call once at startup.
 pub fn start(app: &AppState) {
     let Some(client) = app.soulseek.clone() else { return };
+    // Newly imported playlist items get a first, normal search soon, paced by the
+    // search limiter, instead of waiting a wishlist interval each.
+    {
+        let (app, client) = (app.clone(), client.clone());
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                let online = matches!(*client.state().borrow(), SessionState::Online { .. });
+                let fresh = app
+                    .wishlist
+                    .lock()
+                    .iter()
+                    .find(|i| i.playlist.is_some() && i.last_searched.is_none() && !i.paused)
+                    .cloned();
+                if online && let Some(item) = fresh {
+                    match client.search(&item.query).await {
+                        Ok(search) => finish_run(&app, item, search).await,
+                        Err(error) => tracing::debug!(%error, "playlist search didn't start"),
+                    }
+                }
+            }
+        });
+    }
     let app = app.clone();
     tokio::spawn(async move {
         tokio::time::sleep(FIRST_RUN_AFTER).await;
@@ -104,13 +143,13 @@ pub fn start(app: &AppState) {
 }
 
 async fn run_one(app: &AppState, client: &delune_soulseek::Client, item: WishlistItem) {
-    let mut search = match client.wishlist_search(&item.query) {
-        Ok(search) => search,
-        Err(error) => {
-            tracing::debug!(%error, query = %item.query, "wishlist search didn't start");
-            return;
-        }
-    };
+    match client.wishlist_search(&item.query) {
+        Ok(search) => finish_run(app, item, search).await,
+        Err(error) => tracing::debug!(%error, query = %item.query, "wishlist search didn't start"),
+    }
+}
+
+async fn finish_run(app: &AppState, item: WishlistItem, mut search: delune_soulseek::Search) {
     let mut candidates = Vec::new();
     while let Some(response) = search.next().await {
         candidates.extend(crate::search::candidates(&response));
@@ -123,7 +162,8 @@ async fn run_one(app: &AppState, client: &delune_soulseek::Client, item: Wishlis
         && let Some(best) = &best
     {
         let owned = crate::library::lookup(app, best.parent.as_deref(), &best.title, Some(&item.query)).await;
-        let complete = owned.state == LibraryState::InLibrary
+        let complete = item.track.is_none()
+            && owned.state == LibraryState::InLibrary
             && owned.tracks.len() >= usize::try_from(best.audio_files).unwrap_or(usize::MAX);
         if complete {
             tracing::info!(query = %item.query, "already in the library; not downloading again");
@@ -133,7 +173,16 @@ async fn run_one(app: &AppState, client: &delune_soulseek::Client, item: Wishlis
                 folder: best.folder.clone(),
                 title: best.title.clone(),
                 parent: best.parent.clone(),
-                files: best.files.iter().map(|f| RequestedFile { path: f.path.clone(), size: f.size }).collect(),
+                // A single song downloads just that file, with any artwork beside it.
+                files: best
+                    .files
+                    .iter()
+                    .filter(|f| match &item.track {
+                        Some(title) => track_file(best, title).is_some_and(|t| t.path == f.path) || is_image(&f.name),
+                        None => true,
+                    })
+                    .map(|f| RequestedFile { path: f.path.clone(), size: f.size })
+                    .collect(),
             };
             match crate::downloads::begin(app, request, &item.added_by) {
                 Ok(job) => download_id = Some(job.id),
@@ -154,6 +203,11 @@ async fn run_one(app: &AppState, client: &delune_soulseek::Client, item: Wishlis
     });
 }
 
+fn is_image(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [".jpg", ".jpeg", ".png", ".webp"].iter().any(|ext| lower.ends_with(ext))
+}
+
 fn error(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(ApiError::new(code, message))).into_response()
 }
@@ -171,21 +225,63 @@ pub async fn add(State(app): State<AppState>, user: CurrentUser, Json(request): 
     if let Some(denied) = user.refuse_unless(|p| p.search && p.download, "use the wishlist") {
         return denied;
     }
-    let query = request.query.split_whitespace().collect::<Vec<_>>().join(" ");
-    if query.chars().count() < 3 {
-        return error(StatusCode::BAD_REQUEST, "query-too-short", "Wishlist searches need a few more letters.");
+    let mut items = app.wishlist.lock();
+    let result = insert(&mut items, &user.username, request);
+    app.wishlist.save(&items);
+    match result {
+        Ok((true, item)) => (StatusCode::CREATED, Json(item)).into_response(),
+        Ok((false, item)) => Json(item).into_response(),
+        Err((status, code, message)) => error(status, code, message),
+    }
+}
+
+/// `POST /api/v1/wishlist/batch`: many items at once, such as a playlist.
+pub async fn add_many(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Json(requests): Json<Vec<WishlistRequest>>,
+) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.search && p.download, "use the wishlist") {
+        return denied;
     }
     let mut items = app.wishlist.lock();
-    if let Some(existing) = items.iter().find(|i| i.query.eq_ignore_ascii_case(&query) && i.added_by == user.username) {
-        return (StatusCode::OK, Json(existing.clone())).into_response();
+    let mut added = 0u32;
+    for request in requests {
+        match insert(&mut items, &user.username, request) {
+            Ok((true, _)) => added += 1,
+            Ok((false, _)) | Err((_, "query-too-short", _)) => {}
+            Err((status, code, message)) => {
+                app.wishlist.save(&items);
+                return error(status, code, message);
+            }
+        }
+    }
+    app.wishlist.save(&items);
+    Json(serde_json::json!({ "added": added })).into_response()
+}
+
+/// Add one item, or return the matching one already there (`false`).
+fn insert(
+    items: &mut Vec<WishlistItem>,
+    username: &str,
+    request: WishlistRequest,
+) -> Result<(bool, WishlistItem), (StatusCode, &'static str, &'static str)> {
+    let query = request.query.split_whitespace().collect::<Vec<_>>().join(" ");
+    if query.chars().count() < 3 {
+        return Err((StatusCode::BAD_REQUEST, "query-too-short", "Wishlist searches need a few more letters."));
+    }
+    if let Some(existing) = items.iter().find(|i| i.query.eq_ignore_ascii_case(&query) && i.added_by == username) {
+        return Ok((false, existing.clone()));
     }
     if items.len() >= MAX_ITEMS {
-        return error(StatusCode::CONFLICT, "wishlist-full", "The wishlist is full. Remove something first.");
+        return Err((StatusCode::CONFLICT, "wishlist-full", "The wishlist is full. Remove something first."));
     }
     let item = WishlistItem {
         id: format!("w{:x}{:04x}", now(), items.len()),
         query,
-        added_by: user.username.clone(),
+        track: request.track.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty()),
+        playlist: request.playlist,
+        added_by: username.to_owned(),
         added_at: now(),
         auto_download: request.auto_download,
         min_quality: request.min_quality,
@@ -196,8 +292,7 @@ pub async fn add(State(app): State<AppState>, user: CurrentUser, Json(request): 
         download_id: None,
     };
     items.push(item.clone());
-    app.wishlist.save(&items);
-    (StatusCode::CREATED, Json(item)).into_response()
+    Ok((true, item))
 }
 
 /// `PATCH /api/v1/wishlist/{id}`
@@ -269,6 +364,8 @@ mod tests {
         WishlistItem {
             id: "w".into(),
             query: "q".into(),
+            track: None,
+            playlist: None,
             added_by: "sam".into(),
             added_at: 0,
             auto_download: true,

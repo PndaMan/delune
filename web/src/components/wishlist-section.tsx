@@ -88,6 +88,7 @@ function WishlistRow({ item }: { item: WishlistItem }) {
         </p>
         <p className={cn("mt-0.5 text-[13px]", item.download_id ? "text-q-lossless" : "text-muted-foreground")}>
           {status}
+          {item.playlist && <span className="text-muted-foreground/70">, from {item.playlist}</span>}
           {who && <span className="text-muted-foreground/70">, for {who}</span>}
           {item.download_id && (
             <>

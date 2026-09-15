@@ -693,6 +693,13 @@ impl MinQuality {
 pub struct WishlistItem {
     pub id: String,
     pub query: String,
+    /// For a single song: its title, matched against file names. Its download is
+    /// just that file.
+    #[serde(default)]
+    pub track: Option<String>,
+    /// The playlist it came from, if any.
+    #[serde(default)]
+    pub playlist: Option<String>,
     pub added_by: String,
     /// Unix seconds.
     pub added_at: u64,
@@ -713,6 +720,10 @@ pub struct WishlistItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WishlistRequest {
     pub query: String,
+    #[serde(default)]
+    pub track: Option<String>,
+    #[serde(default)]
+    pub playlist: Option<String>,
     #[serde(default = "yes")]
     pub auto_download: bool,
     #[serde(default)]
@@ -752,6 +763,9 @@ pub struct ResolvedLink {
 pub struct ResolvedTrack {
     pub title: String,
     pub artist: Option<String>,
+    /// The album it's on, for playlists whose service says.
+    #[serde(default)]
+    pub album: Option<String>,
     pub duration_secs: Option<u32>,
 }
 

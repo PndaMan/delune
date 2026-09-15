@@ -388,6 +388,7 @@ fn deezer(kind: EntityKind, json: &Value) -> Result<ResolvedLink, ResolveError> 
                 .iter()
                 .filter_map(|t| {
                     Some(ResolvedTrack {
+                        album: str_at(t, "/album/title").map(str::to_owned),
                         title: str_at(t, "/title")?.to_owned(),
                         artist: str_at(t, "/artist/name").map(str::to_owned),
                         duration_secs: t.get("duration").and_then(Value::as_u64).and_then(|d| u32::try_from(d).ok()),
@@ -411,7 +412,11 @@ fn deezer(kind: EntityKind, json: &Value) -> Result<ResolvedLink, ResolveError> 
             let name = str_at(json, "/name").ok_or(ResolveError::Unreadable { provider })?.to_owned();
             finish(provider, kind, name, None, None, None, vec![])
         }
-        EntityKind::Playlist => return Err(unsupported_playlist(provider)),
+        EntityKind::Playlist => {
+            let title = str_at(json, "/title").ok_or(ResolveError::Unreadable { provider })?.to_owned();
+            let owner = str_at(json, "/creator/name").map(str::to_owned);
+            finish(provider, kind, title, owner, None, None, tracks(json))
+        }
     })
 }
 
@@ -429,6 +434,7 @@ fn apple(kind: EntityKind, json: &Value) -> Result<ResolvedLink, ResolveError> {
                 .filter(|r| str_at(r, "/wrapperType") == Some("track"))
                 .filter_map(|t| {
                     Some(ResolvedTrack {
+                        album: None,
                         title: str_at(t, "/trackName")?.to_owned(),
                         artist: str_at(t, "/artistName").map(str::to_owned),
                         duration_secs: t
@@ -473,6 +479,7 @@ fn spotify(kind: EntityKind, page: &str) -> Result<ResolvedLink, ResolveError> {
             .iter()
             .filter_map(|t| {
                 Some(ResolvedTrack {
+                    album: None,
                     title: str_at(t, "/title")?.to_owned(),
                     artist: str_at(t, "/subtitle").map(str::to_owned),
                     duration_secs: t
@@ -484,7 +491,7 @@ fn spotify(kind: EntityKind, page: &str) -> Result<ResolvedLink, ResolveError> {
             .collect()
     });
     Ok(match kind {
-        EntityKind::Playlist => return Err(unsupported_playlist(provider)),
+        EntityKind::Playlist => finish(provider, kind, title, artist, None, None, tracks),
         EntityKind::Artist => finish(provider, kind, title, None, None, None, vec![]),
         _ => finish(provider, kind, title, artist, None, year, tracks),
     })
@@ -572,6 +579,7 @@ fn from_json_ld(provider: Provider, kind: EntityKind, item: &Value) -> Option<Re
                         .filter_map(|entry| {
                             let track = entry.get("item").unwrap_or(entry);
                             Some(ResolvedTrack {
+                                album: None,
                                 title: str_at(track, "/name")?.to_owned(),
                                 artist: artist_of(track),
                                 duration_secs: str_at(track, "/duration").and_then(html::iso_duration_secs),
@@ -625,6 +633,7 @@ fn musicbrainz(kind: EntityKind, entity: &str, json: &Value) -> Result<ResolvedL
                     .flatten()
                     .filter_map(|t| {
                         Some(ResolvedTrack {
+                            album: None,
                             title: str_at(t, "/title")?.to_owned(),
                             artist: None,
                             duration_secs: t
