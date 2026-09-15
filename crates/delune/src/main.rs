@@ -17,6 +17,8 @@ struct Cli {
     command: Command,
 }
 
+// Parsed once at startup, so the size difference between variants doesn't matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Run the delune server (API, web UI, Soulseek client).
@@ -29,6 +31,10 @@ enum Command {
         data_dir: std::path::PathBuf,
         #[command(flatten)]
         soulseek: SoulseekArgs,
+        #[command(flatten)]
+        library: LibraryArgs,
+        #[command(flatten)]
+        navidrome: NavidromeArgs,
     },
     /// Open the terminal UI.
     Tui {
@@ -64,13 +70,56 @@ impl SoulseekArgs {
     }
 }
 
+#[derive(Debug, clap::Args)]
+struct LibraryArgs {
+    /// Your music folder (the one Navidrome scans). Approved imports are moved here.
+    #[arg(long, env = "DELUNE_LIBRARY_DIR")]
+    library_dir: Option<std::path::PathBuf>,
+    /// How imported files are named. See the Settings page for tokens and a preview.
+    #[arg(long, env = "DELUNE_NAMING_TEMPLATE", default_value = delune_server::review::DEFAULT_TEMPLATE)]
+    naming_template: String,
+}
+
+// Field names become the `--navidrome-*` flags.
+#[allow(clippy::struct_field_names)]
+#[derive(Debug, clap::Args)]
+#[group(requires_all = ["navidrome_url", "navidrome_username", "navidrome_password"], multiple = true)]
+struct NavidromeArgs {
+    /// Navidrome's address, such as `http://localhost:4533`. Enables library checks and rescans.
+    #[arg(long, env = "DELUNE_NAVIDROME_URL")]
+    navidrome_url: Option<String>,
+    /// A Navidrome admin account (rescans need admin rights).
+    #[arg(long, env = "DELUNE_NAVIDROME_USERNAME")]
+    navidrome_username: Option<String>,
+    #[arg(long, env = "DELUNE_NAVIDROME_PASSWORD", hide_env_values = true)]
+    navidrome_password: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve { bind, data_dir, soulseek } => {
+        Command::Serve { bind, data_dir, soulseek, library, navidrome } => {
             init_logging();
-            let config = delune_server::ServerConfig { soulseek: soulseek.into_config(), data_dir };
+            let template = delune_library::Template::parse(&library.naming_template)
+                .map_err(|e| anyhow::anyhow!("DELUNE_NAMING_TEMPLATE is invalid: {e}"))?;
+            let navidrome = match (navidrome.navidrome_url, navidrome.navidrome_username, navidrome.navidrome_password)
+            {
+                (Some(url), Some(username), Some(password)) => {
+                    Some((url, delune_navidrome::Credentials { username, password }))
+                }
+                _ => None,
+            };
+            let config = delune_server::ServerConfig {
+                soulseek: soulseek.into_config(),
+                data_dir,
+                library: delune_server::review::LibrarySettings {
+                    library_dir: library.library_dir,
+                    template,
+                    options: delune_library::NamingOptions::default(),
+                },
+                navidrome,
+            };
             delune_server::serve(bind, config).await?;
         }
         // No logging to stdout here: it would corrupt the terminal UI.

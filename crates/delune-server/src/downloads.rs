@@ -19,11 +19,13 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use delune_core::api::{ApiError, DownloadJob, DownloadJobRequest, FileStatus, JobFile, JobStatus};
+use delune_core::api::{ApiError, DownloadJob, DownloadJobRequest, FileStatus, JobFile, JobStatus, ReviewState};
+use delune_library::import::ReleaseContext;
 use delune_soulseek::{DownloadRequest, DownloadState};
 use tokio::sync::watch;
 
 use crate::AppState;
+use crate::review::{self, Checked, LibrarySettings};
 
 /// All jobs plus the cancel switches of the ones still running.
 #[derive(Debug, Default)]
@@ -36,6 +38,7 @@ pub struct Downloads {
 struct Entry {
     job: DownloadJob,
     cancel: watch::Sender<bool>,
+    checked: Option<Checked>,
 }
 
 impl Downloads {
@@ -52,6 +55,25 @@ impl Downloads {
         if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
             f(&mut entry.job);
             entry.job.refresh();
+        }
+    }
+
+    /// Status, review state and the review itself, when there is one.
+    pub fn review(&self, id: &str) -> Option<(JobStatus, ReviewState, Option<Checked>)> {
+        self.lock().iter().find(|e| e.job.id == id).map(|e| (e.job.status, e.job.review, e.checked.clone()))
+    }
+
+    pub fn mark_imported(&self, id: &str) {
+        if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
+            entry.job.status = JobStatus::Imported;
+            entry.checked = None;
+        }
+    }
+
+    fn set_review(&self, id: &str, state: ReviewState, checked: Option<Checked>) {
+        if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
+            entry.job.review = state;
+            entry.checked = checked;
         }
     }
 
@@ -113,13 +135,23 @@ pub async fn create(State(app): State<AppState>, Json(request): Json<DownloadJob
             .collect(),
         bytes: 0,
         total_bytes: request.files.iter().map(|f| f.size).sum(),
+        review: ReviewState::Waiting,
     };
     let (cancel, cancel_rx) = watch::channel(false);
-    app.downloads.lock().push(Entry { job: job.clone(), cancel });
+    app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None });
     tracing::info!(%id, username = %request.username, folder = %request.folder, files = job.files.len(), "download job created");
 
+    let context = ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
     let downloads = app.downloads.clone();
-    tokio::spawn(run_job(downloads, client, id, request.username, job.files.clone(), staging, cancel_rx));
+    let library = app.library.clone();
+    let files = job.files.clone();
+    tokio::spawn(async move {
+        run_job(&downloads, client, &id, request.username, files, staging.clone(), cancel_rx).await;
+        let ready = downloads.review(&id).is_some_and(|(status, ..)| status == JobStatus::Ready);
+        if ready {
+            check_job(&downloads, &id, staging, context, library).await;
+        }
+    });
     (StatusCode::CREATED, Json(job)).into_response()
 }
 
@@ -143,10 +175,33 @@ pub async fn remove(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// Verify and plan a finished job so it can be reviewed.
+async fn check_job(
+    downloads: &Downloads,
+    id: &str,
+    staging: PathBuf,
+    context: ReleaseContext,
+    library: Arc<LibrarySettings>,
+) {
+    downloads.set_review(id, ReviewState::Checking, None);
+    let result = tokio::task::spawn_blocking(move || review::check(&staging, &context, &library)).await;
+    match result {
+        Ok(Ok(checked)) => {
+            tracing::info!(%id, tracks = checked.report.tracks.len(), blocked = ?checked.report.blocked_reason, "review ready");
+            downloads.set_review(id, ReviewState::Ready, Some(checked));
+        }
+        Ok(Err(error)) => {
+            tracing::warn!(%id, %error, "couldn't check downloaded files");
+            downloads.set_review(id, ReviewState::Failed, None);
+        }
+        Err(_) => downloads.set_review(id, ReviewState::Failed, None),
+    }
+}
+
 async fn run_job(
-    downloads: Arc<Downloads>,
+    downloads: &Downloads,
     client: delune_soulseek::Client,
-    id: String,
+    id: &str,
     username: String,
     files: Vec<JobFile>,
     staging: PathBuf,
@@ -164,7 +219,7 @@ async fn run_job(
         let mut state = download.state();
         loop {
             let current = state.borrow_and_update().clone();
-            downloads.update(&id, |job| apply(&mut job.files[index], &current));
+            downloads.update(id, |job| apply(&mut job.files[index], &current));
             if current.is_finished() {
                 break;
             }
@@ -172,14 +227,14 @@ async fn run_job(
                 changed = state.changed() => if changed.is_err() { break },
                 _ = cancel.changed() => {
                     download.cancel();
-                    downloads.update(&id, |job| job.status = JobStatus::Cancelled);
+                    downloads.update(id, |job| job.status = JobStatus::Cancelled);
                     return;
                 }
             }
         }
     }
     let status = downloads.lock().iter().find(|e| e.job.id == id).map(|e| e.job.status);
-    tracing::info!(%id, ?status, "download job finished");
+    tracing::info!(id, ?status, "download job finished");
 }
 
 fn apply(file: &mut JobFile, state: &DownloadState) {

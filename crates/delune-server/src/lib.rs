@@ -10,6 +10,7 @@
 pub mod artwork;
 pub mod downloads;
 pub mod naming;
+pub mod review;
 pub mod search;
 mod web;
 
@@ -39,11 +40,19 @@ pub struct ServerConfig {
     pub soulseek: Option<delune_soulseek::Config>,
     /// Where delune keeps its own files: staged downloads and, later, its database.
     pub data_dir: PathBuf,
+    pub library: review::LibrarySettings,
+    /// Navidrome to rescan after imports.
+    pub navidrome: Option<(String, delune_navidrome::Credentials)>,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { soulseek: None, data_dir: PathBuf::from("delune-data") }
+        Self {
+            soulseek: None,
+            data_dir: PathBuf::from("delune-data"),
+            library: review::LibrarySettings::default(),
+            navidrome: None,
+        }
     }
 }
 
@@ -56,6 +65,8 @@ pub struct AppState {
     pub artwork: Arc<artwork::ArtworkService>,
     pub downloads: Arc<downloads::Downloads>,
     pub data_dir: PathBuf,
+    pub library: Arc<review::LibrarySettings>,
+    pub navidrome: Option<delune_navidrome::Client>,
 }
 
 impl Default for AppState {
@@ -67,6 +78,8 @@ impl Default for AppState {
             artwork: artwork::service(),
             downloads: Arc::default(),
             data_dir: PathBuf::from("delune-data"),
+            library: Arc::default(),
+            navidrome: None,
         }
     }
 }
@@ -75,7 +88,16 @@ impl AppState {
     /// Start background services described by `config`. Needs a Tokio runtime.
     #[must_use]
     pub fn start(config: ServerConfig) -> Self {
-        let mut state = Self { data_dir: config.data_dir, ..Self::default() };
+        let navidrome =
+            config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
+                Ok(client) => Some(client),
+                Err(error) => {
+                    tracing::warn!(%error, "ignoring Navidrome settings");
+                    None
+                }
+            });
+        let mut state =
+            Self { data_dir: config.data_dir, library: Arc::new(config.library), navidrome, ..Self::default() };
         if let Some(slsk) = config.soulseek {
             state.soulseek_username = Some(slsk.username.clone());
             state.search_timeout = slsk.search_timeout;
@@ -96,6 +118,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/search", get(search::stream))
         .route("/api/v1/downloads", get(downloads::list).post(downloads::create))
         .route("/api/v1/downloads/{id}", delete(downloads::remove))
+        .route("/api/v1/downloads/{id}/review", get(review::report))
+        .route("/api/v1/downloads/{id}/import", post(review::import))
         .route("/api/v1/artwork", get(artwork::lookup))
         .route("/api/v1/artwork/image", get(artwork::image))
         .route("/api/v1/naming/tokens", get(naming::tokens))

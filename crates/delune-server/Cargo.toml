@@ -29,6 +29,7 @@ tracing = "0.1.44"
 delune-library = { version = "0.1.0-dev", path = "../delune-library" }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "query"] }
 url = "2.5.8"
+delune-navidrome = { version = "0.1.0-dev", path = "../delune-navidrome" }
 
 [dev-dependencies]
 bytes = "1.12.1"

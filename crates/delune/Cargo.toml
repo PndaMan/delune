@@ -16,6 +16,8 @@ workspace = true
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 delune-core = { version = "0.1.0-dev", path = "../delune-core" }
+delune-library = { version = "0.1.0-dev", path = "../delune-library" }
+delune-navidrome = { version = "0.1.0-dev", path = "../delune-navidrome" }
 delune-server = { version = "0.1.0-dev", path = "../delune-server" }
 delune-soulseek = { version = "0.1.0-dev", path = "../delune-soulseek" }
 delune-tui = { version = "0.1.0-dev", path = "../delune-tui" }

@@ -212,6 +212,64 @@ pub enum JobStatus {
     /// Some files couldn't be downloaded. The rest are kept.
     Failed,
     Cancelled,
+    /// Approved and moved into the library.
+    Imported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewState {
+    /// Waiting for the download to finish.
+    Waiting,
+    /// Decoding and analysing the files.
+    Checking,
+    Ready,
+    Failed,
+}
+
+/// One track as the review screen shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewTrack {
+    pub file: String,
+    /// Where it will go, relative to the library.
+    pub destination: String,
+    pub title: String,
+    pub artist: String,
+    pub track: u32,
+    pub disc: u32,
+    pub quality_label: Option<String>,
+    pub duration_secs: Option<u32>,
+    /// Highest frequency with real content, for lossless files.
+    pub cutoff_hz: Option<u32>,
+    pub suspect_transcode: bool,
+    /// What's wrong with this file, if anything, in plain language.
+    pub problem: Option<String>,
+}
+
+/// `GET /api/v1/downloads/{id}/review`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewReport {
+    pub album_artist: String,
+    pub album: String,
+    pub year: Option<u16>,
+    pub tracks: Vec<ReviewTrack>,
+    /// Destination of the cover image, if one will be imported.
+    pub cover: Option<String>,
+    pub warnings: Vec<String>,
+    /// Destinations that already exist in the library.
+    pub conflicts: Vec<String>,
+    /// The library folder delune imports into, when configured.
+    pub library_dir: Option<String>,
+    /// Why importing isn't possible right now, if it isn't.
+    pub blocked_reason: Option<String>,
+}
+
+/// `POST /api/v1/downloads/{id}/import`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportResult {
+    pub imported: u32,
+    pub folder: String,
+    pub scan_started: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,6 +310,7 @@ pub struct DownloadJob {
     pub files: Vec<JobFile>,
     pub bytes: u64,
     pub total_bytes: u64,
+    pub review: ReviewState,
 }
 
 impl DownloadJob {
@@ -259,7 +318,7 @@ impl DownloadJob {
     pub fn refresh(&mut self) {
         self.bytes = self.files.iter().map(|f| f.bytes).sum();
         self.total_bytes = self.files.iter().map(|f| f.size).sum();
-        if self.status == JobStatus::Cancelled {
+        if matches!(self.status, JobStatus::Cancelled | JobStatus::Imported) {
             return;
         }
         let all = |pred: fn(FileStatus) -> bool| self.files.iter().all(|f| pred(f.status));
@@ -391,6 +450,7 @@ mod tests {
             files: vec![file(FileStatus::Queued, 0), file(FileStatus::Waiting, 0)],
             bytes: 0,
             total_bytes: 0,
+            review: ReviewState::Waiting,
         };
         job.refresh();
         assert_eq!((job.status, job.total_bytes), (JobStatus::Queued, 20));

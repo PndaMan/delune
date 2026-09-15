@@ -60,6 +60,23 @@ Navidrome, from both the web UI and the TUI.
 - [x] Downloads screen with live progress; ready jobs listed in Review
 - [ ] Review screen actions: approve, reject, import
 
+## Requested next (from Aidan, 2026-09-15)
+
+**Accounts and requests: "Overseerr for Soulseek and streaming"**
+- [ ] Sign in with Navidrome credentials; sessions; sign out
+- [ ] Roles and permissions: admin (from Navidrome admin), and per-user rights to search,
+      request, download directly, approve imports, enable streaming sources, manage users
+- [ ] Requests: people ask for an album; admins or permitted users approve; request status
+      visible to the requester (pending, approved, downloading, in library, declined)
+- [ ] Profile menu at the bottom of the rail (avatar, role, connection status, sign out)
+      replacing the moon indicator
+- [ ] Per-user history and notifications
+
+**Search and release view**
+- [ ] Release view fits the screen with no scrollbars (adaptive, multi-column tracklist)
+- [ ] Results show "Downloading" / "Downloaded" when that folder or album is already in progress
+- [ ] Results show "In library" from Navidrome, and which tracks are missing for partial albums
+
 ## After v0.1
 
 - Settings screens with full naming, lyrics, artwork and transcoding options
