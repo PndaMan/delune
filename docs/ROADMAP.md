@@ -85,7 +85,8 @@ Navidrome, from both the web UI and the TUI.
 - [x] Wishlist: saved searches re-run on a schedule, with auto-download (for review) when a good enough match appears
 - [x] Search filters (words and -exclusions, format, quality tier, free slot) and hidden people
 - [x] Transfer controls: stop, resume, retry elsewhere, global upload and download speed limits
-- [ ] Reorder the download queue; bandwidth schedule
+- [x] Speed schedule: different upload and download limits between two times of day
+- [ ] Reorder waiting downloads (peers own their queues, so this means holding files back locally)
 - [~] Distributed search network: joins as a leaf so shared files are found (relaying to children later)
 - [x] Statistics: shared, running, transferred (kept across restarts)
 

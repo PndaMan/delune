@@ -594,6 +594,37 @@ pub struct SharingSettings {
     pub refuse_leechers: bool,
     /// People who can't download from us.
     pub banned: Vec<String>,
+    /// Different speed limits for part of each day.
+    #[serde(default)]
+    pub schedule: Option<SpeedSchedule>,
+}
+
+/// Speed limits that replace the usual ones between two times of day, for
+/// example keeping transfers slow while people are home in the evening.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpeedSchedule {
+    /// Minutes after midnight the window opens, in `time_zone`.
+    pub start_minute: u16,
+    /// Minutes after midnight it closes; before `start_minute` means it runs past midnight.
+    pub end_minute: u16,
+    /// Upload cap in KiB/s during the window; none means no cap.
+    pub upload_limit_kib: Option<u32>,
+    /// Download cap in KiB/s during the window; none means no cap.
+    pub download_limit_kib: Option<u32>,
+    /// IANA time zone the times are in, such as `Europe/London`.
+    pub time_zone: String,
+}
+
+impl SpeedSchedule {
+    /// Whether `minute` (after local midnight) falls inside the window.
+    #[must_use]
+    pub fn covers(&self, minute: u16) -> bool {
+        if self.start_minute <= self.end_minute {
+            (self.start_minute..self.end_minute).contains(&minute)
+        } else {
+            minute >= self.start_minute || minute < self.end_minute
+        }
+    }
 }
 
 impl Default for SharingSettings {
@@ -607,6 +638,7 @@ impl Default for SharingSettings {
             download_limit_kib: None,
             refuse_leechers: false,
             banned: Vec::new(),
+            schedule: None,
         }
     }
 }
@@ -637,6 +669,9 @@ pub struct SharingStatus {
     /// Unix seconds.
     pub last_scan: Option<u64>,
     pub error: Option<String>,
+    /// Whether the speed schedule's limits are in force right now.
+    #[serde(default)]
+    pub scheduled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -862,6 +897,25 @@ pub enum SearchEvent {
 mod tests {
     use super::*;
     use crate::Codec;
+
+    #[test]
+    fn speed_schedules_can_run_past_midnight() {
+        let mut schedule = SpeedSchedule {
+            start_minute: 18 * 60,
+            end_minute: 23 * 60,
+            upload_limit_kib: Some(100),
+            download_limit_kib: None,
+            time_zone: "UTC".into(),
+        };
+        assert!(schedule.covers(18 * 60));
+        assert!(!schedule.covers(23 * 60));
+        assert!(!schedule.covers(60));
+        schedule.end_minute = 7 * 60;
+        assert!(schedule.covers(23 * 60 + 59));
+        assert!(schedule.covers(0));
+        assert!(!schedule.covers(7 * 60));
+        assert!(!schedule.covers(12 * 60));
+    }
 
     fn candidate(id: &str, quality: Option<Quality>) -> Candidate {
         Candidate {

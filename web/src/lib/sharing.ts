@@ -11,6 +11,16 @@ export type SharingSettings = {
   download_limit_kib: number | null
   refuse_leechers: boolean
   banned: string[]
+  schedule: SpeedSchedule | null
+}
+
+/** Speed limits that replace the usual ones between two times of day. */
+export type SpeedSchedule = {
+  start_minute: number
+  end_minute: number
+  upload_limit_kib: number | null
+  download_limit_kib: number | null
+  time_zone: string
 }
 
 export type SoulseekStats = {
@@ -25,11 +35,16 @@ export type SoulseekStats = {
 }
 
 export function useSoulseekStats() {
-  return useQuery({ queryKey: ["soulseek-stats"], queryFn: () => call<SoulseekStats>("GET", "/soulseek/stats"), refetchInterval: 5_000 })
+  return useQuery({
+    queryKey: ["soulseek-stats"],
+    queryFn: () => call<SoulseekStats>("GET", "/soulseek/stats"),
+    refetchInterval: 5_000,
+  })
 }
 
 export type SharingStatus = {
   settings: SharingSettings
+  scheduled: boolean
   library_dir: string | null
   scanning: boolean
   files: number

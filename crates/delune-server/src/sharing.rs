@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::accounts::CurrentUser;
 
+const SCHEDULE_CHECK_EVERY: Duration = Duration::from_secs(30);
 const RESCAN_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 /// Non-audio files worth sharing alongside the music.
 const EXTRAS: &[&str] = &["jpg", "jpeg", "png", "webp", "cue", "log", "m3u", "m3u8", "txt", "nfo", "pdf"];
@@ -49,6 +50,7 @@ struct Inner {
     folders: u32,
     last_scan: Option<u64>,
     error: Option<String>,
+    scheduled: bool,
 }
 
 /// Audio properties remembered between scans.
@@ -100,6 +102,7 @@ impl Sharing {
             folders: inner.folders,
             last_scan: inner.last_scan,
             error: inner.error.clone(),
+            scheduled: inner.scheduled,
         }
     }
 
@@ -113,22 +116,50 @@ impl Sharing {
     }
 }
 
-fn limits(settings: &SharingSettings) -> UploadLimits {
+/// Whether the speed schedule is in force right now.
+fn schedule_active(settings: &SharingSettings) -> bool {
+    let Some(schedule) = &settings.schedule else { return false };
+    let zone = jiff::tz::TimeZone::get(&schedule.time_zone).unwrap_or_else(|_| jiff::tz::TimeZone::system());
+    let time = jiff::Timestamp::now().to_zoned(zone).time();
+    let minute = u16::from(time.hour().unsigned_abs()) * 60 + u16::from(time.minute().unsigned_abs());
+    schedule.covers(minute)
+}
+
+/// Upload and download caps in bytes per second, from the schedule when it's in force.
+fn speed_caps(settings: &SharingSettings, scheduled: bool) -> (Option<u64>, Option<u64>) {
+    let (upload, download) = match (&settings.schedule, scheduled) {
+        (Some(schedule), true) => (schedule.upload_limit_kib, schedule.download_limit_kib),
+        _ => (settings.speed_limit_kib, settings.download_limit_kib),
+    };
+    let bytes = |kib: Option<u32>| kib.filter(|&k| k > 0).map(|k| u64::from(k) * 1024);
+    (bytes(upload), bytes(download))
+}
+
+fn limits(settings: &SharingSettings, upload_cap: Option<u64>) -> UploadLimits {
     UploadLimits {
         slots: usize::try_from(settings.slots.clamp(1, 20)).unwrap_or(3),
         queue_per_user: usize::try_from(settings.queue_per_user.clamp(1, 10_000)).unwrap_or(200),
-        bytes_per_second: settings.speed_limit_kib.filter(|&k| k > 0).map(|k| u64::from(k) * 1024),
+        bytes_per_second: upload_cap,
         refuse_leechers: settings.refuse_leechers,
     }
+}
+
+/// Apply the speed limits in force now.
+fn apply_speeds(app: &AppState, settings: &SharingSettings) {
+    let scheduled = schedule_active(settings);
+    app.sharing.lock().scheduled = scheduled;
+    let Some(client) = &app.soulseek else { return };
+    let (upload, download) = speed_caps(settings, scheduled);
+    client.set_upload_limits(limits(settings, upload));
+    client.set_download_limit(download);
 }
 
 /// Apply settings to the Soulseek client and (re)index if sharing is on. Call at
 /// startup, after settings change, and after imports.
 pub fn refresh(app: &AppState) {
-    let Some(client) = app.soulseek.clone() else { return };
     let settings = app.sharing.settings();
-    client.set_upload_limits(limits(&settings));
-    client.set_download_limit(settings.download_limit_kib.filter(|&k| k > 0).map(|k| u64::from(k) * 1024));
+    apply_speeds(app, &settings);
+    let Some(client) = app.soulseek.clone() else { return };
     client.set_banned(settings.banned.iter().cloned().collect::<HashSet<_>>());
 
     let library = app.library.library_dir.clone();
@@ -184,6 +215,19 @@ pub fn refresh(app: &AppState) {
 /// Rescan periodically while sharing is on. Call once at startup.
 pub fn start(app: &AppState) {
     refresh(app);
+    let schedule_app = app.clone();
+    tokio::spawn(async move {
+        // Switch speed limits when the schedule's window opens or closes.
+        let mut every = tokio::time::interval(SCHEDULE_CHECK_EVERY);
+        loop {
+            every.tick().await;
+            let settings = schedule_app.sharing.settings();
+            if settings.schedule.is_some() && schedule_active(&settings) != schedule_app.sharing.lock().scheduled {
+                tracing::info!(scheduled = !schedule_app.sharing.lock().scheduled, "speed schedule changed limits");
+                apply_speeds(&schedule_app, &settings);
+            }
+        }
+    });
     let app = app.clone();
     tokio::spawn(async move {
         let mut every = tokio::time::interval_at(tokio::time::Instant::now() + RESCAN_EVERY, RESCAN_EVERY);
@@ -326,6 +370,21 @@ pub async fn update(
     settings.slots = settings.slots.clamp(1, 20);
     settings.queue_per_user = settings.queue_per_user.clamp(1, 10_000);
     settings.banned = settings.banned.into_iter().map(|b| b.trim().to_owned()).filter(|b| !b.is_empty()).collect();
+    if let Some(schedule) = &settings.schedule {
+        if schedule.start_minute >= 24 * 60
+            || schedule.end_minute >= 24 * 60
+            || schedule.start_minute == schedule.end_minute
+        {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "bad-schedule",
+                "Choose two different times of day for the schedule.",
+            );
+        }
+        if jiff::tz::TimeZone::get(&schedule.time_zone).is_err() {
+            return error(StatusCode::BAD_REQUEST, "bad-time-zone", "The schedule's time zone isn't one delune knows.");
+        }
+    }
     settings.banned.sort();
     settings.banned.dedup();
 
@@ -512,6 +571,22 @@ mod tests {
         assert!(cache.exists(), "properties are cached for the next scan");
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_file(cache).unwrap();
+    }
+
+    #[test]
+    fn scheduled_limits_replace_the_usual_ones_only_in_their_window() {
+        let mut settings =
+            SharingSettings { speed_limit_kib: Some(1000), download_limit_kib: None, ..SharingSettings::default() };
+        assert_eq!(speed_caps(&settings, true), (Some(1_024_000), None));
+        settings.schedule = Some(delune_core::api::SpeedSchedule {
+            start_minute: 0,
+            end_minute: 1,
+            upload_limit_kib: None,
+            download_limit_kib: Some(10),
+            time_zone: "Europe/London".into(),
+        });
+        assert_eq!(speed_caps(&settings, false), (Some(1_024_000), None));
+        assert_eq!(speed_caps(&settings, true), (None, Some(10_240)));
     }
 
     #[test]
