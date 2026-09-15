@@ -120,6 +120,17 @@ export function SharingSettingsPanel() {
             className={input}
           />
         </Field>
+        <Field label="Albums downloading at once" hint="The rest wait their turn. Leave empty for no limit.">
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={settings.downloads_at_once ?? ""}
+            placeholder="No limit"
+            onChange={(e) => edit({ downloads_at_once: e.target.value ? Number(e.target.value) : null })}
+            className={input}
+          />
+        </Field>
         <label className="flex cursor-pointer items-start gap-3 self-end pb-2">
           <Switch
             checked={settings.refuse_leechers}

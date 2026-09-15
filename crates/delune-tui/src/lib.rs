@@ -660,6 +660,8 @@ mod tests {
             requested_by: None,
             imported_to: None,
             imported_at: None,
+            priority: 0,
+            waiting_for_slot: None,
         }
     }
 

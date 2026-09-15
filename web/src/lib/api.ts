@@ -74,7 +74,8 @@ export type Candidate = {
   queue_length: number
 }
 
-export type FileStatus = "waiting" | "connecting" | "queued" | "starting" | "transferring" | "done" | "failed" | "cancelled"
+export type FileStatus =
+  "waiting" | "connecting" | "queued" | "starting" | "transferring" | "done" | "failed" | "cancelled"
 export type JobStatus = "queued" | "downloading" | "ready" | "failed" | "cancelled" | "imported"
 export type ReviewState = "waiting" | "checking" | "ready" | "failed"
 
@@ -134,6 +135,9 @@ export type DownloadJob = {
   /** Folder it was imported to, relative to the library, and when. */
   imported_to: string | null
   imported_at: number | null
+  priority: number
+  /** While held back by the limit on downloads at once: its place in line, from 1. */
+  waiting_for_slot: number | null
 }
 
 export type DownloadJobRequest = {
@@ -178,8 +182,7 @@ export type NamingOptions = {
 }
 
 export type NamingPreview =
-  | { examples: { label: string; path: string }[] }
-  | { error: { position: number; message: string } }
+  { examples: { label: string; path: string }[] } | { error: { position: number; message: string } }
 
 export const PROVIDER_NAMES: Record<Provider, string> = {
   soulseek: "Soulseek",
@@ -223,7 +226,13 @@ export type SoulseekUser = {
   files: number
   folders: number
   country: string | null
-  profile: { description: string; has_picture: boolean; queue_size: number; slots_free: boolean; total_uploads: number } | null
+  profile: {
+    description: string
+    has_picture: boolean
+    queue_size: number
+    slots_free: boolean
+    total_uploads: number
+  } | null
 }
 
 export type ShareFolder = {

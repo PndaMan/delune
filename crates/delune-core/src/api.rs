@@ -320,6 +320,12 @@ pub struct DownloadJob {
     pub imported_to: Option<String>,
     #[serde(default)]
     pub imported_at: Option<u64>,
+    /// Jobs with a higher priority start first when only a few may download at once.
+    #[serde(default)]
+    pub priority: u64,
+    /// While held back by the limit on downloads at once: its place in line, from 1.
+    #[serde(default)]
+    pub waiting_for_slot: Option<u32>,
 }
 
 impl DownloadJob {
@@ -592,6 +598,9 @@ pub struct SharingSettings {
     /// Refuse uploads to people who share nothing themselves.
     #[serde(default)]
     pub refuse_leechers: bool,
+    /// Albums downloading at once; the rest wait their turn. None means no limit.
+    #[serde(default)]
+    pub downloads_at_once: Option<u32>,
     /// People who can't download from us.
     pub banned: Vec<String>,
     /// Different speed limits for part of each day.
@@ -637,6 +646,7 @@ impl Default for SharingSettings {
             speed_limit_kib: None,
             download_limit_kib: None,
             refuse_leechers: false,
+            downloads_at_once: None,
             banned: Vec::new(),
             schedule: None,
         }
@@ -1010,6 +1020,8 @@ mod tests {
             requested_by: None,
             imported_to: None,
             imported_at: None,
+            priority: 0,
+            waiting_for_slot: None,
         };
         job.refresh();
         assert_eq!((job.status, job.total_bytes), (JobStatus::Queued, 20));

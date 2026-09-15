@@ -144,8 +144,9 @@ fn limits(settings: &SharingSettings, upload_cap: Option<u64>) -> UploadLimits {
     }
 }
 
-/// Apply the speed limits in force now.
+/// Apply the speed limits in force now, and the limit on downloads at once.
 fn apply_speeds(app: &AppState, settings: &SharingSettings) {
+    app.downloads.set_slots(settings.downloads_at_once);
     let scheduled = schedule_active(settings);
     app.sharing.lock().scheduled = scheduled;
     let Some(client) = &app.soulseek else { return };
@@ -369,6 +370,7 @@ pub async fn update(
     }
     settings.slots = settings.slots.clamp(1, 20);
     settings.queue_per_user = settings.queue_per_user.clamp(1, 10_000);
+    settings.downloads_at_once = settings.downloads_at_once.filter(|&n| n > 0).map(|n| n.min(100));
     settings.banned = settings.banned.into_iter().map(|b| b.trim().to_owned()).filter(|b| !b.is_empty()).collect();
     if let Some(schedule) = &settings.schedule {
         if schedule.start_minute >= 24 * 60

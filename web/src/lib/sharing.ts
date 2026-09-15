@@ -10,6 +10,7 @@ export type SharingSettings = {
   speed_limit_kib: number | null
   download_limit_kib: number | null
   refuse_leechers: boolean
+  downloads_at_once: number | null
   banned: string[]
   schedule: SpeedSchedule | null
 }

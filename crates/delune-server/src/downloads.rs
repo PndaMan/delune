@@ -6,11 +6,14 @@
 //! `<data dir>/staging/<job id>/`.
 //! Nothing touches the music library here; a finished job waits for review.
 //!
+//! When only a few jobs may download at once, the rest wait for a slot in order
+//! of priority, then age.
+//!
 //! Jobs are saved to `<data dir>/jobs.json` whenever they change, and unfinished
 //! jobs resume on startup from whatever is already on disk.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -23,7 +26,7 @@ use axum::{
 use delune_core::api::{ApiError, DownloadJob, DownloadJobRequest, FileStatus, JobFile, JobStatus, ReviewState};
 use delune_library::import::ReleaseContext;
 use delune_soulseek::{DownloadRequest, DownloadState};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
@@ -37,6 +40,10 @@ pub struct Downloads {
     /// Where jobs are saved; `None` keeps them in memory only (tests).
     store: Option<PathBuf>,
     dirty: AtomicBool,
+    /// Jobs downloading at once; 0 means no limit.
+    slots: AtomicUsize,
+    /// Wakes jobs waiting for a slot when one frees up or the order changes.
+    slot_freed: Notify,
 }
 
 #[derive(Debug)]
@@ -44,6 +51,16 @@ struct Entry {
     job: DownloadJob,
     cancel: watch::Sender<bool>,
     checked: Option<Checked>,
+    slot: Slot,
+}
+
+/// Where a job stands with the limit on downloads at once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Slot {
+    #[default]
+    None,
+    Waiting,
+    Holding,
 }
 
 impl Downloads {
@@ -76,7 +93,8 @@ impl Downloads {
                 if job.status == JobStatus::Ready {
                     job.review = ReviewState::Waiting;
                 }
-                Entry { job, cancel: watch::channel(false).0, checked: None }
+                job.waiting_for_slot = None;
+                Entry { job, cancel: watch::channel(false).0, checked: None, slot: Slot::None }
             })
             .collect::<Vec<_>>();
         if !entries.is_empty() {
@@ -87,7 +105,99 @@ impl Downloads {
             counter: AtomicU32::new(0),
             store: Some(store),
             dirty: AtomicBool::new(false),
+            slots: AtomicUsize::new(0),
+            slot_freed: Notify::new(),
         }
+    }
+
+    /// Change how many jobs may download at once; `None` or 0 means no limit.
+    pub fn set_slots(&self, slots: Option<u32>) {
+        let slots = slots.map_or(0, |s| usize::try_from(s).unwrap_or(usize::MAX));
+        if self.slots.swap(slots, Ordering::Relaxed) != slots {
+            self.wake_waiting();
+        }
+    }
+
+    fn wake_waiting(&self) {
+        self.slot_freed.notify_waiters();
+    }
+
+    /// Take a slot for `id` if one is free and nothing waiting is ahead of it;
+    /// otherwise mark it waiting. Also renumbers the line.
+    fn try_take_slot(&self, id: &str) -> bool {
+        let limit = self.slots.load(Ordering::Relaxed);
+        let mut jobs = self.lock();
+        let holding = jobs.iter().filter(|e| e.slot == Slot::Holding).count();
+        if let Some(entry) = jobs.iter_mut().find(|e| e.job.id == id)
+            && entry.slot == Slot::None
+        {
+            entry.slot = Slot::Waiting;
+        }
+        let mut line: Vec<usize> = (0..jobs.len()).filter(|&i| jobs[i].slot == Slot::Waiting).collect();
+        line.sort_by(|&a, &b| {
+            let (a, b) = (&jobs[a].job, &jobs[b].job);
+            b.priority.cmp(&a.priority).then(a.created_at.cmp(&b.created_at)).then(a.id.cmp(&b.id))
+        });
+        let free = if limit == 0 { usize::MAX } else { limit.saturating_sub(holding) };
+        let mut taken = false;
+        for (place, &i) in line.iter().enumerate() {
+            let entry = &mut jobs[i];
+            if place < free && entry.job.id == id {
+                entry.slot = Slot::Holding;
+                entry.job.waiting_for_slot = None;
+                taken = true;
+            } else {
+                // Places count from the jobs that can't start yet.
+                let place = place.saturating_sub(free.min(line.len())) + 1;
+                entry.job.waiting_for_slot = Some(u32::try_from(place).unwrap_or(u32::MAX));
+            }
+        }
+        drop(jobs);
+        self.changed();
+        taken
+    }
+
+    /// Give up `id`'s slot, or its place in line.
+    fn release_slot(&self, id: &str) {
+        if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
+            entry.slot = Slot::None;
+            entry.job.waiting_for_slot = None;
+        }
+        self.changed();
+        self.wake_waiting();
+    }
+
+    /// Wait until `id` may download. False if it was cancelled while waiting.
+    async fn wait_for_slot(&self, id: &str, cancel: &mut watch::Receiver<bool>) -> bool {
+        loop {
+            let freed = self.slot_freed.notified();
+            tokio::pin!(freed);
+            freed.as_mut().enable();
+            if self.try_take_slot(id) {
+                return true;
+            }
+            tokio::select! {
+                () = &mut freed => {}
+                _ = cancel.changed() => {
+                    self.release_slot(id);
+                    return false;
+                }
+            }
+        }
+    }
+
+    /// Move a waiting job to the front of the line.
+    fn prioritise(&self, id: &str) -> bool {
+        let mut jobs = self.lock();
+        let top = jobs.iter().map(|e| e.job.priority).max().unwrap_or(0);
+        let Some(entry) = jobs.iter_mut().find(|e| e.job.id == id && e.slot == Slot::Waiting) else {
+            return false;
+        };
+        entry.job.priority = top + 1;
+        drop(jobs);
+        self.changed();
+        self.wake_waiting();
+        true
     }
 
     /// Write jobs to disk if anything changed since the last save.
@@ -244,9 +354,11 @@ pub fn begin(
         requested_by: Some(requested_by.to_owned()),
         imported_to: None,
         imported_at: None,
+        priority: 0,
+        waiting_for_slot: None,
     };
     let (cancel, cancel_rx) = watch::channel(false);
-    app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None });
+    app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None, slot: Slot::None });
     app.downloads.changed();
     tracing::info!(%id, username = %request.username, folder = %request.folder, files = job.files.len(), "download job created");
     start(app, client, &job, cancel_rx);
@@ -261,7 +373,13 @@ fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, can
     let library = app.library.clone();
     let (id, username, files) = (job.id.clone(), job.username.clone(), job.files.clone());
     tokio::spawn(async move {
+        let mut cancel = cancel;
+        if !downloads.wait_for_slot(&id, &mut cancel).await {
+            downloads.update(&id, |job| job.status = JobStatus::Cancelled);
+            return;
+        }
         run_job(&downloads, client, &id, username, files, staging.clone(), cancel).await;
+        downloads.release_slot(&id);
         let ready = downloads.review(&id).is_some_and(|(status, ..)| status == JobStatus::Ready);
         if ready {
             check_job(&downloads, &id, staging, context, library).await;
@@ -347,6 +465,18 @@ pub async fn resume_one(State(app): State<AppState>, user: CurrentUser, UrlPath(
     Json(job).into_response()
 }
 
+/// `POST /api/v1/downloads/{id}/prioritise`: start this waiting download next.
+pub async fn prioritise(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    if app.downloads.owner(&id).is_none_or(|owner| !user.can_see(owner.as_deref())) {
+        return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
+    }
+    if app.downloads.prioritise(&id) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        error(StatusCode::CONFLICT, "not-waiting", "That download isn't waiting for a turn.")
+    }
+}
+
 /// `DELETE /api/v1/downloads/{id}`: cancel if running, remove staged files, forget the job.
 pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
     let removed = {
@@ -357,6 +487,7 @@ pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
     };
     app.downloads.changed();
+    app.downloads.wake_waiting();
     let _ = entry.cancel.send(true);
     // Job ids are generated here, so this path can't escape the staging folder.
     let staging = app.data_dir.join("staging").join(&entry.job.id);
@@ -534,6 +665,8 @@ mod tests {
             requested_by: None,
             imported_to: None,
             imported_at: None,
+            priority: 0,
+            waiting_for_slot: None,
         }];
         std::fs::write(dir.join("jobs.json"), serde_json::to_vec(&saved).unwrap()).unwrap();
 
@@ -550,6 +683,82 @@ mod tests {
         downloads.save_if_changed();
         assert_eq!(Downloads::open(&dir).list()[0].files[1].status, FileStatus::Done);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn waiting_job(id: &str, created_at: u64) -> Entry {
+        Entry {
+            job: DownloadJob {
+                id: id.into(),
+                username: "peer".into(),
+                folder: "x".into(),
+                title: id.into(),
+                parent: None,
+                created_at,
+                status: JobStatus::Queued,
+                files: vec![],
+                bytes: 0,
+                total_bytes: 0,
+                review: ReviewState::Waiting,
+                requested_by: None,
+                imported_to: None,
+                imported_at: None,
+                priority: 0,
+                waiting_for_slot: None,
+            },
+            cancel: watch::channel(false).0,
+            checked: None,
+            slot: Slot::None,
+        }
+    }
+
+    #[tokio::test]
+    async fn jobs_take_turns_when_only_some_may_download() {
+        let downloads = Arc::new(Downloads::default());
+        downloads.set_slots(Some(1));
+        downloads.lock().extend([waiting_job("a", 1), waiting_job("b", 2), waiting_job("c", 3)]);
+        let place = |id: &str| downloads.list().into_iter().find(|j| j.id == id).unwrap().waiting_for_slot;
+
+        assert!(downloads.try_take_slot("a"));
+        assert!(!downloads.try_take_slot("c"));
+        assert!(!downloads.try_take_slot("b"));
+        assert_eq!((place("a"), place("b"), place("c")), (None, Some(1), Some(2)));
+
+        // Moving c to the front lets it start before b once a finishes.
+        assert!(downloads.prioritise("c"));
+        assert!(!downloads.prioritise("a"), "a is downloading, not waiting");
+        let ((_keep_b, mut cancel_b), (_keep_c, mut cancel_c)) = (watch::channel(false), watch::channel(false));
+        let (d, e) = (downloads.clone(), downloads.clone());
+        let b = tokio::spawn(async move { d.wait_for_slot("b", &mut cancel_b).await });
+        let c = tokio::spawn(async move { e.wait_for_slot("c", &mut cancel_c).await });
+        tokio::task::yield_now().await;
+        assert!(!b.is_finished() && !c.is_finished());
+        downloads.release_slot("a");
+        assert!(c.await.unwrap());
+        assert!(!b.is_finished());
+        assert_eq!(place("b"), Some(1));
+
+        // Raising the limit lets b start too.
+        downloads.set_slots(None);
+        assert!(b.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_waiting_job_leaves_the_line() {
+        let downloads = Downloads::default();
+        downloads.set_slots(Some(1));
+        downloads.lock().extend([waiting_job("a", 1), waiting_job("b", 2)]);
+        assert!(downloads.try_take_slot("a"));
+        let (cancel, mut cancel_rx) = watch::channel(false);
+        let waiting = downloads.wait_for_slot("b", &mut cancel_rx);
+        tokio::pin!(waiting);
+        tokio::select! {
+            biased;
+            _ = &mut waiting => panic!("b started while a held the only slot"),
+            () = tokio::task::yield_now() => {}
+        }
+        cancel.send(true).unwrap();
+        assert!(!waiting.await);
+        assert_eq!(downloads.lock()[1].slot, Slot::None);
     }
 
     #[test]

@@ -1,5 +1,15 @@
 import { Link } from "@tanstack/react-router"
-import { ChevronDown, CircleAlert, CircleCheck, LoaderCircle, Pause, Play, Search, Trash2 } from "lucide-react"
+import {
+  ArrowUpToLine,
+  ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  LoaderCircle,
+  Pause,
+  Play,
+  Search,
+  Trash2,
+} from "lucide-react"
 import { useState } from "react"
 
 import { Cover } from "@/components/cover"
@@ -32,7 +42,11 @@ export function DownloadsPage() {
         <EmptyState
           illumination={0.25}
           title="Nothing downloading"
-          action={<Button nativeButton={false} render={<Link to="/" search={{}} />}>Find an album</Button>}
+          action={
+            <Button nativeButton={false} render={<Link to="/" search={{}} />}>
+              Find an album
+            </Button>
+          }
         >
           Open a release from search and choose Download for review. Its files arrive here and move to Review once
           they're all in.
@@ -69,7 +83,9 @@ export function JobCard({ job }: { job: DownloadJob }) {
           <p className="truncate text-sm text-muted-foreground">
             {artwork.data?.artist ?? job.parent}
             {requester && <span className="text-muted-foreground/70">, for {requester}</span>}
-            <span className="sm:hidden">{running || job.status === "failed" ? `, ${Math.round(progress * 100)}%` : ""}</span>
+            <span className="sm:hidden">
+              {running || job.status === "failed" ? `, ${Math.round(progress * 100)}%` : ""}
+            </span>
           </p>
           <p
             className={cn(
@@ -107,6 +123,18 @@ export function JobCard({ job }: { job: DownloadJob }) {
               title="Find another copy"
             >
               <Search />
+            </Button>
+          )}
+          {job.waiting_for_slot !== null && job.waiting_for_slot > 1 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => toggle.mutate({ id: job.id, action: "prioritise" })}
+              disabled={toggle.isPending}
+              aria-label="Start next"
+              title="Start next"
+            >
+              <ArrowUpToLine />
             </Button>
           )}
           {(running || stopped) && (
@@ -147,7 +175,9 @@ export function JobCard({ job }: { job: DownloadJob }) {
       {confirming && (
         <div className="flex flex-wrap items-center gap-3 border-t bg-destructive/8 px-4 py-3 sm:px-5">
           <p className="min-w-0 flex-1 text-[14px]">
-            {running ? "Cancel this download and delete what has arrived?" : "Remove this download and delete its files?"}
+            {running
+              ? "Cancel this download and delete what has arrived?"
+              : "Remove this download and delete its files?"}
           </p>
           <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
             Keep it
@@ -208,7 +238,11 @@ function FileRow({ file }: { file: JobFile }) {
       <span
         className={cn(
           "text-right text-[13px] sm:text-left",
-          file.status === "done" ? "text-q-lossless" : file.status === "failed" ? "text-destructive" : "text-muted-foreground",
+          file.status === "done"
+            ? "text-q-lossless"
+            : file.status === "failed"
+              ? "text-destructive"
+              : "text-muted-foreground",
         )}
       >
         {file.status === "transferring" ? `${pct}%` : FILE_STATUS[file.status]}

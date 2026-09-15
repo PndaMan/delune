@@ -86,7 +86,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Search filters (words and -exclusions, format, quality tier, free slot) and hidden people
 - [x] Transfer controls: stop, resume, retry elsewhere, global upload and download speed limits
 - [x] Speed schedule: different upload and download limits between two times of day
-- [ ] Reorder waiting downloads (peers own their queues, so this means holding files back locally)
+- [x] Limit albums downloading at once; the rest wait in line and can be moved to the front
 - [~] Distributed search network: joins as a leaf so shared files are found (relaying to children later)
 - [x] Statistics: shared, running, transferred (kept across restarts)
 

@@ -34,7 +34,7 @@ export function useStartDownload() {
 export function useToggleDownload() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: "stop" | "resume" }) => {
+    mutationFn: async ({ id, action }: { id: string; action: "stop" | "resume" | "prioritise" }) => {
       const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}/${action}`, { method: "POST" })
       if (!res.ok) throw await toApiError(res)
     },
@@ -93,6 +93,11 @@ export function describeJob(job: DownloadJob): string {
     case "downloading":
       return `Downloading track ${Math.min(done + 1, tracks.length)} of ${tracks.length} from ${job.username}`
     case "queued":
+      if (job.waiting_for_slot) {
+        return job.waiting_for_slot === 1
+          ? "Next to start when another download finishes"
+          : `Waiting for other downloads to finish, number ${job.waiting_for_slot} in line`
+      }
       return describeWaiting(job.username, active)
   }
 }

@@ -134,6 +134,7 @@ impl AppState {
                 }
             });
         let downloads = Arc::new(downloads::Downloads::open(&config.data_dir));
+        downloads.set_slots(sharing.settings().downloads_at_once);
         let mut state = Self {
             downloads: downloads.clone(),
             data_dir: config.data_dir,
@@ -212,6 +213,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}", delete(downloads::remove))
         .route("/api/v1/downloads/{id}/stop", post(downloads::stop))
         .route("/api/v1/downloads/{id}/resume", post(downloads::resume_one))
+        .route("/api/v1/downloads/{id}/prioritise", post(downloads::prioritise))
         .route("/api/v1/downloads/{id}/review", get(review::report))
         .route("/api/v1/downloads/{id}/import", post(review::import))
         .route("/api/v1/library/album", get(library::album))
