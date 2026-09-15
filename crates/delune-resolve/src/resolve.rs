@@ -29,6 +29,7 @@ use serde_json::Value;
 
 use crate::html;
 use crate::link::{Link, Parsed, parse};
+use crate::matching;
 use crate::query::{search_query, split_video_title};
 
 /// Pages are fetched as a browser would; some services serve bots an empty shell.
@@ -59,6 +60,8 @@ pub enum ResolveError {
 pub struct Resolver {
     http: reqwest::Client,
     cache: Mutex<HashMap<String, (Instant, ResolvedLink)>>,
+    /// When MusicBrainz was last asked, to keep to its rate limit.
+    musicbrainz_gate: tokio::sync::Mutex<Option<Instant>>,
 }
 
 impl Default for Resolver {
@@ -83,7 +86,7 @@ impl Resolver {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap_or_default();
-        Self { http, cache: Mutex::default() }
+        Self { http, cache: Mutex::default(), musicbrainz_gate: tokio::sync::Mutex::new(None) }
     }
 
     /// Resolve a link, expanding short links first.
@@ -112,6 +115,81 @@ impl Resolver {
         }
         cache.insert(key, (Instant::now(), resolved.clone()));
         Ok(resolved)
+    }
+
+    /// The link with what MusicBrainz adds (the original year, a track's album), or
+    /// `None` when MusicBrainz has no confident match. Slower than [`Self::resolve`],
+    /// since MusicBrainz takes one request a second, so callers needn't wait for it.
+    pub async fn match_musicbrainz(&self, link: &ResolvedLink) -> Option<ResolvedLink> {
+        if link.musicbrainz.is_some() {
+            return Some(link.clone());
+        }
+        let key = format!(
+            "musicbrainz/{:?}/{:?}/{}/{}",
+            link.provider,
+            link.kind,
+            link.title,
+            link.artist.as_deref().unwrap_or("")
+        );
+        if let Some(hit) = self.cached(&key) {
+            return Some(hit);
+        }
+        let mut enriched = link.clone();
+        self.find_on_musicbrainz(&mut enriched).await;
+        enriched.musicbrainz.as_ref()?;
+        self.cache.lock().unwrap_or_else(PoisonError::into_inner).insert(key, (Instant::now(), enriched.clone()));
+        Some(enriched)
+    }
+
+    async fn find_on_musicbrainz(&self, link: &mut ResolvedLink) {
+        if link.provider == Provider::MusicBrainz || !matches!(link.kind, EntityKind::Album | EntityKind::Track) {
+            return;
+        }
+        let base = "https://musicbrainz.org/ws/2";
+        let found = if let Some(upc) = link.upc.clone().filter(|u| matching::valid_barcode(u)) {
+            let url = format!("{base}/release?fmt=json&limit=5&query={}", urlencode(&format!("barcode:{upc}")));
+            let mut found = self.musicbrainz(&url).await.as_ref().and_then(matching::release_by_barcode);
+            if let Some(found) = &mut found {
+                let url = format!("{base}/release-group/{}?fmt=json", found.release_group_id);
+                if let Some(year) = self.musicbrainz(&url).await.as_ref().and_then(matching::first_release_year) {
+                    found.original_year = Some(year);
+                }
+            }
+            found
+        } else if let Some(isrc) = link.isrc.clone().filter(|i| matching::valid_isrc(i)) {
+            let url = format!("{base}/recording?fmt=json&limit=5&query={}", urlencode(&format!("isrc:{isrc}")));
+            self.musicbrainz(&url).await.as_ref().and_then(matching::album_by_isrc)
+        } else if let (EntityKind::Album, Some(artist)) = (link.kind, link.artist.clone()) {
+            let query = format!(
+                "releasegroup:{} AND artist:{}",
+                matching::phrase(&crate::query::clean_title(&link.title)),
+                matching::phrase(&artist)
+            );
+            let url = format!("{base}/release-group?fmt=json&limit=5&query={}", urlencode(&query));
+            self.musicbrainz(&url).await.as_ref().and_then(|json| matching::album_by_name(json, &link.title, &artist))
+        } else {
+            None
+        };
+        if let Some(found) = found {
+            matching::apply(link, found);
+        }
+    }
+
+    /// A MusicBrainz request, waiting its turn under the rate limit.
+    async fn musicbrainz(&self, url: &str) -> Option<Value> {
+        let mut last = self.musicbrainz_gate.lock().await;
+        if let Some(wait) = last.and_then(|at| matching::MUSICBRAINZ_GAP.checked_sub(at.elapsed())) {
+            tokio::time::sleep(wait).await;
+        }
+        let mut result = self.json(Provider::MusicBrainz, url, MUSICBRAINZ_AGENT).await;
+        // A 503 means we were too quick after all (someone else on this address, perhaps).
+        if matches!(&result, Err(ResolveError::Http { source, .. }) if source.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE))
+        {
+            tokio::time::sleep(matching::MUSICBRAINZ_GAP * 2).await;
+            result = self.json(Provider::MusicBrainz, url, MUSICBRAINZ_AGENT).await;
+        }
+        *last = Some(Instant::now());
+        result.ok()
     }
 
     fn cached(&self, key: &str) -> Option<ResolvedLink> {
@@ -377,7 +455,7 @@ fn finish(
         EntityKind::Artist => search_query(None, &title),
         _ => search_query(artist.as_deref(), &title),
     };
-    ResolvedLink { provider, kind, title, artist, album, year, tracks, query }
+    ResolvedLink { provider, kind, title, artist, album, year, tracks, query, upc: None, isrc: None, musicbrainz: None }
 }
 
 fn deezer(kind: EntityKind, json: &Value) -> Result<ResolvedLink, ResolveError> {
@@ -401,12 +479,17 @@ fn deezer(kind: EntityKind, json: &Value) -> Result<ResolvedLink, ResolveError> 
     Ok(match kind {
         EntityKind::Album => {
             let title = str_at(json, "/title").ok_or(ResolveError::Unreadable { provider })?.to_owned();
-            finish(provider, kind, title, artist, None, year_of(str_at(json, "/release_date")), tracks(json))
+            let mut link =
+                finish(provider, kind, title, artist, None, year_of(str_at(json, "/release_date")), tracks(json));
+            link.upc = str_at(json, "/upc").map(str::to_owned);
+            link
         }
         EntityKind::Track => {
             let title = str_at(json, "/title").ok_or(ResolveError::Unreadable { provider })?.to_owned();
             let album = str_at(json, "/album/title").map(str::to_owned);
-            finish(provider, kind, title, artist, album, year_of(str_at(json, "/release_date")), vec![])
+            let mut link = finish(provider, kind, title, artist, album, year_of(str_at(json, "/release_date")), vec![]);
+            link.isrc = str_at(json, "/isrc").map(str::to_owned);
+            link
         }
         EntityKind::Artist => {
             let name = str_at(json, "/name").ok_or(ResolveError::Unreadable { provider })?.to_owned();

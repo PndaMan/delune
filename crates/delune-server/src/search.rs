@@ -81,7 +81,16 @@ pub async fn stream(State(app): State<AppState>, user: CurrentUser, Query(params
                     fallback.extend(title_alone);
                     let query = link.query.clone();
                     let playlist = link.kind == EntityKind::Playlist;
-                    if tx.send(SearchEvent::Resolved { link }).await.is_err() {
+                    if !playlist {
+                        // MusicBrainz is slow; its detail follows as a second `resolved`.
+                        let (app, tx, link) = (app.clone(), tx.clone(), link.clone());
+                        tokio::spawn(async move {
+                            if let Some(enriched) = app.resolver.match_musicbrainz(&link).await {
+                                let _ = tx.send(SearchEvent::Resolved { link: Box::new(enriched) }).await;
+                            }
+                        });
+                    }
+                    if tx.send(SearchEvent::Resolved { link: Box::new(link) }).await.is_err() {
                         return;
                     }
                     // Playlists aren't one search: clients offer to import them instead.

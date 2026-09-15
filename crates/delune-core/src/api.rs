@@ -999,6 +999,37 @@ pub struct ResolvedLink {
     pub tracks: Vec<ResolvedTrack>,
     /// What delune searches Soulseek for.
     pub query: String,
+    /// The album's barcode, when the service gives it.
+    #[serde(default)]
+    pub upc: Option<String>,
+    /// The track's ISRC, when the service gives it.
+    #[serde(default)]
+    pub isrc: Option<String>,
+    /// The same release on MusicBrainz, when it could be matched.
+    #[serde(default)]
+    pub musicbrainz: Option<MusicBrainzMatch>,
+}
+
+/// A release found on MusicBrainz for a link from another service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MusicBrainzMatch {
+    /// The exact release, when matched by barcode or ISRC.
+    pub release_id: Option<String>,
+    pub release_group_id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    /// When the release first came out, whichever edition the link is.
+    pub original_year: Option<u16>,
+    pub matched_by: MatchedBy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MatchedBy {
+    Barcode,
+    Isrc,
+    /// Title and artist, when both matched exactly.
+    Name,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1047,7 +1078,7 @@ pub enum SearchEvent {
     /// A pasted link, understood. Sent before `started`, which then carries the
     /// text delune searches Soulseek for.
     Resolved {
-        link: ResolvedLink,
+        link: Box<ResolvedLink>,
     },
     Started {
         query: String,

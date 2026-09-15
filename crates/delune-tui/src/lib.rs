@@ -366,7 +366,7 @@ impl App {
 
     fn on_search_event(&mut self, event: SearchEvent) {
         match event {
-            SearchEvent::Resolved { link } => self.resolved = Some(link),
+            SearchEvent::Resolved { link } => self.resolved = Some(*link),
             SearchEvent::Started { query, timeout_secs } => {
                 self.search = SearchState::Running {
                     query,

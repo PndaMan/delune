@@ -9,6 +9,7 @@
 
 mod html;
 pub mod link;
+mod matching;
 pub mod query;
 pub mod resolve;
 

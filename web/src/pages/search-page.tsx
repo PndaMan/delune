@@ -369,6 +369,28 @@ function ResolvedHeading({ link }: { link: ResolvedLink }) {
         {facts.join(", ")}
         {link.kind === "track" && link.album ? <span className="text-muted-foreground"> from {link.album}</span> : null}
       </p>
+      {link.musicbrainz && (
+        <p className="mt-1 text-[13.5px] text-muted-foreground">
+          <a
+            href={
+              link.musicbrainz.release_id
+                ? `https://musicbrainz.org/release/${link.musicbrainz.release_id}`
+                : `https://musicbrainz.org/release-group/${link.musicbrainz.release_group_id}`
+            }
+            target="_blank"
+            rel="noreferrer"
+            className="underline-offset-4 hover:text-foreground hover:underline"
+          >
+            On MusicBrainz
+          </a>
+          {link.musicbrainz.matched_by === "barcode"
+            ? ", matched by barcode"
+            : link.musicbrainz.matched_by === "isrc"
+              ? ", matched by ISRC"
+              : ""}
+          {link.musicbrainz.original_year ? `. First released ${link.musicbrainz.original_year}` : ""}
+        </p>
+      )}
     </>
   )
 }

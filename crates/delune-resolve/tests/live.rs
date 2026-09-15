@@ -47,3 +47,36 @@ live!(
     "https://musicbrainz.org/release/b84ee12a-09ef-421b-82de-0441a926375b",
     "Pink Floyd The Dark Side of the Moon"
 );
+
+#[tokio::test]
+#[ignore = "needs the internet"]
+async fn musicbrainz_matches_by_barcode_isrc_and_name() {
+    // One resolver, as the server has, so MusicBrainz's rate limit is respected.
+    let resolver = Resolver::new();
+    let resolve = |url: &'static str| {
+        let resolver = &resolver;
+        async move {
+            let Query::Link(parsed) = classify(url) else { panic!("{url} isn't a link") };
+            let link = resolver.resolve(&parsed).await.unwrap_or_else(|e| panic!("{url}: {e}"));
+            resolver.match_musicbrainz(&link).await.unwrap_or(link)
+        }
+    };
+
+    // Deezer gives Discovery's barcode.
+    let discovery = resolve("https://www.deezer.com/album/302127").await;
+    let found = discovery.musicbrainz.as_ref().expect("matched by barcode");
+    println!("{found:#?}");
+    assert_eq!(found.matched_by, delune_core::api::MatchedBy::Barcode);
+    assert_eq!(discovery.year, Some(2001));
+
+    // A Deezer track gives its ISRC.
+    let track = resolve("https://www.deezer.com/track/3135556").await;
+    println!("{:#?}", track.musicbrainz);
+    assert_eq!(track.musicbrainz.map(|m| m.matched_by), Some(delune_core::api::MatchedBy::Isrc));
+
+    // Spotify gives neither; the exact title and artist still match.
+    let okc = resolve("https://open.spotify.com/album/6dVIqQ8qmQ5GBnJ9shOYGE").await;
+    println!("{:#?}", okc.musicbrainz);
+    assert_eq!(okc.musicbrainz.map(|m| m.matched_by), Some(delune_core::api::MatchedBy::Name));
+    assert_eq!(okc.year, Some(1997));
+}

@@ -171,6 +171,19 @@ export type ResolvedLink = {
   year: number | null
   tracks: ResolvedTrack[]
   query: string
+  upc: string | null
+  isrc: string | null
+  musicbrainz: MusicBrainzMatch | null
+}
+
+/** The same release on MusicBrainz, matched by barcode, ISRC or exact name. */
+export type MusicBrainzMatch = {
+  release_id: string | null
+  release_group_id: string
+  title: string
+  artist: string | null
+  original_year: number | null
+  matched_by: "barcode" | "isrc" | "name"
 }
 
 export type SearchEvent =

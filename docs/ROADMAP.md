@@ -31,7 +31,7 @@ Navidrome, from both the web UI and the TUI.
 **Finding the right release**
 - [x] Link parsing for 9 services
 - [x] Link resolution from each service's public metadata (Deezer, iTunes, Spotify embed, oEmbed, JSON-LD, MusicBrainz), cached
-- [ ] Cross-service matching by UPC and ISRC through MusicBrainz
+- [x] Cross-service matching by UPC and ISRC through MusicBrainz (exact name as a fallback), without holding up the search
 - [x] Library check against Navidrome
 - [x] Folder grouping and quality/availability ranking
 - [x] Tracklist matching against the resolved release
