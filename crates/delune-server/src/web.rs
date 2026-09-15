@@ -25,10 +25,10 @@ pub async fn serve_asset(uri: Uri) -> Response {
     }
 
     if let Some(file) = Assets::get(path).filter(|_| !path.is_empty()) {
-        let mime = mime_guess::from_path(path).first_or_octet_stream();
         // Vite fingerprints everything under assets/, so those can be cached forever.
         let cache = if path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
-        return ([(header::CONTENT_TYPE, mime.as_ref()), (header::CACHE_CONTROL, cache)], file.data).into_response();
+        return ([(header::CONTENT_TYPE, content_type(path)), (header::CACHE_CONTROL, cache.to_owned())], file.data)
+            .into_response();
     }
 
     match Assets::get("index.html") {
@@ -38,5 +38,25 @@ pub async fn serve_asset(uri: Uri) -> Response {
              Run <code>bun install &amp;&amp; bun run build</code> in <code>web/</code>, then rebuild delune.</p>",
         )
         .into_response(),
+    }
+}
+
+/// Browsers only offer to install the app when the manifest has its registered type.
+fn content_type(path: &str) -> String {
+    if path.ends_with(".webmanifest") {
+        return "application/manifest+json".to_owned();
+    }
+    mime_guess::from_path(path).first_or_octet_stream().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::content_type;
+
+    #[test]
+    fn serves_the_manifest_and_worker_with_installable_types() {
+        assert_eq!(content_type("manifest.webmanifest"), "application/manifest+json");
+        assert!(content_type("sw.js").contains("javascript"));
+        assert_eq!(content_type("icon-512.png"), "image/png");
     }
 }

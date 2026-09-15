@@ -29,6 +29,11 @@ light.addEventListener("change", applyTheme)
   )
 }
 
+// Installable app: the service worker only runs in built bundles, never under Vite's dev server.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => void navigator.serviceWorker.register("/sw.js"))
+}
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
 })

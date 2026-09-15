@@ -4,6 +4,7 @@ import { Cover } from "@/components/cover"
 import type { Candidate, DownloadJob } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
 import { jobForAlbum, jobForCandidate, useDownloads } from "@/lib/downloads"
+import { coverStatus, type Ownership, ownership, useLibraryAlbum } from "@/lib/library"
 import { formatBytes, formatRuntime, formatSpeed, plural } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
 import { cn } from "@/lib/utils"
@@ -24,7 +25,15 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
   const artwork = useArtwork(c.parent, c.title)
   const downloads = useDownloads()
   const jobs = downloads.data ?? []
-  const badge = <JobBadge exact={jobForCandidate(jobs, c)} sameAlbum={jobForAlbum(jobs, c)} />
+  const exact = jobForCandidate(jobs, c)
+  const sameAlbum = jobForAlbum(jobs, c)
+  const library = useLibraryAlbum(c.parent, c.title)
+  const owned = ownership(c, library.data)
+  const status = coverStatus(exact ?? sameAlbum, owned)
+  // A download in flight says the most; after that, what the library holds beats job history.
+  const job = exact ?? sameAlbum
+  const badge =
+    job && !(owned && job.status === "imported") ? <JobBadge exact={exact} sameAlbum={sameAlbum} /> : <LibraryBadge owned={owned} />
 
   return (
     <button
@@ -44,7 +53,7 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
 
       {/* Phones: an album card. One quality line for the whole folder. */}
       <span className="flex h-full items-center gap-3.5 pr-3 pl-3.5 md:hidden">
-        <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-[68px] rounded-xl" />
+        <Cover src={artwork.data?.thumb} pending={artwork.isPending} status={status} alt="" className="size-[68px] rounded-xl" />
         <span className="min-w-0 flex-1">
           <span className="line-clamp-2 text-[15px] leading-snug font-medium">{c.title}</span>
           <span className="block truncate text-[13px] text-muted-foreground">{c.parent ?? c.username}</span>
@@ -52,7 +61,7 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
             <span className={cn("font-semibold", TIER_TEXT[tier])}>{c.quality_label ?? "Unknown"}</span>
             <span className="text-muted-foreground">{plural(c.audio_files, "track")}</span>
             <span className="ml-auto min-w-0 truncate">
-              {jobForCandidate(jobs, c) || jobForAlbum(jobs, c) ? (
+              {exact || sameAlbum || owned ? (
                 badge
               ) : c.free_slot ? (
                 <span className="text-q-lossless">Ready</span>
@@ -66,7 +75,7 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
 
       {/* Desktop: a dense row with columns. */}
       <span className="hidden h-full grid-cols-[52px_112px_minmax(0,1fr)_84px_80px_84px_118px] items-center gap-x-4 pr-5 pl-3 md:grid">
-        <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-[52px] rounded-lg shadow-[0_6px_16px_-8px_rgb(0_0_0/0.7)]" />
+        <Cover src={artwork.data?.thumb} pending={artwork.isPending} status={status} alt="" className="size-[52px] rounded-lg shadow-[0_6px_16px_-8px_rgb(0_0_0/0.7)]" />
         <span className="min-w-0">
           <span className={cn("block truncate text-[14.5px] font-semibold", TIER_TEXT[tier])}>{c.quality_label ?? "Unknown"}</span>
           <span className="block truncate text-[12.5px] text-muted-foreground">
@@ -101,6 +110,24 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
     </button>
   )
 })
+
+function LibraryBadge({ owned }: { owned: Ownership | null }) {
+  if (!owned) return null
+  const title = owned.complete
+    ? "Every track here is already in your library"
+    : `Your library has ${owned.owned} of these tracks. Missing: ${[...owned.missing].slice(0, 6).join(", ")}${owned.missing.size > 6 ? "…" : ""}`
+  return (
+    <span
+      title={title}
+      className={cn(
+        "shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap",
+        owned.complete ? "bg-q-lossless/15 text-q-lossless" : "bg-q-hires/15 text-q-hires",
+      )}
+    >
+      {owned.complete ? "In library" : `${owned.missing.size} missing`}
+    </span>
+  )
+}
 
 function JobBadge({ exact, sameAlbum }: { exact?: DownloadJob; sameAlbum?: DownloadJob }) {
   const job = exact ?? sameAlbum

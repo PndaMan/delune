@@ -52,7 +52,7 @@ export function AppShell() {
         </div>
       </nav>
 
-      <main className="pb-24 md:pb-0">
+      <main className="pt-[env(safe-area-inset-top)] pb-24 md:pb-0">
         <Outlet />
       </main>
 

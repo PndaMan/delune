@@ -1,6 +1,6 @@
 import { Dialog } from "@base-ui/react/dialog"
 import { Link } from "@tanstack/react-router"
-import { ArrowDownToLine, Check, FileImage, File as FileIcon, LoaderCircle, TriangleAlert, X } from "lucide-react"
+import { ArrowDownToLine, Check, CircleCheck, FileImage, File as FileIcon, LoaderCircle, TriangleAlert, X } from "lucide-react"
 import { useLayoutEffect, useRef, useState } from "react"
 
 import { Cover } from "@/components/cover"
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import type { Candidate, CandidateFile } from "@/lib/api"
 import { useAccentColour, useArtwork } from "@/lib/artwork"
 import { describeJob, jobForCandidate, useDownloads, useStartDownload } from "@/lib/downloads"
+import { coverStatus, type LibraryMatch, type Ownership, ownership, useLibraryAlbum } from "@/lib/library"
 import { formatBytes, formatRuntime, formatSpeed, formatTrackTime } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
 import { parseTrackName } from "@/lib/track-name"
@@ -51,6 +52,10 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
   const accent = useAccentColour(artwork.data?.thumb)
   const audio = c.files.filter((f) => f.audio)
   const other = c.files.filter((f) => !f.audio)
+  const library = useLibraryAlbum(c.parent, c.title)
+  const owned = ownership(c, library.data)
+  const downloads = useDownloads()
+  const status = coverStatus(jobForCandidate(downloads.data ?? [], c), owned)
 
   return (
     <div className={cn("relative flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[minmax(320px,36%)_minmax(0,1fr)] lg:overflow-hidden", sheetScroll)}>
@@ -75,6 +80,7 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
           <Cover
             src={artwork.data?.cover}
             pending={artwork.isPending}
+            status={status}
             alt={artwork.data ? `${artwork.data.album} cover` : ""}
             className="aspect-square w-24 shrink-0 rounded-xl shadow-[0_24px_60px_-24px_rgb(0_0_0/0.9)] sm:w-32 lg:w-[min(100%,34vh,360px)] lg:rounded-2xl"
           />
@@ -106,6 +112,8 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
           <Stat label="From" value={c.username} />
         </dl>
 
+        {owned && <LibraryNote owned={owned} library={library.data} />}
+
         {c.mixed_quality && (
           <p className="mt-4 flex gap-2 text-[13px] text-q-hires">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
@@ -114,12 +122,12 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
         )}
 
         <div className="hidden lg:mt-auto lg:block lg:pt-6">
-          <DownloadAction candidate={c} />
+          <DownloadAction candidate={c} owned={owned} />
         </div>
       </aside>
 
       <section className="relative flex shrink-0 flex-col px-3 lg:min-h-0 lg:shrink pt-2 pb-5 sm:px-6 lg:pt-[72px]">
-        <Tracklist files={audio} />
+        <Tracklist files={audio} owned={owned} />
         {other.length > 0 && (
           <ul className="mx-3 mt-3 flex flex-wrap gap-2 border-t pt-4">
             {other.map((f) => (
@@ -135,7 +143,7 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
 
       {/* Phones: the one action stays in reach while the tracklist scrolls. */}
       <div className="sticky bottom-0 z-10 mt-auto border-t bg-card/90 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md lg:hidden">
-        <DownloadAction candidate={c} />
+        <DownloadAction candidate={c} owned={owned} />
       </div>
     </div>
   )
@@ -149,7 +157,7 @@ const MIN_COLUMN_WIDTH = 330
  * album shows at once instead of scrolling. Only beyond what fits in the widest
  * layout does it scroll, quietly, with a fade at the bottom.
  */
-function Tracklist({ files }: { files: CandidateFile[] }) {
+function Tracklist({ files, owned }: { files: CandidateFile[]; owned: Ownership | null }) {
   const box = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({ columns: 1, rows: files.length, overflow: false })
 
@@ -193,14 +201,21 @@ function Tracklist({ files }: { files: CandidateFile[] }) {
       >
         {files.map((file, i) => {
           const { position, title, extension } = parseTrackName(file.name)
+          const have = owned !== null && !owned.missing.has(file.name)
           return (
             <li
               key={file.path}
               className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-3 transition-colors hover:bg-accent/50"
-              title={file.name}
+              title={have ? `${file.name} (already in your library)` : file.name}
             >
               <span className="text-right text-[13px] text-muted-foreground/70">{position ?? i + 1}</span>
-              <span className="truncate text-[14.5px]">{title}</span>
+              <span className={cn("flex min-w-0 items-center gap-2 text-[14.5px]", have && "text-muted-foreground")}>
+                <span className="truncate">{title}</span>
+                {have && <CircleCheck className="size-3.5 shrink-0 text-q-lossless" aria-label="In your library" />}
+                {owned && !have && (
+                  <span className="shrink-0 rounded-full bg-q-hires/15 px-1.5 text-[11px] font-medium text-q-hires">Missing</span>
+                )}
+              </span>
               <span className="flex items-center gap-3 text-[12.5px] text-muted-foreground">
                 {!compact && (
                   <span className={cn("hidden sm:inline", TIER_TEXT[tierOf(file.quality)])}>
@@ -218,7 +233,20 @@ function Tracklist({ files }: { files: CandidateFile[] }) {
   )
 }
 
-function DownloadAction({ candidate }: { candidate: Candidate }) {
+function LibraryNote({ owned, library }: { owned: Ownership; library: LibraryMatch | undefined }) {
+  const quality = library?.quality_label ? ` as ${library.quality_label}` : ""
+  return (
+    <p className={cn("mt-4 flex gap-2 text-[13.5px]", owned.complete ? "text-q-lossless" : "text-q-hires")}>
+      <CircleCheck className="mt-0.5 size-4 shrink-0" />
+      {owned.complete
+        ? `Already in your library${quality}.`
+        : `Your library has ${owned.owned} of these ${owned.owned + owned.missing.size} tracks${quality}. This copy fills in the ${owned.missing.size} missing.`}
+    </p>
+  )
+}
+
+function DownloadAction({ candidate, owned }: { candidate: Candidate; owned: Ownership | null }) {
+  const [confirming, setConfirming] = useState(false)
   const start = useStartDownload()
   const downloads = useDownloads()
   const job = jobForCandidate(downloads.data ?? [], candidate)
@@ -244,13 +272,37 @@ function DownloadAction({ candidate }: { candidate: Candidate }) {
     )
   }
 
+  // Owning every track already: ask once before fetching a second copy.
+  if (confirming) {
+    return (
+      <div className="rounded-xl border border-q-hires/40 bg-q-hires/10 px-4 py-3">
+        <p className="text-[14px]">You already have every track on this album. Download another copy anyway?</p>
+        <div className="mt-3 flex gap-2">
+          <Button
+            className="h-10 flex-1 rounded-lg"
+            onClick={() => {
+              setConfirming(false)
+              start.mutate(candidate)
+            }}
+          >
+            Download anyway
+          </Button>
+          <Button variant="outline" className="h-10 flex-1 rounded-lg" onClick={() => setConfirming(false)}>
+            Keep mine
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
       <Button
         size="lg"
+        variant={owned?.complete ? "outline" : "default"}
         className="h-12 w-full rounded-xl text-[15px] font-semibold"
         disabled={start.isPending}
-        onClick={() => start.mutate(candidate)}
+        onClick={() => (owned?.complete ? setConfirming(true) : start.mutate(candidate))}
       >
         {start.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowDownToLine />}
         Download for review

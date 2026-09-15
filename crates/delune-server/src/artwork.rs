@@ -333,6 +333,14 @@ pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>,
         album = tail.to_owned();
     }
 
+    // "1998 Music Has the Right to Children": a release year glued to the front.
+    if let Some((head, tail)) = album.trim_start().split_once(' ')
+        && head.parse::<u16>().is_ok_and(|year| (1950..=2035).contains(&year))
+        && tail.chars().any(char::is_alphabetic)
+    {
+        album = tail.to_owned();
+    }
+
     (artist, album.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
@@ -428,6 +436,11 @@ mod tests {
             clean(None, "Aphex Twin - Selected Ambient Works 85-92"),
             (Some("Aphex Twin".into()), "Selected Ambient Works 85-92".into())
         );
+        assert_eq!(
+            clean(Some("Boards of Canada"), "1998 Music Has The Right To Children (CD, Matador)"),
+            (Some("Boards of Canada".into()), "Music Has The Right To Children".into())
+        );
+        assert_eq!(clean(Some("Dr. Dre"), "2001"), (Some("Dr. Dre".into()), "2001".into()));
     }
 
     #[test]
