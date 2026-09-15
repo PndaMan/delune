@@ -75,7 +75,7 @@ Navidrome, from both the web UI and the TUI.
       visible to the requester (pending, approved, downloading, in library, declined)
 - [x] Profile menu at the bottom of the rail (avatar, role, connection status, sign out)
       replacing the moon indicator
-- [~] Per-user history and notifications (notifications done: requests, reviews ready, failed downloads, imports)
+- [x] Per-user history and notifications (requests, reviews ready, failed downloads, imports)
 
 **Soulseek: everything slskd does, simpler (before any streaming service)**
 - [x] Share the music library: index, answer searches, upload with slot and speed limits (opt-in)

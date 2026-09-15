@@ -33,6 +33,12 @@ export function DownloadsPage() {
 
   return (
     <PageFrame title="Downloads" wide>
+      <Link
+        to="/history"
+        className="text-[14px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      >
+        See everything you've downloaded and requested
+      </Link>
       <RequestsSection />
       {downloads.isPending ? (
         <div className="mt-8 space-y-3">

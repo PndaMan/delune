@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { LogOut, SlidersHorizontal, Users } from "lucide-react"
+import { History, LogOut, SlidersHorizontal, Users } from "lucide-react"
 
 import { Moon } from "@/components/moon"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
@@ -32,11 +32,19 @@ export function ProfileMenu() {
       >
         <Avatar name={me.username} src={avatarUrl(me.username, me.avatar)} />
         <span
-          className={cn("absolute right-0.5 bottom-0.5 size-3 rounded-full ring-[3px] ring-background", TONE_DOT[soulseek.tone])}
+          className={cn(
+            "absolute right-0.5 bottom-0.5 size-3 rounded-full ring-[3px] ring-background",
+            TONE_DOT[soulseek.tone],
+          )}
           aria-hidden
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="right" align="end" sideOffset={12} className="w-72 p-1.5 [&_[role=menuitem]]:gap-3 [&_[role=menuitem]]:px-2.5 [&_[role=menuitem]]:py-2 [&_[role=menuitem]]:text-[14px]">
+      <DropdownMenuContent
+        side="right"
+        align="end"
+        sideOffset={12}
+        className="w-72 p-1.5 [&_[role=menuitem]]:gap-3 [&_[role=menuitem]]:px-2.5 [&_[role=menuitem]]:py-2 [&_[role=menuitem]]:text-[14px]"
+      >
         <div className="flex items-center gap-3 px-2.5 pt-2 pb-3">
           <Avatar name={me.username} src={avatarUrl(me.username, me.avatar)} />
           <div className="min-w-0">
@@ -47,7 +55,11 @@ export function ProfileMenu() {
           </div>
         </div>
         <p className="flex items-center gap-2.5 border-t px-2.5 py-3 text-[13px] text-muted-foreground">
-          <Moon illumination={soulseek.illumination} size={16} className={cn(soulseek.tone === "wait" && "animate-pulse")} />
+          <Moon
+            illumination={soulseek.illumination}
+            size={16}
+            className={cn(soulseek.tone === "wait" && "animate-pulse")}
+          />
           <span className={cn("min-w-0", soulseek.tone === "bad" && "text-destructive")}>{soulseek.text}</span>
         </p>
         <DropdownMenuSeparator />
@@ -56,6 +68,9 @@ export function ProfileMenu() {
             <Users /> People and permissions
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem onClick={() => void navigate({ to: "/history" })}>
+          <History /> History
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void navigate({ to: "/settings" })}>
           <SlidersHorizontal /> Settings
         </DropdownMenuItem>

@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter } from "@tanstack/react-rout
 
 import { AppShell } from "@/components/app-shell"
 import { DownloadsPage } from "@/pages/downloads-page"
+import { HistoryPage } from "@/pages/history-page"
 import { ReviewPage } from "@/pages/review-page"
 import { SearchPage } from "@/pages/search-page"
 import { SettingsPage } from "@/pages/settings-page"
@@ -26,13 +27,18 @@ const searchRoute = createRoute({
 
 const downloadsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/downloads", component: DownloadsPage })
 const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage })
+const historyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/history", component: HistoryPage })
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage })
 
 const soulseekRoute = createRoute({ getParentRoute: () => rootRoute, path: "/soulseek", component: SoulseekLayout })
 const peopleRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/", component: PeopleTab })
 const userRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/users/$username", component: UserPage })
 const messagesRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/messages", component: MessagesPage })
-const conversationRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/messages/$username", component: MessagesPage })
+const conversationRoute = createRoute({
+  getParentRoute: () => soulseekRoute,
+  path: "/messages/$username",
+  component: MessagesPage,
+})
 const roomsRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/rooms", component: RoomsPage })
 const roomRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/rooms/$room", component: RoomsPage })
 const uploadsRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/uploads", component: UploadsPage })
@@ -41,7 +47,16 @@ const routeTree = rootRoute.addChildren([
   searchRoute,
   downloadsRoute,
   reviewRoute,
-  soulseekRoute.addChildren([peopleRoute, userRoute, messagesRoute, conversationRoute, roomsRoute, roomRoute, uploadsRoute]),
+  soulseekRoute.addChildren([
+    peopleRoute,
+    userRoute,
+    messagesRoute,
+    conversationRoute,
+    roomsRoute,
+    roomRoute,
+    uploadsRoute,
+  ]),
+  historyRoute,
   settingsRoute,
 ])
 
