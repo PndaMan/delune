@@ -2,7 +2,7 @@ import { createRootRoute, createRoute, createRouter } from "@tanstack/react-rout
 
 import { AppShell } from "@/components/app-shell"
 import { DownloadsPage } from "@/pages/downloads-page"
-import { ReviewPage } from "@/pages/placeholder-pages"
+import { ReviewPage } from "@/pages/review-page"
 import { SearchPage } from "@/pages/search-page"
 import { SettingsPage } from "@/pages/settings-page"
 

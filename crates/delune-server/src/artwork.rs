@@ -269,7 +269,7 @@ fn is_allowed_image(src: &str) -> bool {
 }
 
 /// Turn a Soulseek folder title and parent into a plausible artist and album.
-fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>, String) {
+pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>, String) {
     let generic = |s: &str| {
         let n = normalize(s);
         n.is_empty()
@@ -362,7 +362,7 @@ fn strip_brackets(s: &str) -> String {
 }
 
 /// Lowercase letters and digits only, with accents folded for the common cases.
-fn normalize(s: &str) -> String {
+pub(crate) fn normalize(s: &str) -> String {
     s.chars()
         .flat_map(char::to_lowercase)
         .map(|c| match c {
@@ -379,7 +379,7 @@ fn normalize(s: &str) -> String {
         .collect()
 }
 
-fn names_match(a: &str, b: &str) -> bool {
+pub(crate) fn names_match(a: &str, b: &str) -> bool {
     let strip_the = |s: &str| s.strip_prefix("the").map_or_else(|| s.to_owned(), str::to_owned);
     !a.is_empty() && (a == b || strip_the(a) == strip_the(b))
 }

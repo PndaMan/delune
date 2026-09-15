@@ -98,6 +98,12 @@ impl Client {
         body.into_result().map(|(_, b)| b.scan_status)
     }
 
+    /// One album with its songs.
+    pub async fn album(&self, id: &str) -> Result<AlbumWithSongs, Error> {
+        let body: Envelope<AlbumBody> = self.get("getAlbum", &[("id", id)]).await?;
+        body.into_result().map(|(_, b)| b.album)
+    }
+
     pub async fn scan_status(&self) -> Result<ScanStatus, Error> {
         let body: Envelope<ScanBody> = self.get("getScanStatus", &[]).await?;
         body.into_result().map(|(_, b)| b.scan_status)
@@ -231,6 +237,23 @@ pub struct Album {
     pub music_brainz_id: Option<String>,
 }
 
+/// `getAlbum`: the album and its songs in disc and track order.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumWithSongs {
+    pub id: String,
+    pub name: String,
+    pub artist: Option<String>,
+    pub year: Option<u16>,
+    #[serde(default)]
+    pub song: Vec<Song>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlbumBody {
+    album: AlbumWithSongs,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Song {
@@ -244,6 +267,8 @@ pub struct Song {
     pub bit_depth: Option<u8>,
     pub sampling_rate: Option<u32>,
     pub duration: Option<u32>,
+    pub track: Option<u32>,
+    pub disc_number: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -300,6 +325,16 @@ mod tests {
         let (_, body) = env.into_result().unwrap();
         assert_eq!(body.search_result3.album[0].name, "OK Computer");
         assert_eq!(body.search_result3.song[0].bit_depth, Some(16));
+    }
+
+    #[test]
+    fn parses_get_album() {
+        let json = r#"{"subsonic-response":{"status":"ok","version":"1.16.1","album":{"id":"al1","name":"Twoism","artist":"Boards of Canada","year":1995,
+          "song":[{"id":"s1","title":"Sixtyniner","track":1,"discNumber":1,"suffix":"flac","bitDepth":24,"samplingRate":96000}]}}}"#;
+        let env: Envelope<AlbumBody> = serde_json::from_str(json).unwrap();
+        let (_, body) = env.into_result().unwrap();
+        assert_eq!(body.album.song[0].track, Some(1));
+        assert_eq!(body.album.year, Some(1995));
     }
 
     #[test]

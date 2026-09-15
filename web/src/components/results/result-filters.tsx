@@ -14,9 +14,60 @@ type Props = {
   onSort: (sort: SortKey) => void
 }
 
-export function ResultFilters({ tier, onTier, counts, readyOnly, onReadyOnly, sort, onSort }: Props) {
+export function ResultFilters(props: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+    <>
+      <MobileFilters {...props} />
+      <DesktopFilters {...props} />
+    </>
+  )
+}
+
+/** Phones: one row of chips you swipe through, instead of controls stacked three deep. */
+function MobileFilters({ tier, onTier, counts, readyOnly, onReadyOnly, sort, onSort }: Props) {
+  return (
+    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
+      <Chip active={tier === "all"} onClick={() => onTier("all")}>
+        All <span className="opacity-60">{counts.all}</span>
+      </Chip>
+      {TIERS.filter(({ id }) => counts[id] > 0).map(({ id, label }) => (
+        <Chip key={id} active={tier === id} onClick={() => onTier(id)}>
+          <span className={cn("size-2 rounded-full", TIER_BG[id])} aria-hidden />
+          {label} <span className="opacity-60">{counts[id]}</span>
+        </Chip>
+      ))}
+      <span className="mx-1 w-px shrink-0 bg-border" aria-hidden />
+      <Chip active={readyOnly} onClick={() => onReadyOnly(!readyOnly)}>
+        Ready now
+      </Chip>
+      {(Object.keys(SORTS) as SortKey[]).map((key) => (
+        <Chip key={key} active={sort === key} onClick={() => onSort(key)}>
+          {SORTS[key].label}
+        </Chip>
+      ))}
+    </div>
+  )
+}
+
+function Chip({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[14px] whitespace-nowrap transition-colors",
+        active ? "border-transparent bg-foreground text-background" : "bg-card/60 text-muted-foreground",
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function DesktopFilters({ tier, onTier, counts, readyOnly, onReadyOnly, sort, onSort }: Props) {
+  return (
+    <div className="hidden flex-wrap items-center gap-x-5 gap-y-3 md:flex">
       <Segmented label="Quality">
         <SegmentButton active={tier === "all"} onClick={() => onTier("all")}>
           All <Count n={counts.all} />

@@ -75,7 +75,37 @@ export type Candidate = {
 }
 
 export type FileStatus = "waiting" | "connecting" | "queued" | "starting" | "transferring" | "done" | "failed" | "cancelled"
-export type JobStatus = "queued" | "downloading" | "ready" | "failed" | "cancelled"
+export type JobStatus = "queued" | "downloading" | "ready" | "failed" | "cancelled" | "imported"
+export type ReviewState = "waiting" | "checking" | "ready" | "failed"
+
+export type ReviewTrack = {
+  file: string
+  destination: string
+  title: string
+  artist: string
+  track: number
+  disc: number
+  quality: Quality | null
+  quality_label: string | null
+  duration_secs: number | null
+  cutoff_hz: number | null
+  suspect_transcode: boolean
+  problem: string | null
+}
+
+export type ReviewReport = {
+  album_artist: string
+  album: string
+  year: number | null
+  tracks: ReviewTrack[]
+  cover: string | null
+  warnings: string[]
+  conflicts: string[]
+  library_dir: string | null
+  blocked_reason: string | null
+}
+
+export type ImportResult = { imported: number; folder: string; scan_started: boolean }
 
 export type JobFile = {
   path: string
@@ -98,6 +128,7 @@ export type DownloadJob = {
   files: JobFile[]
   bytes: number
   total_bytes: number
+  review: ReviewState
 }
 
 export type DownloadJobRequest = {
@@ -188,6 +219,17 @@ export const api = {
   removeDownload: async (id: string): Promise<void> => {
     const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}`, { method: "DELETE" })
     if (!res.ok && res.status !== 404) throw await toApiError(res)
+  },
+  review: async (id: string, signal?: AbortSignal): Promise<ReviewReport | null> => {
+    const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}/review`, { signal })
+    if (res.status === 202) return null
+    if (!res.ok) throw await toApiError(res)
+    return res.json() as Promise<ReviewReport>
+  },
+  importRelease: async (id: string): Promise<ImportResult> => {
+    const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}/import`, { method: "POST" })
+    if (!res.ok) throw await toApiError(res)
+    return res.json() as Promise<ImportResult>
   },
   namingTokens: (signal?: AbortSignal) => get<TokenInfo[]>("/naming/tokens", signal),
   namingPreview: async (template: string, options: NamingOptions, signal?: AbortSignal): Promise<NamingPreview> => {

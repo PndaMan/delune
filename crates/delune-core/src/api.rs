@@ -237,6 +237,7 @@ pub struct ReviewTrack {
     pub artist: String,
     pub track: u32,
     pub disc: u32,
+    pub quality: Option<Quality>,
     pub quality_label: Option<String>,
     pub duration_secs: Option<u32>,
     /// Highest frequency with real content, for lossless files.
@@ -333,6 +334,35 @@ impl DownloadJob {
             JobStatus::Queued
         };
     }
+}
+
+/// `GET /api/v1/library/album`: whether an album is already in Navidrome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryMatch {
+    pub state: LibraryState,
+    pub album: Option<String>,
+    pub artist: Option<String>,
+    pub year: Option<u16>,
+    /// Tracks the library has, in disc and track order.
+    pub tracks: Vec<LibraryTrack>,
+    /// Quality of the library copy (the lowest across its tracks).
+    pub quality_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LibraryState {
+    /// No Navidrome configured, or it couldn't be reached.
+    Unknown,
+    NotInLibrary,
+    InLibrary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryTrack {
+    pub title: String,
+    pub track: Option<u32>,
+    pub disc: Option<u32>,
 }
 
 /// Events streamed by `GET /api/v1/search` (Server-Sent Events, JSON data).

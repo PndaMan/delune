@@ -109,6 +109,7 @@ pub fn check(staging: &Path, context: &ReleaseContext, settings: &LibrarySetting
             artist: planned.fields.artist.clone(),
             track: planned.fields.track,
             disc: planned.fields.disc,
+            quality: Some(track.info.quality),
             quality_label: Some(track.info.quality.to_string()),
             duration_secs: Some(track.info.duration_secs),
             cutoff_hz: verification.as_ref().and_then(|v| v.cutoff_hz),
@@ -222,6 +223,7 @@ pub async fn import(State(app): State<AppState>, UrlPath(id): UrlPath<String>) -
     };
 
     app.downloads.mark_imported(&id);
+    app.library_cache.clear();
     let staging = crate::downloads::staging_dir(&app.data_dir, &id);
     let _ = tokio::fs::remove_dir_all(&staging).await;
 

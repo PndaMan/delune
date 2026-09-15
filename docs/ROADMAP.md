@@ -58,7 +58,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Complete visual redesign of the web UI (identity, typography, colour, motion)
 - [x] Live search results with artwork, release view, settings with naming editor
 - [x] Downloads screen with live progress; ready jobs listed in Review
-- [ ] Review screen actions: approve, reject, import
+- [x] Review screen: verification results, planned paths, import and discard
 
 ## Requested next (from Aidan, 2026-09-15)
 
@@ -84,10 +84,17 @@ Navidrome, from both the web UI and the TUI.
 - [ ] Distributed search network participation (parent/child) for better results
 - [ ] Statistics: transferred, shared, ratio
 
+**Links**
+- [ ] Resolve pasted Spotify, Apple Music, YouTube Music, Deezer, Tidal, Qobuz, SoundCloud, Bandcamp and MusicBrainz links to a release, then search Soulseek for it
+
+**Mobile**
+- [x] Phone layouts for search results, filters, release view (sticky action), downloads
+- [ ] Phone layouts for review and settings
+
 **Search and release view**
-- [ ] Release view fits the screen with no scrollbars (adaptive, multi-column tracklist)
-- [ ] Results show "Downloading" / "Downloaded" when that folder or album is already in progress
-- [ ] Results show "In library" from Navidrome, and which tracks are missing for partial albums
+- [x] Release view fits the screen with no scrollbars (adaptive, multi-column tracklist)
+- [x] Results show "Downloading" / "In review" / "Imported" when that folder or album is already in progress
+- [~] "In library" from Navidrome: server matching done (`/api/v1/library/album`); badges and missing-track view next
 
 ## After v0.1
 

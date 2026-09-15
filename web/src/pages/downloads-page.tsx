@@ -29,7 +29,7 @@ export function DownloadsPage() {
         <EmptyState
           illumination={0.25}
           title="Nothing downloading"
-          action={<Button render={<Link to="/" search={{}} />}>Find an album</Button>}
+          action={<Button nativeButton={false} render={<Link to="/" search={{}} />}>Find an album</Button>}
         >
           Open a release from search and choose Download for review. Its files arrive here one at a time and move to
           Review once they're all in.
@@ -58,7 +58,10 @@ export function JobCard({ job }: { job: DownloadJob }) {
         <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-16 rounded-xl sm:size-20" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[16px] font-semibold">{artwork.data?.album ?? job.title}</p>
-          <p className="truncate text-sm text-muted-foreground">{artwork.data?.artist ?? job.parent}</p>
+          <p className="truncate text-sm text-muted-foreground">
+            {artwork.data?.artist ?? job.parent}
+            <span className="sm:hidden">{running || job.status === "failed" ? `, ${Math.round(progress * 100)}%` : ""}</span>
+          </p>
           <p
             className={cn(
               "mt-2 flex items-center gap-2 text-[13.5px]",
@@ -74,7 +77,7 @@ export function JobCard({ job }: { job: DownloadJob }) {
             ) : running ? (
               <LoaderCircle className="size-4 shrink-0 animate-spin" />
             ) : null}
-            <span className="truncate">{describeJob(job)}</span>
+            <span className="line-clamp-2 sm:truncate">{describeJob(job)}</span>
           </p>
         </div>
         <div className="hidden text-right text-sm text-muted-foreground sm:block">

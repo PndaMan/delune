@@ -9,6 +9,7 @@
 
 pub mod artwork;
 pub mod downloads;
+pub mod library;
 pub mod naming;
 pub mod review;
 pub mod search;
@@ -67,6 +68,7 @@ pub struct AppState {
     pub data_dir: PathBuf,
     pub library: Arc<review::LibrarySettings>,
     pub navidrome: Option<delune_navidrome::Client>,
+    pub library_cache: Arc<library::LibraryCache>,
 }
 
 impl Default for AppState {
@@ -80,6 +82,7 @@ impl Default for AppState {
             data_dir: PathBuf::from("delune-data"),
             library: Arc::default(),
             navidrome: None,
+            library_cache: Arc::default(),
         }
     }
 }
@@ -134,6 +137,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}", delete(downloads::remove))
         .route("/api/v1/downloads/{id}/review", get(review::report))
         .route("/api/v1/downloads/{id}/import", post(review::import))
+        .route("/api/v1/library/album", get(library::album))
         .route("/api/v1/artwork", get(artwork::lookup))
         .route("/api/v1/artwork/image", get(artwork::image))
         .route("/api/v1/naming/tokens", get(naming::tokens))

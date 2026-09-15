@@ -1,10 +1,20 @@
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 
-import { ResultRow } from "@/components/results/result-row"
+import { ROW_HEIGHT, ResultRow } from "@/components/results/result-row"
 import type { Candidate } from "@/lib/api"
 
-const ROW_HEIGHT = 76
+const desktopQuery = "(min-width: 768px)"
+function useIsDesktop() {
+  return useSyncExternalStore(
+    (notify) => {
+      const media = window.matchMedia(desktopQuery)
+      media.addEventListener("change", notify)
+      return () => media.removeEventListener("change", notify)
+    },
+    () => window.matchMedia(desktopQuery).matches,
+  )
+}
 
 type Props = {
   candidates: Candidate[]
@@ -22,6 +32,7 @@ type Props = {
 /** A virtualised list: 800 results scroll as smoothly as 8. */
 export function ResultList({ candidates, selected, onSelect, onOpen, keyboard, onKeyboard, onLeaveTop, paused }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
+  const rowHeight = useIsDesktop() ? ROW_HEIGHT.desktop : ROW_HEIGHT.mobile
   const [scrollMargin, setScrollMargin] = useState(0)
 
   useLayoutEffect(() => {
@@ -36,10 +47,13 @@ export function ResultList({ candidates, selected, onSelect, onOpen, keyboard, o
 
   const virtualizer = useWindowVirtualizer({
     count: candidates.length,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 6,
     scrollMargin,
   })
+
+  // Rows change height between phone and desktop layouts; re-measure when they do.
+  useEffect(() => virtualizer.measure(), [rowHeight, virtualizer])
 
   useEffect(() => {
     if (paused) return
@@ -79,7 +93,7 @@ export function ResultList({ candidates, selected, onSelect, onOpen, keyboard, o
             key={candidate.id}
             role="listitem"
             className="absolute inset-x-0 top-0 py-0.5"
-            style={{ height: ROW_HEIGHT, transform: `translateY(${item.start - scrollMargin}px)` }}
+            style={{ height: rowHeight, transform: `translateY(${item.start - scrollMargin}px)` }}
           >
             <ResultRow
               candidate={candidate}

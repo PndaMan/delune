@@ -1,8 +1,9 @@
 import { memo } from "react"
 
 import { Cover } from "@/components/cover"
-import type { Candidate } from "@/lib/api"
+import type { Candidate, DownloadJob } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
+import { jobForAlbum, jobForCandidate, useDownloads } from "@/lib/downloads"
 import { formatBytes, formatRuntime, formatSpeed, plural } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
 import { cn } from "@/lib/utils"
@@ -14,10 +15,16 @@ type Props = {
   onHover: () => void
 }
 
+/** Row height used by the virtualised list, per layout. */
+export const ROW_HEIGHT = { desktop: 76, mobile: 96 }
+
 export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpen, onHover }: Props) {
   const tier = tierOf(c.quality)
   const speed = formatSpeed(c.avg_speed)
   const artwork = useArtwork(c.parent, c.title)
+  const downloads = useDownloads()
+  const jobs = downloads.data ?? []
+  const badge = <JobBadge exact={jobForCandidate(jobs, c)} sameAlbum={jobForAlbum(jobs, c)} />
 
   return (
     <button
@@ -26,9 +33,8 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
       onMouseMove={onHover}
       data-selected={selected || undefined}
       className={cn(
-        "group relative grid h-full w-full items-center gap-x-4 rounded-xl pr-5 pl-3 text-left outline-none",
-        "grid-cols-[52px_minmax(0,1fr)_88px] md:grid-cols-[52px_112px_minmax(0,1fr)_84px_80px_84px_118px]",
-        "transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-selected:bg-accent",
+        "group relative h-full w-full rounded-xl text-left outline-none transition-colors",
+        "hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-selected:bg-accent",
       )}
     >
       <span
@@ -36,43 +42,94 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
         aria-hidden
       />
 
-      <Cover
-        src={artwork.data?.thumb}
-        pending={artwork.isPending}
-        alt=""
-        className="size-[52px] rounded-lg shadow-[0_6px_16px_-8px_rgb(0_0_0/0.7)]"
-      />
-
-      <span className="order-last min-w-0 text-right md:order-none md:text-left">
-        <span className={cn("block truncate text-[14.5px] font-semibold", TIER_TEXT[tier])}>{c.quality_label ?? "Unknown"}</span>
-        <span className="block truncate text-[12.5px] text-muted-foreground">
-          {c.mixed_quality ? "Mixed quality" : describeQuality(c.quality)}
-        </span>
-      </span>
-
-      <span className="min-w-0">
-        <span className="block truncate text-[15px] font-medium">{c.title}</span>
-        <span className="flex min-w-0 gap-3 text-[13px] text-muted-foreground">
-          {c.parent && <span className="truncate">{c.parent}</span>}
-          <span className="hidden shrink-0 truncate text-muted-foreground/60 lg:inline">shared by {c.username}</span>
-          <span className="shrink-0 md:hidden">{plural(c.audio_files, "track")}</span>
-        </span>
-      </span>
-
-      <span className="hidden text-sm text-muted-foreground md:block">{plural(c.audio_files, "track")}</span>
-      <span className="hidden text-sm text-muted-foreground md:block">{formatRuntime(c.duration_secs) ?? "—"}</span>
-      <span className="hidden text-sm text-muted-foreground md:block">{formatBytes(c.total_bytes)}</span>
-      <span className="hidden md:block">
-        {c.free_slot ? (
-          <span className="flex items-center gap-1.5 text-sm text-q-lossless">
-            <span className="size-1.5 rounded-full bg-q-lossless" aria-hidden />
-            Ready
+      {/* Phones: an album card. One quality line for the whole folder. */}
+      <span className="flex h-full items-center gap-3.5 pr-3 pl-3.5 md:hidden">
+        <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-[68px] rounded-xl" />
+        <span className="min-w-0 flex-1">
+          <span className="line-clamp-2 text-[15px] leading-snug font-medium">{c.title}</span>
+          <span className="block truncate text-[13px] text-muted-foreground">{c.parent ?? c.username}</span>
+          <span className="mt-1 flex items-center gap-2.5 text-[12.5px] whitespace-nowrap">
+            <span className={cn("font-semibold", TIER_TEXT[tier])}>{c.quality_label ?? "Unknown"}</span>
+            <span className="text-muted-foreground">{plural(c.audio_files, "track")}</span>
+            <span className="ml-auto min-w-0 truncate">
+              {jobForCandidate(jobs, c) || jobForAlbum(jobs, c) ? (
+                badge
+              ) : c.free_slot ? (
+                <span className="text-q-lossless">Ready</span>
+              ) : (
+                <span className="text-muted-foreground">Queued</span>
+              )}
+            </span>
           </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">{plural(c.queue_length, "person", "people")} ahead</span>
-        )}
-        <span className="block text-[12.5px] text-muted-foreground/70">{speed ?? "Speed unknown"}</span>
+        </span>
+      </span>
+
+      {/* Desktop: a dense row with columns. */}
+      <span className="hidden h-full grid-cols-[52px_112px_minmax(0,1fr)_84px_80px_84px_118px] items-center gap-x-4 pr-5 pl-3 md:grid">
+        <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-[52px] rounded-lg shadow-[0_6px_16px_-8px_rgb(0_0_0/0.7)]" />
+        <span className="min-w-0">
+          <span className={cn("block truncate text-[14.5px] font-semibold", TIER_TEXT[tier])}>{c.quality_label ?? "Unknown"}</span>
+          <span className="block truncate text-[12.5px] text-muted-foreground">
+            {c.mixed_quality ? "Mixed quality" : describeQuality(c.quality)}
+          </span>
+        </span>
+        <span className="min-w-0">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[15px] font-medium">{c.title}</span>
+            {badge}
+          </span>
+          <span className="flex min-w-0 gap-3 text-[13px] text-muted-foreground">
+            {c.parent && <span className="truncate">{c.parent}</span>}
+            <span className="hidden shrink-0 truncate text-muted-foreground/60 lg:inline">shared by {c.username}</span>
+          </span>
+        </span>
+        <span className="text-sm text-muted-foreground">{plural(c.audio_files, "track")}</span>
+        <span className="text-sm text-muted-foreground">{formatRuntime(c.duration_secs) ?? "—"}</span>
+        <span className="text-sm text-muted-foreground">{formatBytes(c.total_bytes)}</span>
+        <span>
+          {c.free_slot ? (
+            <span className="flex items-center gap-1.5 text-sm text-q-lossless">
+              <span className="size-1.5 rounded-full bg-q-lossless" aria-hidden />
+              Ready
+            </span>
+          ) : (
+            <span className="text-sm text-muted-foreground">{plural(c.queue_length, "person", "people")} ahead</span>
+          )}
+          <span className="block text-[12.5px] text-muted-foreground/70">{speed ?? "Speed unknown"}</span>
+        </span>
       </span>
     </button>
   )
 })
+
+function JobBadge({ exact, sameAlbum }: { exact?: DownloadJob; sameAlbum?: DownloadJob }) {
+  const job = exact ?? sameAlbum
+  if (!job) return null
+  const pct = job.total_bytes ? Math.round((job.bytes / job.total_bytes) * 100) : 0
+  const label = !exact
+    ? job.status === "imported"
+      ? "Imported"
+      : "Another copy"
+    : job.status === "imported"
+      ? "Imported"
+      : job.status === "ready"
+        ? "In review"
+        : job.status === "failed"
+          ? "Failed"
+          : `${pct}%`
+  const title = !exact ? "You're already downloading a copy of this album from someone else" : undefined
+  const tone =
+    job.status === "imported" || job.status === "ready"
+      ? "bg-q-lossless/15 text-q-lossless"
+      : job.status === "failed"
+        ? "bg-destructive/15 text-destructive"
+        : "bg-primary/15 text-primary"
+  return (
+    <span title={title} className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap", tone)}>
+      {exact && job.status !== "imported" && job.status !== "ready" && job.status !== "failed" ? (
+        <span className="hidden md:inline">Downloading </span>
+      ) : null}
+      {label}
+    </span>
+  )
+}
