@@ -13,6 +13,7 @@ Navidrome, from both the web UI and the TUI.
 - [x] Domain model: quality ranking, providers, Soulseek-first source policy
 - [x] Single binary serving API and embedded web UI
 - [x] TUI and web UI shells connected to the server
+- [x] TUI vertical slice: search, download for review, downloads (stop, resume, remove), review and import
 - [ ] Configuration file and first-run setup (Navidrome URL, music folder, Soulseek account)
 - [ ] SQLite persistence (settings, jobs, peer history)
 - [ ] Login with Navidrome credentials; sessions
