@@ -79,6 +79,11 @@ impl Wishlist {
         result
     }
 
+    /// Ids of the items that started download `job_id`.
+    pub(crate) fn started(&self, job_id: &str) -> Vec<String> {
+        self.lock().iter().filter(|i| i.download_id.as_deref() == Some(job_id)).map(|i| i.id.clone()).collect()
+    }
+
     fn update(&self, id: &str, change: impl FnOnce(&mut WishlistItem)) {
         let mut items = self.lock();
         if let Some(item) = items.iter_mut().find(|i| i.id == id) {
@@ -266,6 +271,22 @@ pub async fn add_many(
     }
     app.wishlist.save(&items);
     Json(serde_json::json!({ "added": added })).into_response()
+}
+
+/// Add an item on someone's behalf, or return theirs that's already there.
+///
+/// # Errors
+///
+/// The status, code and message when it can't be added.
+pub(crate) fn insert_for(
+    app: &AppState,
+    username: &str,
+    request: WishlistRequest,
+) -> Result<WishlistItem, (StatusCode, &'static str, &'static str)> {
+    let mut items = app.wishlist.lock();
+    let result = insert(&mut items, username, request);
+    app.wishlist.save(&items);
+    result.map(|(_, item)| item)
 }
 
 /// Add one item, or return the matching one already there (`false`).

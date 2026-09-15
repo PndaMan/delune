@@ -541,6 +541,7 @@ function Devices() {
 const PERMISSIONS: { key: keyof Permissions; label: string; description: string }[] = [
   { key: "search", label: "Search", description: "Search Soulseek and open releases" },
   { key: "download", label: "Download", description: "Start downloads; they still wait for review" },
+  { key: "request", label: "Request", description: "Ask for albums for someone who manages delune to approve" },
   { key: "skip_approval", label: "Skip approval", description: "Import their own downloads without an admin" },
   { key: "manage", label: "Manage", description: "See everyone's downloads, approve imports, manage people" },
 ]

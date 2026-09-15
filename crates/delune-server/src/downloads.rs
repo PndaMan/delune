@@ -26,7 +26,7 @@ use axum::{
 use delune_core::api::{ApiError, DownloadJob, DownloadJobRequest, FileStatus, JobFile, JobStatus, ReviewState};
 use delune_library::import::ReleaseContext;
 use delune_soulseek::{DownloadRequest, DownloadState};
-use tokio::sync::{Notify, watch};
+use tokio::sync::{Notify, broadcast, watch};
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
@@ -34,7 +34,7 @@ use crate::naming::Naming;
 use crate::review::{self, Checked, LibrarySettings};
 
 /// All jobs plus the cancel switches of the ones still running.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Downloads {
     jobs: Mutex<Vec<Entry>>,
     counter: AtomicU32,
@@ -45,6 +45,22 @@ pub struct Downloads {
     slots: AtomicUsize,
     /// Wakes jobs waiting for a slot when one frees up or the order changes.
     slot_freed: Notify,
+    /// Each job whose status changed, with the status it had before.
+    status_changes: broadcast::Sender<(DownloadJob, JobStatus)>,
+}
+
+impl Default for Downloads {
+    fn default() -> Self {
+        Self {
+            jobs: Mutex::default(),
+            counter: AtomicU32::new(0),
+            store: None,
+            dirty: AtomicBool::new(false),
+            slots: AtomicUsize::new(0),
+            slot_freed: Notify::new(),
+            status_changes: broadcast::channel(64).0,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -108,7 +124,13 @@ impl Downloads {
             dirty: AtomicBool::new(false),
             slots: AtomicUsize::new(0),
             slot_freed: Notify::new(),
+            status_changes: broadcast::channel(64).0,
         }
+    }
+
+    /// Jobs whose status changes from now on, with their status before.
+    pub fn status_changes(&self) -> broadcast::Receiver<(DownloadJob, JobStatus)> {
+        self.status_changes.subscribe()
     }
 
     /// Change how many jobs may download at once; `None` or 0 means no limit.
@@ -236,11 +258,16 @@ impl Downloads {
     }
 
     fn update(&self, id: &str, f: impl FnOnce(&mut DownloadJob)) {
-        if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
+        let changed = self.lock().iter_mut().find(|e| e.job.id == id).and_then(|entry| {
+            let before = entry.job.status;
             f(&mut entry.job);
             entry.job.refresh();
-        }
+            (entry.job.status != before).then(|| (entry.job.clone(), before))
+        });
         self.changed();
+        if let Some(change) = changed {
+            let _ = self.status_changes.send(change);
+        }
     }
 
     /// Status, review state and the review itself, when there is one.
@@ -254,13 +281,18 @@ impl Downloads {
     }
 
     pub fn mark_imported(&self, id: &str, folder: &str) {
-        if let Some(entry) = self.lock().iter_mut().find(|e| e.job.id == id) {
+        let changed = self.lock().iter_mut().find(|e| e.job.id == id).map(|entry| {
+            let before = entry.job.status;
             entry.job.status = JobStatus::Imported;
             entry.job.imported_to = Some(folder.to_owned());
             entry.job.imported_at = Some(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()));
             entry.checked = None;
-        }
+            (entry.job.clone(), before)
+        });
         self.changed();
+        if let Some(change) = changed {
+            let _ = self.status_changes.send(change);
+        }
     }
 
     fn set_review(&self, id: &str, state: ReviewState, checked: Option<Checked>) {

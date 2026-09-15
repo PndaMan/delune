@@ -1,6 +1,18 @@
 import { Dialog } from "@base-ui/react/dialog"
 import { Link } from "@tanstack/react-router"
-import { ArrowDownToLine, Bell, BellRing, Check, CircleCheck, FileImage, File as FileIcon, LoaderCircle, TriangleAlert, X } from "lucide-react"
+import {
+  ArrowDownToLine,
+  Bell,
+  BellRing,
+  Check,
+  MessageSquarePlus,
+  CircleCheck,
+  FileImage,
+  File as FileIcon,
+  LoaderCircle,
+  TriangleAlert,
+  X,
+} from "lucide-react"
 import { useLayoutEffect, useRef, useState } from "react"
 
 import { Cover } from "@/components/cover"
@@ -15,6 +27,8 @@ import { parseTrackName } from "@/lib/track-name"
 import { matchLink, useResolved } from "@/lib/tracklist"
 import { useFollow, useFollows, useUnfollow } from "@/lib/automation"
 import { useHiddenUsers } from "@/lib/hidden-users"
+import { REQUEST_STATUS, useCreateRequest, useRequests } from "@/lib/requests"
+import { useMe } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 type Props = {
@@ -73,7 +87,12 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
   const picked = excluded.size ? audio.filter((f) => !excluded.has(f.path)) : null
 
   return (
-    <div className={cn("relative flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[minmax(320px,36%)_minmax(0,1fr)] lg:overflow-hidden", sheetScroll)}>
+    <div
+      className={cn(
+        "relative flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[minmax(320px,36%)_minmax(0,1fr)] lg:overflow-hidden",
+        sheetScroll,
+      )}
+    >
       <div
         className="pointer-events-none absolute inset-y-0 left-0 w-full lg:w-[36%]"
         style={{
@@ -127,7 +146,12 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
           <div className="min-w-0">
             <dt className="text-[12px] text-muted-foreground">From</dt>
             <dd className="truncate text-[14.5px]">
-              <Link to="/soulseek/users/$username" params={{ username: c.username }} className="underline-offset-4 hover:underline" title={`Browse everything ${c.username} shares`}>
+              <Link
+                to="/soulseek/users/$username"
+                params={{ username: c.username }}
+                className="underline-offset-4 hover:underline"
+                title={`Browse everything ${c.username} shares`}
+              >
                 {c.username}
               </Link>
             </dd>
@@ -158,8 +182,16 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
         {other.length > 0 && (
           <ul className="mx-3 mt-3 flex flex-wrap gap-2 border-t pt-4">
             {other.map((f) => (
-              <li key={f.path} className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2.5 py-1 text-[12.5px] text-muted-foreground" title={f.path}>
-                {/\.(jpe?g|png|webp|gif)$/i.test(f.name) ? <FileImage className="size-3.5" /> : <FileIcon className="size-3.5" />}
+              <li
+                key={f.path}
+                className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2.5 py-1 text-[12.5px] text-muted-foreground"
+                title={f.path}
+              >
+                {/\.(jpe?g|png|webp|gif)$/i.test(f.name) ? (
+                  <FileImage className="size-3.5" />
+                ) : (
+                  <FileIcon className="size-3.5" />
+                )}
                 {f.name}
                 <span className="text-muted-foreground/60">{formatBytes(f.size)}</span>
               </li>
@@ -276,7 +308,9 @@ function Tracklist({
                 <span className="truncate">{title}</span>
                 {have && <CircleCheck className="size-3.5 shrink-0 text-q-lossless" aria-label="In your library" />}
                 {owned && !have && (
-                  <span className="shrink-0 rounded-full bg-q-hires/15 px-1.5 text-[11px] font-medium text-q-hires">Missing</span>
+                  <span className="shrink-0 rounded-full bg-q-hires/15 px-1.5 text-[11px] font-medium text-q-hires">
+                    Missing
+                  </span>
                 )}
               </span>
               <span className="flex items-center gap-3 text-[12.5px] text-muted-foreground">
@@ -326,7 +360,11 @@ function DownloadAction({
   const track = match?.kind === "track" ? match.file : undefined
   // A pasted track link downloads just that track, with the folder's artwork.
   const extras = candidate.files.filter((f) => !f.audio)
-  const trackFiles = picked ? [...picked, ...extras] : track ? [track, ...extras.filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name))] : undefined
+  const trackFiles = picked
+    ? [...picked, ...extras]
+    : track
+      ? [track, ...extras.filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name))]
+      : undefined
   const begin = (files: CandidateFile[] | undefined) => {
     const alreadyOwned = picked
       ? owned !== null && picked.every((f) => !owned.missing.has(f.name))
@@ -338,6 +376,7 @@ function DownloadAction({
   }
   const downloads = useDownloads()
   const job = jobForCandidate(downloads.data ?? [], candidate)
+  const me = useMe()
 
   if (job) {
     const progress = job.total_bytes ? Math.round((job.bytes / job.total_bytes) * 100) : 0
@@ -345,19 +384,36 @@ function DownloadAction({
     return (
       <div className="rounded-xl border bg-background/40 px-4 py-3">
         <div className="flex items-center gap-3">
-          {done ? <Check className="size-4 text-q-lossless" /> : <LoaderCircle className="size-4 animate-spin text-primary" />}
+          {done ? (
+            <Check className="size-4 text-q-lossless" />
+          ) : (
+            <LoaderCircle className="size-4 animate-spin text-primary" />
+          )}
           <p className="min-w-0 flex-1 truncate text-[14px]">{describeJob(job)}</p>
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link to={job.status === "ready" ? "/review" : "/downloads"} />}>
+          <Button
+            variant="outline"
+            size="sm"
+            nativeButton={false}
+            render={<Link to={job.status === "ready" ? "/review" : "/downloads"} />}
+          >
             {job.status === "ready" ? "Review" : job.status === "imported" ? "Done" : "Progress"}
           </Button>
         </div>
         {!done && (
           <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${Math.max(progress, 2)}%` }} />
+            <div
+              className="h-full bg-primary transition-[width] duration-500"
+              style={{ width: `${Math.max(progress, 2)}%` }}
+            />
           </div>
         )}
       </div>
     )
+  }
+
+  // People who can't download ask someone who manages delune instead.
+  if (!me.permissions.download) {
+    return <RequestAction candidate={candidate} files={trackFiles} picked={picked} />
   }
 
   // Owning every track already: ask once before fetching a second copy.
@@ -432,6 +488,96 @@ function DownloadAction({
         {start.isError ? start.error.message : "Nothing reaches your library until you approve it."}
       </p>
     </div>
+  )
+}
+
+/** Ask for this copy, for someone who manages delune to approve. */
+function RequestAction({
+  candidate,
+  files,
+  picked,
+}: {
+  candidate: Candidate
+  files: CandidateFile[] | undefined
+  picked: CandidateFile[] | null
+}) {
+  const me = useMe()
+  const artwork = useArtwork(candidate.parent, candidate.title)
+  const resolved = useResolved()
+  const requests = useRequests()
+  const create = useCreateRequest()
+  const [note, setNote] = useState("")
+  const existing = (requests.data ?? []).find(
+    (r) =>
+      r.requested_by === me.username &&
+      r.download?.username === candidate.username &&
+      r.download.folder === candidate.folder &&
+      r.status !== "declined",
+  )
+
+  if (!me.permissions.request) {
+    return (
+      <p className="rounded-xl border bg-background/40 px-4 py-3 text-[14px] text-muted-foreground">
+        Downloading isn't turned on for your account. Ask an admin if you'd like it.
+      </p>
+    )
+  }
+  if (existing) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border bg-background/40 px-4 py-3">
+        <Check className="size-4 text-q-lossless" />
+        <p className="min-w-0 flex-1 text-[14px]">{REQUEST_STATUS[existing.status]}</p>
+        <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/downloads" />}>
+          Requests
+        </Button>
+      </div>
+    )
+  }
+
+  const title = artwork.data?.album ?? candidate.title
+  const artist = artwork.data?.artist ?? candidate.parent
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        create.mutate({
+          title,
+          artist,
+          query: resolved?.query ?? [artist, title].filter(Boolean).join(" "),
+          download: {
+            username: candidate.username,
+            folder: candidate.folder,
+            title: candidate.title,
+            parent: candidate.parent,
+            files: (files ?? candidate.files).map((f) => ({ path: f.path, size: f.size })),
+          },
+          quality_label: candidate.quality_label,
+          note: note.trim() || null,
+        })
+      }}
+    >
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Add a note (optional)"
+        maxLength={500}
+        className="mb-2 h-11 w-full rounded-xl border bg-background/50 px-3.5 text-[14.5px] outline-none focus:border-primary/50"
+      />
+      <Button
+        type="submit"
+        size="lg"
+        className="h-12 w-full rounded-xl text-[15px] font-semibold"
+        disabled={create.isPending || picked?.length === 0}
+      >
+        {create.isPending ? <LoaderCircle className="animate-spin" /> : <MessageSquarePlus />}
+        {picked ? `Request ${plural(picked.length, "track")}` : "Request this album"}
+      </Button>
+      <p className="mt-2 text-center text-[12.5px] text-muted-foreground">
+        {create.isError
+          ? create.error.message
+          : "Someone who manages delune approves requests. You'll get a notification."}
+      </p>
+    </form>
   )
 }
 

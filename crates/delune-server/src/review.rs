@@ -250,6 +250,19 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         .and_then(|t| t.destination.rsplit_once('/').map(|(dir, _)| dir.to_owned()))
         .unwrap_or_default();
     app.downloads.mark_imported(&id, &folder);
+    // Requests tell their requester themselves; otherwise say who approved it.
+    if let Some(owner) = owner.as_deref().filter(|o| *o != user.username && !crate::requests::asked_for(&app, &id)) {
+        app.notifications.notify(
+            owner,
+            delune_core::api::NotificationKind::Imported,
+            format!(
+                "{} added {} by {} to the library",
+                user.username, checked.report.album, checked.report.album_artist
+            ),
+            None,
+            "/review",
+        );
+    }
     // Artwork, lyrics and the rescan happen in the background.
     let finishing = checked
         .plan

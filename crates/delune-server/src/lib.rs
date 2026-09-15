@@ -15,6 +15,8 @@ pub mod downloads;
 pub mod finishing;
 pub mod library;
 pub mod naming;
+pub mod notifications;
+pub mod requests;
 pub mod review;
 pub mod search;
 pub mod setup;
@@ -96,6 +98,8 @@ pub struct AppState {
     pub navidrome_account: Option<(String, String)>,
     pub soulseek_port: Option<u16>,
     pub locked: setup::Locked,
+    pub notifications: Arc<notifications::Notifier>,
+    pub requests: Arc<requests::Requests>,
 }
 
 impl Default for AppState {
@@ -123,6 +127,8 @@ impl Default for AppState {
             navidrome_account: None,
             soulseek_port: None,
             locked: setup::Locked::default(),
+            notifications: Arc::default(),
+            requests: Arc::default(),
         }
     }
 }
@@ -141,6 +147,8 @@ impl AppState {
         let automation = Arc::new(automation::Automation::open(&config.data_dir));
         let finishing = Arc::new(finishing::Finishing::open(&config.data_dir));
         let naming = Arc::new(naming::Naming::open(&config.data_dir, &config.library));
+        let notifications = Arc::new(notifications::Notifier::open(&config.data_dir));
+        let requests = Arc::new(requests::Requests::open(&config.data_dir));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -166,6 +174,8 @@ impl AppState {
             naming,
             navidrome_account,
             locked: config.locked,
+            notifications,
+            requests,
             ..Self::default()
         };
         if let Some(slsk) = config.soulseek {
@@ -181,6 +191,7 @@ impl AppState {
                 downloads.save_if_changed();
             }
         });
+        notifications::start(&state);
         downloads::resume(&state);
         chat::start(&state);
         sharing::start(&state);
@@ -243,6 +254,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/library/album", get(library::album))
         .route("/api/v1/artwork", get(artwork::lookup))
         .route("/api/v1/artwork/image", get(artwork::image))
+        .route("/api/v1/requests", get(requests::list).post(requests::create))
+        .route("/api/v1/requests/{id}", delete(requests::remove))
+        .route("/api/v1/requests/{id}/decision", post(requests::decide))
+        .route("/api/v1/notifications", get(notifications::list).delete(notifications::clear))
+        .route("/api/v1/notifications/read", post(notifications::read))
         .route("/api/v1/setup", get(setup::status).put(setup::update))
         .route("/api/v1/setup/check", post(setup::check))
         .route("/api/v1/naming", get(naming::get).put(naming::update))
@@ -490,6 +506,96 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(serde_json::from_slice::<ApiError>(&body).unwrap().code, "empty-library");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn requests_are_approved_followed_and_notified() {
+        use delune_core::api::{DownloadJob, JobStatus, MusicRequest, Notifications, RequestStatus, ReviewState};
+        let accounts = Arc::new(accounts::Accounts::in_memory(Some("http://navidrome.invalid".into())));
+        let (sam, _) = accounts.signed_in("sam", false);
+        let (alex, _) = accounts.signed_in("alex", true);
+        let state = AppState { accounts, ..AppState::default() };
+        let app = router(state.clone());
+        let call = |method: &str, uri: &str, token: &str, body: Option<&str>| {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("cookie", format!("delune_session={token}"))
+                .header("content-type", "application/json")
+                .body(body.map_or_else(Body::empty, |b| Body::from(b.to_owned())))
+                .unwrap();
+            let app = app.clone();
+            async move {
+                let response = app.oneshot(request).await.unwrap();
+                let status = response.status();
+                (status, response.into_body().collect().await.unwrap().to_bytes())
+            }
+        };
+
+        let (status, body) = call(
+            "POST",
+            "/api/v1/requests",
+            &sam,
+            Some(r#"{"title":"Untrue","artist":"Burial","query":"Burial Untrue","note":"for the drive"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let request: MusicRequest = serde_json::from_slice(&body).unwrap();
+        assert_eq!(request.status, RequestStatus::Pending);
+        let (status, _) =
+            call("POST", "/api/v1/requests", &sam, Some(r#"{"title":"Untrue","query":"burial untrue"}"#)).await;
+        assert_eq!(status, StatusCode::OK, "asking again is the same request");
+
+        let inbox = |token: &str| {
+            let token = token.to_owned();
+            async move {
+                let (_, body) = call("GET", "/api/v1/notifications", &token, None).await;
+                serde_json::from_slice::<Notifications>(&body).unwrap()
+            }
+        };
+        assert_eq!(inbox(&alex).await.items[0].title, "sam asked for Untrue by Burial");
+
+        let decide = format!("/api/v1/requests/{}/decision", request.id);
+        let (status, _) = call("POST", &decide, &sam, Some(r#"{"approve":true}"#)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "members can't approve");
+        let (status, body) = call("POST", &decide, &alex, Some(r#"{"approve":true}"#)).await;
+        assert_eq!(status, StatusCode::OK);
+        let approved: MusicRequest = serde_json::from_slice(&body).unwrap();
+        assert_eq!(approved.status, RequestStatus::Searching);
+        assert!(inbox(&sam).await.items[0].title.starts_with("alex approved your request"));
+
+        // The wishlist finds and downloads it for sam, who then imports it.
+        let wish = approved.wishlist_id.clone().unwrap();
+        state.wishlist.with_items(|items| {
+            let item = items.iter_mut().find(|i| i.id == wish).unwrap();
+            assert_eq!(item.added_by, "sam");
+            item.download_id = Some("job1".into());
+        });
+        let job = DownloadJob {
+            id: "job1".into(),
+            username: "peer".into(),
+            folder: "x".into(),
+            title: "Untrue".into(),
+            parent: Some("Burial".into()),
+            created_at: 1,
+            status: JobStatus::Imported,
+            files: vec![],
+            bytes: 0,
+            total_bytes: 0,
+            review: ReviewState::Ready,
+            requested_by: Some("sam".into()),
+            imported_to: None,
+            imported_at: None,
+            priority: 0,
+            waiting_for_slot: None,
+        };
+        requests::job_changed(&state, &job);
+        let (_, body) = call("GET", "/api/v1/requests", &sam, None).await;
+        let listed: Vec<MusicRequest> = serde_json::from_slice(&body).unwrap();
+        assert_eq!((listed[0].status, listed[0].download_id.as_deref()), (RequestStatus::Available, Some("job1")));
+        let sam_inbox = inbox(&sam).await;
+        assert_eq!(sam_inbox.items[0].title, "Untrue by Burial is in the library");
+        assert_eq!(sam_inbox.unread, 2);
     }
 
     #[tokio::test]

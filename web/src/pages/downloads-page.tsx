@@ -14,6 +14,7 @@ import { useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
+import { RequestsSection } from "@/components/requests-section"
 import { WishlistSection } from "@/components/wishlist-section"
 import { Button } from "@/components/ui/button"
 import type { DownloadJob, JobFile } from "@/lib/api"
@@ -32,6 +33,7 @@ export function DownloadsPage() {
 
   return (
     <PageFrame title="Downloads" wide>
+      <RequestsSection />
       {downloads.isPending ? (
         <div className="mt-8 space-y-3">
           {[0, 1].map((i) => (

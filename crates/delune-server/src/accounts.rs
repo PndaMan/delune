@@ -366,6 +366,15 @@ impl Accounts {
         self.failures.lock().unwrap_or_else(PoisonError::into_inner).remove(&username.to_lowercase());
     }
 
+    /// Everyone who can approve requests: admins and people allowed to manage.
+    #[must_use]
+    pub fn managers(&self) -> Vec<String> {
+        if self.mode() == AuthMode::Open {
+            return vec![OPEN_MODE_USER.to_owned()];
+        }
+        self.lock().users.values().filter(|u| u.admin || u.permissions.manage).map(|u| u.username.clone()).collect()
+    }
+
     fn people(&self) -> People {
         let state = self.lock();
         People {

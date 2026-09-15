@@ -3,6 +3,7 @@ import { useState } from "react"
 import { ArrowDownToLine, Earth, Inbox, Search, SlidersHorizontal } from "lucide-react"
 
 import { Moon } from "@/components/moon"
+import { NotificationsButton } from "@/components/notifications-button"
 import { ProfileMenu } from "@/components/profile-menu"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -81,10 +82,15 @@ function SignedIn() {
             </li>
           ))}
         </ul>
-        <div className="mt-auto">
+        <div className="mt-auto flex flex-col items-center gap-3">
+          <NotificationsButton />
           <ProfileMenu />
         </div>
       </nav>
+
+      <div className="fixed top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-30 rounded-xl bg-card/70 backdrop-blur-md md:hidden">
+        <NotificationsButton side="bottom" />
+      </div>
 
       <main className="pt-[env(safe-area-inset-top)] pb-24 md:pb-0">
         <Outlet />

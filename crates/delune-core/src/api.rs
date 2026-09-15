@@ -362,12 +362,118 @@ pub struct Permissions {
     pub skip_approval: bool,
     /// See and act on everyone's downloads, and manage people and settings.
     pub manage: bool,
+    /// Ask for albums; someone who manages delune approves them. Matters for people
+    /// who can't download themselves.
+    #[serde(default = "yes")]
+    pub request: bool,
 }
 
 impl Permissions {
-    pub const ALL: Self = Self { search: true, download: true, skip_approval: true, manage: true };
+    pub const ALL: Self = Self { search: true, download: true, skip_approval: true, manage: true, request: true };
     /// What someone signing in for the first time gets.
-    pub const MEMBER: Self = Self { search: true, download: true, skip_approval: false, manage: false };
+    pub const MEMBER: Self = Self { search: true, download: true, skip_approval: false, manage: false, request: true };
+}
+
+/// Where a request for an album has got to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RequestStatus {
+    /// Waiting for someone who manages delune.
+    Pending,
+    Declined,
+    /// Approved; on the wishlist until a good enough copy turns up.
+    Searching,
+    Downloading,
+    /// Downloaded and waiting in review.
+    Review,
+    /// In the library.
+    Available,
+    /// The download failed; it can be retried from Downloads.
+    Failed,
+}
+
+/// Someone asking for an album.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MusicRequest {
+    pub id: String,
+    pub requested_by: String,
+    /// Unix seconds.
+    pub requested_at: u64,
+    pub title: String,
+    pub artist: Option<String>,
+    /// What to search Soulseek for.
+    pub query: String,
+    /// The link it was found from, if any.
+    pub link: Option<String>,
+    /// A particular copy the requester chose; otherwise the wishlist finds one.
+    pub download: Option<DownloadJobRequest>,
+    /// That copy's quality, for display.
+    pub quality_label: Option<String>,
+    pub note: Option<String>,
+    pub status: RequestStatus,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<u64>,
+    /// Why it was declined.
+    pub reason: Option<String>,
+    pub download_id: Option<String>,
+    pub wishlist_id: Option<String>,
+}
+
+/// `POST /api/v1/requests`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewRequest {
+    pub title: String,
+    #[serde(default)]
+    pub artist: Option<String>,
+    pub query: String,
+    #[serde(default)]
+    pub link: Option<String>,
+    #[serde(default)]
+    pub download: Option<DownloadJobRequest>,
+    #[serde(default)]
+    pub quality_label: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// `POST /api/v1/requests/{id}/decision`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestDecision {
+    pub approve: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotificationKind {
+    RequestNew,
+    RequestApproved,
+    RequestDeclined,
+    ReviewReady,
+    DownloadFailed,
+    Imported,
+}
+
+/// Something that happened that someone should know about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notification {
+    pub id: String,
+    pub kind: NotificationKind,
+    /// Unix seconds.
+    pub at: u64,
+    pub title: String,
+    pub detail: Option<String>,
+    /// Where in the web UI to go, such as `/review`.
+    pub link: Option<String>,
+    pub read: bool,
+}
+
+/// `GET /api/v1/notifications`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notifications {
+    pub unread: u32,
+    pub items: Vec<Notification>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

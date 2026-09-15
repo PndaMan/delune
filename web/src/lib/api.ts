@@ -197,7 +197,13 @@ export const PROVIDER_NAMES: Record<Provider, string> = {
   "music-brainz": "MusicBrainz",
 }
 
-export type Permissions = { search: boolean; download: boolean; skip_approval: boolean; manage: boolean }
+export type Permissions = {
+  search: boolean
+  download: boolean
+  skip_approval: boolean
+  manage: boolean
+  request: boolean
+}
 
 export type Me = {
   username: string
