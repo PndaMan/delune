@@ -22,6 +22,16 @@ each part of the path.
 
 These settings are for admins; they shape everyone's library.
 
+## Home and stats
+
+The home screen, under the search box, shows what's downloading, what's waiting for
+review, the albums added to Navidrome lately, and the library at a glance. **All stats**
+opens the full picture: albums, artists, songs, listening time and size; how much is
+hi-res, CD quality or lossy; the artists with the most albums; releases by decade;
+genres; what came in through delune each month and who added it; and (for people who
+manage delune) the Soulseek users you've downloaded most from. The counts come from
+Navidrome and are kept for an hour; **Count again** refreshes them.
+
 ## Album and artist pages
 
 Album, artist and song names are links throughout the app.

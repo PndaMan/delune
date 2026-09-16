@@ -180,6 +180,11 @@ mod tests {
             duration: None,
             track: Some(1),
             disc_number: Some(1),
+            size: None,
+            year: None,
+            genre: None,
+            album_id: None,
+            artist_id: None,
         }
     }
 

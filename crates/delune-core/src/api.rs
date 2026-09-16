@@ -1261,6 +1261,61 @@ pub struct UploadRecord {
     pub finished_at: u64,
 }
 
+/// `GET /api/v1/stats`: the library at a glance.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LibraryStats {
+    /// Unix seconds.
+    pub computed_at: u64,
+    pub albums: u32,
+    pub songs: u32,
+    pub artists: u32,
+    pub bytes: u64,
+    pub seconds: u64,
+    /// Songs by quality, best first.
+    pub qualities: Vec<StatShare>,
+    /// Artists with the most albums.
+    pub top_artists: Vec<StatShare>,
+    /// Albums by decade of release, oldest first; `label` is like "1990s".
+    pub decades: Vec<StatShare>,
+    pub genres: Vec<StatShare>,
+    /// Albums delune imported, by month ("2026-09"), oldest first.
+    pub imports: Vec<StatShare>,
+    /// Who imported the most, through delune.
+    pub importers: Vec<StatShare>,
+    /// The Soulseek users delune has downloaded most from; `count` is files.
+    pub top_peers: Vec<StatShare>,
+}
+
+/// One slice of a statistic.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StatShare {
+    pub label: String,
+    pub count: u32,
+    /// Bytes, where that means something.
+    pub bytes: u64,
+    /// For qualities: `hires`, `lossless` or `lossy`.
+    pub tier: Option<String>,
+}
+
+/// An album recently added to the library, for the home screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RecentAlbum {
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub year: Option<u16>,
+    /// Same-origin address of its cover, when it has one.
+    pub cover: Option<String>,
+    /// Unix seconds.
+    pub added_at: Option<u64>,
+}
+
 /// `GET /api/v1/diagnostics`: how each part of delune is doing, and what to do about it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

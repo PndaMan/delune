@@ -2,6 +2,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router"
 import { ArrowDownToLine, Bookmark, LoaderCircle, RotateCw, Sparkles, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { HomeFeed } from "@/components/home-feed"
 import { PurchasesButton, PurchasesSheet } from "@/components/bandcamp"
 import { EmptyState } from "@/components/empty-state"
 import { Moon } from "@/components/moon"
@@ -56,6 +57,7 @@ export function SearchPage() {
     return (
       <>
         <Idle onSubmit={submit} recent={recent} onForget={forget} />
+        <HomeFeed />
         <WishlistSheet open={!!wishlist} onClose={closeWishlist} />
         <PurchasesSheet open={!!purchases} onClose={closePurchases} />
       </>
@@ -124,7 +126,7 @@ function Idle({
   const soulseek = describeSoulseek(status.data, status.isError)
 
   return (
-    <div className="relative mx-auto flex min-h-[calc(100dvh-var(--chrome-top)-var(--chrome-bottom))] max-w-[760px] flex-col items-center justify-center px-5 py-8 sm:py-14">
+    <div className="relative mx-auto flex min-h-[calc((100dvh-var(--chrome-top)-var(--chrome-bottom))*0.8)] max-w-[760px] flex-col items-center justify-center px-5 py-8 sm:py-14">
       <div className="flex flex-col items-center text-center">
         {/* Kept to the height it really occupies, so the page still fits a phone. */}
         <div className="h-[135px] sm:h-[188px]">

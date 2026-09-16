@@ -118,6 +118,61 @@ impl Client {
         body.into_result().map(|(_, b)| b.album_list2.album)
     }
 
+    /// Every song, a page at a time: `search3` with an empty query lists them all.
+    pub async fn songs(&self, offset: u32, size: u32) -> Result<Vec<Song>, Error> {
+        let (offset, size) = (offset.to_string(), size.min(500).to_string());
+        let params = [
+            ("query", ""),
+            ("artistCount", "0"),
+            ("albumCount", "0"),
+            ("songCount", size.as_str()),
+            ("songOffset", offset.as_str()),
+        ];
+        let body: Envelope<SearchBody> = self.get("search3", &params).await?;
+        body.into_result().map(|(_, b)| b.search_result3.song)
+    }
+
+    /// The albums added to the library most recently.
+    pub async fn newest_albums(&self, size: u32) -> Result<Vec<Album>, Error> {
+        let size = size.min(500).to_string();
+        let params = [("type", "newest"), ("offset", "0"), ("size", size.as_str())];
+        let body: Envelope<AlbumListBody> = self.get("getAlbumList2", &params).await?;
+        body.into_result().map(|(_, b)| b.album_list2.album)
+    }
+
+    /// Cover art for an album or song, and its content type.
+    pub async fn cover_art(&self, id: &str, size: u32) -> Result<(Vec<u8>, String), Error> {
+        let url = self.base.join("rest/getCoverArt")?;
+        let salt = random_salt();
+        let token = auth_token(&self.creds.password, &salt);
+        let size = size.to_string();
+        let response = self
+            .http
+            .get(url)
+            .query(&[
+                ("u", self.creds.username.as_str()),
+                ("t", token.as_str()),
+                ("s", salt.as_str()),
+                ("v", API_VERSION),
+                ("c", CLIENT_NAME),
+                ("id", id),
+                ("size", size.as_str()),
+            ])
+            .send()
+            .await?
+            .error_for_status()?;
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("image/jpeg")
+            .to_owned();
+        if !content_type.starts_with("image/") {
+            return Err(Error::Api { code: 70, message: "no cover art".into() });
+        }
+        Ok((response.bytes().await?.to_vec(), content_type))
+    }
+
     pub async fn scan_status(&self) -> Result<ScanStatus, Error> {
         let body: Envelope<ScanBody> = self.get("getScanStatus", &[]).await?;
         body.into_result().map(|(_, b)| b.scan_status)
@@ -262,6 +317,11 @@ pub struct Album {
     pub year: Option<u16>,
     pub song_count: Option<u32>,
     pub music_brainz_id: Option<String>,
+    #[serde(default)]
+    pub cover_art: Option<String>,
+    /// When it was added, as Navidrome writes it (RFC 3339).
+    #[serde(default)]
+    pub created: Option<String>,
 }
 
 /// `getAlbum`: the album and its songs in disc and track order.
@@ -296,6 +356,16 @@ pub struct Song {
     pub duration: Option<u32>,
     pub track: Option<u32>,
     pub disc_number: Option<u32>,
+    #[serde(default)]
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub year: Option<u16>,
+    #[serde(default)]
+    pub genre: Option<String>,
+    #[serde(default)]
+    pub album_id: Option<String>,
+    #[serde(default)]
+    pub artist_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

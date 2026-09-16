@@ -30,6 +30,7 @@ pub mod search;
 pub mod setup;
 pub mod sharing;
 pub mod soundcloud;
+pub mod stats;
 pub mod store;
 pub mod users;
 mod web;
@@ -332,6 +333,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}/files/{name}", get(review::play))
         .route("/api/v1/downloads/{id}/files/{name}/spectrogram", get(review::spectrogram))
         .route("/api/v1/library/album", get(library::album))
+        .route("/api/v1/library/recent", get(stats::recent))
+        .route("/api/v1/library/cover/{id}", get(stats::cover))
+        .route("/api/v1/stats", get(stats::stats))
         .route("/api/v1/events", get(events::stream))
         .route("/api/v1/music/search", get(music::search))
         .route("/api/v1/music/artist", get(music::artist))

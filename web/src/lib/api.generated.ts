@@ -366,6 +366,43 @@ export type LibraryMatch = {
 
 export type LibraryState = "unknown" | "not-in-library" | "in-library"
 
+export type LibraryStats = {
+  /**
+   * Unix seconds.
+   */
+  computed_at: number
+  albums: number
+  songs: number
+  artists: number
+  bytes: number
+  seconds: number
+  /**
+   * Songs by quality, best first.
+   */
+  qualities: Array<StatShare>
+  /**
+   * Artists with the most albums.
+   */
+  top_artists: Array<StatShare>
+  /**
+   * Albums by decade of release, oldest first; `label` is like "1990s".
+   */
+  decades: Array<StatShare>
+  genres: Array<StatShare>
+  /**
+   * Albums delune imported, by month ("2026-09"), oldest first.
+   */
+  imports: Array<StatShare>
+  /**
+   * Who imported the most, through delune.
+   */
+  importers: Array<StatShare>
+  /**
+   * The Soulseek users delune has downloaded most from; `count` is files.
+   */
+  top_peers: Array<StatShare>
+}
+
 export type LibraryTrack = { title: string; track: number | null; disc: number | null }
 
 export type LinkBandcamp = {
@@ -604,6 +641,21 @@ export type Quality = {
 }
 
 export type QualityTier = "unknown" | "lossy" | "lossless" | "hi-res"
+
+export type RecentAlbum = {
+  id: string
+  title: string
+  artist: string | null
+  year: number | null
+  /**
+   * Same-origin address of its cover, when it has one.
+   */
+  cover: string | null
+  /**
+   * Unix seconds.
+   */
+  added_at: number | null
+}
 
 export type RequestDecision = { approve: boolean; reason: string | null }
 
@@ -990,6 +1042,19 @@ export type SpeedSchedule = {
    * IANA time zone the times are in, such as `Europe/London`.
    */
   time_zone: string
+}
+
+export type StatShare = {
+  label: string
+  count: number
+  /**
+   * Bytes, where that means something.
+   */
+  bytes: number
+  /**
+   * For qualities: `hires`, `lossless` or `lossy`.
+   */
+  tier: string | null
 }
 
 export type Theme = "system" | "night" | "blue-hour" | "midnight" | "forest"

@@ -6,6 +6,7 @@ import { AlbumPage, SharePage, SongPage } from "@/pages/music-pages"
 import { DownloadsPage } from "@/pages/downloads-page"
 import { HistoryPage } from "@/pages/history-page"
 import { ReviewPage } from "@/pages/review-page"
+import { StatsPage } from "@/pages/stats-page"
 import { SearchPage } from "@/pages/search-page"
 import { SettingsPage } from "@/pages/settings-page"
 import { MessagesPage } from "@/pages/messages-page"
@@ -36,6 +37,7 @@ const searchRoute = createRoute({
 
 const downloadsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/downloads", component: DownloadsPage })
 const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage })
+const statsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/stats", component: StatsPage })
 const artistRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/artist/$name",
@@ -108,6 +110,7 @@ const routeTree = rootRoute.addChildren([
   searchRoute,
   downloadsRoute,
   reviewRoute,
+  statsRoute,
   soulseekRoute.addChildren([
     peopleRoute,
     userRoute,

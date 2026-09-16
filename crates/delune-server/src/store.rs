@@ -306,6 +306,21 @@ impl Database {
             .collect()
     }
 
+    /// The Soulseek users most downloaded from: (username, files, bytes).
+    #[must_use]
+    pub fn top_peers(&self, limit: u32) -> Vec<(String, u32, u64)> {
+        let conn = self.lock();
+        let Ok(mut query) =
+            conn.prepare_cached("SELECT username, files_done, bytes FROM peers ORDER BY files_done DESC LIMIT ?1")
+        else {
+            return Vec::new();
+        };
+        query
+            .query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?, from_sql(row.get(2)?))))
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
     /// Remember an upload that finished, keeping the most recent [`UPLOADS_KEPT`].
     pub fn record_upload(&self, upload: &UploadRecord) {
         let status = serde_json::to_value(upload.status).ok().and_then(|v| v.as_str().map(str::to_owned));
