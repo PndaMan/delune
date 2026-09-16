@@ -1,7 +1,7 @@
 //! Everything the TUI knows, and what each key press does to it.
 //!
 //! Pure state: key presses and background messages change it, and anything that needs
-//! the network comes back as an [`Action`] for [`crate::tasks`] to carry out.
+//! the network comes back as an [`Action`] for the background tasks to carry out.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
