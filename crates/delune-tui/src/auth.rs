@@ -27,14 +27,47 @@ pub async fn signed_in_client(
     username: Option<String>,
     password: Option<String>,
 ) -> Result<reqwest::Client> {
+    Ok(signed_in(base, username, password, None).await?.0)
+}
+
+fn with_token(token: &str) -> Result<reqwest::Client> {
+    let mut headers = HeaderMap::new();
+    let mut value = HeaderValue::from_str(&format!("Bearer {token}")).context("invalid session token")?;
+    value.set_sensitive(true);
+    headers.insert(AUTHORIZATION, value);
+    Ok(reqwest::Client::builder().user_agent(USER_AGENT).default_headers(headers).build()?)
+}
+
+/// Like [`signed_in_client`], reusing `saved` (a session token from before) while
+/// it's still good. Returns the token in use, to be kept for next time.
+///
+/// # Errors
+///
+/// When the server can't be reached or the credentials are refused.
+pub async fn signed_in(
+    base: &str,
+    username: Option<String>,
+    password: Option<String>,
+    saved: Option<&str>,
+) -> Result<(reqwest::Client, Option<String>)> {
+    if let Some(token) = saved {
+        let client = with_token(token)?;
+        let still_good = match client.get(format!("{base}/api/v1/session")).send().await {
+            Ok(response) => matches!(response.json::<Option<Me>>().await, Ok(Some(_))),
+            Err(_) => false,
+        };
+        if still_good {
+            return Ok((client, Some(token.to_owned())));
+        }
+    }
     let anonymous = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
     let probe = match anonymous.get(format!("{base}/api/v1/session")).send().await {
         Ok(response) => response.json::<Option<Me>>().await,
         // Unreachable: carry on unsigned and let the UI show the problem.
-        Err(_) => return Ok(anonymous),
+        Err(_) => return Ok((anonymous, None)),
     };
     if !matches!(probe, Ok(None)) {
-        return Ok(anonymous);
+        return Ok((anonymous, None));
     }
 
     let username = match username {
@@ -57,12 +90,7 @@ pub async fn signed_in_client(
     }
     let me: Me = response.json().await.context("unexpected sign-in response")?;
     let token = me.token.context("the server didn't return a session token")?;
-
-    let mut headers = HeaderMap::new();
-    let mut value = HeaderValue::from_str(&format!("Bearer {token}")).context("invalid session token")?;
-    value.set_sensitive(true);
-    headers.insert(AUTHORIZATION, value);
-    Ok(reqwest::Client::builder().user_agent(USER_AGENT).default_headers(headers).build()?)
+    Ok((with_token(&token)?, Some(token)))
 }
 
 fn prompt(label: &str) -> Result<String> {

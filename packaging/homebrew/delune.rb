@@ -30,7 +30,7 @@ class Delune < Formula
   end
 
   def install
-    bin.install "delune"
+    bin.install "delune", "delune-tui"
   end
 
   service do

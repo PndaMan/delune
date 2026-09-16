@@ -27,7 +27,7 @@ build() {
   (cd web && bun run build)
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
-  cargo build --frozen --release -p delune
+  cargo build --frozen --release -p delune -p delune-tui
 }
 
 check() {
@@ -39,6 +39,7 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
   install -Dm755 target/release/delune "$pkgdir/usr/bin/delune"
+  install -Dm755 target/release/delune-tui "$pkgdir/usr/bin/delune-tui"
   install -Dm644 packaging/systemd/delune.service "$pkgdir/usr/lib/systemd/system/delune.service"
   install -Dm644 packaging/systemd/delune.sysusers "$pkgdir/usr/lib/sysusers.d/delune.conf"
   install -Dm640 packaging/systemd/delune.env "$pkgdir/etc/delune/delune.env"

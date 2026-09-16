@@ -66,8 +66,9 @@ flowchart LR
 
 The server runs on the same machine as Navidrome, because Navidrome has no upload
 API: delune writes into the music folder and then asks Navidrome to rescan just
-that folder. The web UI and the TUI are both clients of the server's HTTP API, so
-you can run `delune tui` from your laptop.
+that folder. The web UI and the terminal client are both clients of the server's
+HTTP API, so `delune-tui` runs on your laptop and finds the server from its address
+or your Navidrome's.
 
 ## Features
 
@@ -78,12 +79,14 @@ you can run `delune tui` from your laptop.
 - Paste a Spotify or Deezer playlist to put its songs, or their albums, on the wishlist.
 - Results ranked lossless first, complete before partial, then resolution and
   availability, with artwork, "in library" and "N missing" badges, and filters.
-- A wishlist that keeps searching and downloads good copies for review.
-  Automation is off by default: following artists and upgrading lossy albums.
+- A wishlist that keeps searching and downloads good copies for review. Follow an
+  artist and their new albums join it; upgrading lossy albums is opt-in.
+- Artist, album and song pages (with lyrics) that open from anywhere and share as links.
 
 **Soulseek, natively** (no slskd)
 - Searching, downloads with queue position, resume and retry, stop and resume.
 - Browse anyone's shares and profile; any folder opens like a search result.
+- Star favourite people: their shares are kept, so they open instantly.
 - Private messages and chat rooms.
 - Share your library (opt-in): uploads with slots, speed limits, per-person queues,
   blocking, a leecher policy, and the distributed search network, so people find you.
@@ -97,6 +100,15 @@ you can run `delune tui` from your laptop.
 - Synced lyrics from LRCLIB (a sidecar `.lrc`, in the tags, or both) and embedded cover
   art on every import.
 
+**Bandcamp and SoundCloud**
+- Albums show their Bandcamp price, with a link to buy there (delune never takes payment).
+- Link your own Bandcamp account: purchases are listed, albums you own say so, and
+  "Get the files" downloads them for review.
+- Artist pages show the artist's SoundCloud and newest tracks. Follow them there and
+  new tracks join the wishlist; free downloads open where the artist offers them.
+  Only public pages and SoundCloud's own RSS feeds are read, and no audio is pulled
+  from SoundCloud.
+
 **People**
 - Sign in with Navidrome accounts; Navidrome admins are admins.
 - Per-person permissions and an optional admin approval step.
@@ -104,8 +116,10 @@ you can run `delune tui` from your laptop.
 
 **Everywhere**
 - A web app that installs as a PWA and is designed for phones, not just shrunk to fit.
-- A TUI that does the whole flow: search, download, review, import.
-- Runs as one Rust binary; a NixOS module and a Docker image are included.
+- `delune-tui`, a terminal client for any machine that does the whole flow: search,
+  download, review, import.
+- `delune setup`, a terminal wizard that configures and starts everything.
+- A NixOS module, a Docker image, an Arch package and a Homebrew formula.
 
 Planned: transcoding options, and release binaries and packages. Streaming sources come last, and only if you opt in.
 
@@ -122,8 +136,8 @@ git clone https://github.com/PndaMan/delune && cd delune
 # Server on http://localhost:7474
 cargo run -- serve
 
-# In another terminal
-cargo run -- tui
+# In another terminal: the terminal client
+cargo run -p delune-tui -- localhost
 ```
 
 To search, give the server a Soulseek account (a new username is registered the
@@ -152,7 +166,22 @@ it is an admin. Keep an open-mode server off the internet.
 
 ## Install
 
-However you install it, open delune in a browser the first time: it asks for your
+The quickest way, on Linux or macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/PndaMan/delune/main/install.sh | sh
+```
+
+It installs `delune` and `delune-tui` from the latest release (checking the
+download's checksum) and starts `delune setup`: a wizard in the terminal that asks
+for your music folder, Navidrome and Soulseek, tries each one, writes the settings,
+and sets delune up as a systemd service. Run `delune setup` again any time.
+
+On another computer, `delune-tui myserver` connects to it. Give it delune's address,
+the host name, or your Navidrome's address; it looks next to Navidrome, remembers
+where it found delune, and keeps you signed in.
+
+However you install it, you can also open delune in a browser the first time: it asks for your
 music folder, Navidrome and a Soulseek account, checks each one, and saves them to
 `config.toml` in its data folder (readable only by delune). Flags and `DELUNE_*`
 environment variables still work and take precedence; settings made that way show
@@ -237,14 +266,16 @@ runs as the delune server, so only point it at something you'd run yourself.
 
 ```text
 crates/
-  delune            the binary: `delune serve`, `delune tui`
+  delune            the server binary: `delune serve`, `delune setup`
   delune-core       domain types and pure logic: quality, providers, releases
   delune-soulseek   native Soulseek protocol client
   delune-resolve    link parsing and cross-service release matching
   delune-navidrome  Subsonic API client for Navidrome
   delune-library    naming templates, tagging, import into the library
   delune-server     HTTP API and embedded web UI
-  delune-tui        ratatui terminal client
+  delune-tui        the terminal client (`delune-tui`) and the setup wizard's screens
+  delune-bandcamp   Bandcamp releases, prices and purchases
+  delune-soundcloud SoundCloud profiles, feeds and tracks
 web/                React + TypeScript web UI (shadcn/ui on Base UI)
 docs/               architecture, decisions (ADRs), research, roadmap
 ```

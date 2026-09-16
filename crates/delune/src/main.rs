@@ -10,6 +10,8 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod setup;
+
 #[derive(Debug, Parser)]
 #[command(name = "delune", version, about, long_about = None)]
 struct Cli {
@@ -36,18 +38,15 @@ enum Command {
         #[command(flatten)]
         navidrome: NavidromeArgs,
     },
-    /// Open the terminal UI.
-    Tui {
-        /// URL of a running delune server.
-        #[arg(long, env = "DELUNE_SERVER", default_value = "http://localhost:7474")]
-        server: String,
-        /// Navidrome username, when the server has accounts. Asked for if missing.
-        #[arg(long, env = "DELUNE_USERNAME")]
-        username: Option<String>,
-        /// Navidrome password. Prefer the prompt; flags end up in shell history.
-        #[arg(long, env = "DELUNE_PASSWORD", hide_env_values = true)]
-        password: Option<String>,
+    /// Set delune up: a guided wizard for folders, Navidrome, Soulseek and a service.
+    Setup {
+        /// Where delune keeps its data (asked for too).
+        #[arg(long, env = "DELUNE_DATA_DIR")]
+        data_dir: Option<std::path::PathBuf>,
     },
+    /// The terminal client is its own program now: `delune-tui`.
+    #[command(hide = true)]
+    Tui,
 }
 
 // Field names become the `--slsk-*` flags, so the shared prefix is the point.
@@ -152,10 +151,12 @@ async fn main() -> Result<()> {
             };
             delune_server::serve(bind, config).await?;
         }
-        // No logging to stdout here: it would corrupt the terminal UI.
-        Command::Tui { server, username, password } => {
-            let http = delune_tui::auth::signed_in_client(server.trim_end_matches('/'), username, password).await?;
-            delune_tui::run(server, &http)?;
+        Command::Setup { data_dir } => setup::run(data_dir)?,
+        Command::Tui => {
+            anyhow::bail!(
+                "the terminal client is now its own program, so it can run on any machine: \
+                 run `delune-tui` (it finds this server by its address or your Navidrome's)"
+            );
         }
     }
     Ok(())

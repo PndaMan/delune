@@ -67,10 +67,15 @@ impl FileConfig {
         }
     }
 
-    fn save(&self, path: &Path) -> std::io::Result<()> {
+    /// Write the file, readable only by its owner.
+    ///
+    /// # Errors
+    ///
+    /// When the file or its folder can't be written.
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
         let text = format!(
-            "# delune's connections, as set from the web UI. Command-line flags and\n# DELUNE_* environment variables override anything here.\n\n{text}"
+            "# delune's connections, from `delune setup` or the web UI. Command-line flags and\n# DELUNE_* environment variables override anything here.\n\n{text}"
         );
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -288,6 +293,11 @@ fn with_saved_passwords(mut request: SetupRequest, saved: &FileConfig) -> SetupR
         given.password.clone_from(&old.password);
     }
     request
+}
+
+/// Try connections outside a running server, as `delune setup` does before saving.
+pub async fn check_offline(request: &SetupRequest) -> SetupCheck {
+    run_checks(&AppState::default(), request).await
 }
 
 async fn run_checks(app: &AppState, request: &SetupRequest) -> SetupCheck {

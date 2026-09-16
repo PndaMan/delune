@@ -52,12 +52,12 @@ jobs:
           path: web/dist
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p delune
+      - run: cargo build --release --locked -p delune -p delune-tui
       - name: Package
         run: |
           name="delune-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir "$name"
-          cp target/release/delune README.md LICENSE "$name/"
+          cp target/release/delune target/release/delune-tui README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
       - uses: softprops/action-gh-release@v2

@@ -24,7 +24,7 @@ flowchart TB
         server -- "startScan (Subsonic API)" --> nd
     end
     web["Web UI<br>(browser)"] -- HTTP + SSE --> server
-    tui["delune tui<br>(any machine)"] -- HTTP + SSE --> server
+    tui["delune-tui<br>(any machine)"] -- HTTP + SSE --> server
     slsk <-- "TCP" --> network(("Soulseek<br>network"))
     server -. "metadata" .-> mb["MusicBrainz · Deezer · iTunes · LRCLIB"]
 ```
@@ -34,7 +34,9 @@ flowchart TB
   Nothing is possible in one client that isn't possible over the API.
 - **Same host as Navidrome.** Navidrome can't accept uploads, so delune needs write
   access to the music folder. See [ADR 0001](adr/0001-rust-single-binary.md).
-- **One binary.** `delune` contains the server, the TUI and the compiled web UI.
+- **Two binaries.** `delune` is the server with the compiled web UI, plus `delune
+  setup`. `delune-tui` is the terminal client, small enough to install anywhere; it
+  finds the server by its address, its host, or the Navidrome address next to it.
 
 ## Crates
 
@@ -43,7 +45,10 @@ Dependencies point downward; nothing depends on `delune-server` except the binar
 ```mermaid
 flowchart TB
     bin[delune] --> server[delune-server]
-    bin --> tui[delune-tui]
+    bin -- "setup wizard" --> tui[delune-tui]
+    client[delune-tui binary] --> tui
+    server --> bandcamp[delune-bandcamp]
+    server --> soundcloud[delune-soundcloud]
     server --> resolve[delune-resolve]
     server --> library[delune-library]
     server --> soulseek[delune-soulseek]
@@ -64,7 +69,9 @@ flowchart TB
 | `delune-navidrome` | Subsonic API: auth, ownership checks, scans | HTTP |
 | `delune-library` | Naming templates, layout detection, tagging, verification, import | Filesystem |
 | `delune-server` | HTTP API, job orchestration, persistence, web UI assets | All of the above |
-| `delune-tui` | Terminal client | HTTP to the server |
+| `delune-bandcamp` | Bandcamp search, release pages, a fan's purchases and downloads | HTTP |
+| `delune-soundcloud` | SoundCloud profiles, RSS feeds and track pages (no API keys) | HTTP |
+| `delune-tui` | Terminal client, and the screens of `delune setup` | HTTP to the server |
 
 Keeping pure logic in `delune-core` and at the bottom of each crate (for example
 `delune-soulseek::wire`, `delune-library::naming`) means most behaviour is tested

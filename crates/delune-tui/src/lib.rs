@@ -10,6 +10,8 @@
 
 mod api;
 pub mod auth;
+pub mod connect;
+pub mod setup;
 mod sse;
 mod ui;
 

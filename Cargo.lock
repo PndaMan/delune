@@ -753,6 +753,7 @@ name = "delune-tui"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "clap",
  "crossterm",
  "delune-core",
  "futures-util",
@@ -761,6 +762,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "toml",
  "url",
 ]
 

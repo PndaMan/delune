@@ -3,7 +3,7 @@
 Decided with Aidan after research (see [research/README.md](research/README.md)). Each will become a proper ADR in `docs/adr/` when implementation starts.
 
 ## Identity
-- **Name:** `delune` (after *Clair de Lune*). Binary `delune`; `delune serve`, `delune tui`.
+- **Name:** `delune` (after *Clair de Lune*). Binaries `delune` (`delune serve`, `delune setup`) and `delune-tui`, the terminal client.
 - **Repo:** `github.com/PndaMan/delune`, public, **AGPL-3.0**.
 
 ## Shape
@@ -27,7 +27,7 @@ Decided with Aidan after research (see [research/README.md](research/README.md))
 |---|---|
 | Playlist import (Spotify/Apple/Deezer links → missing tracks) | on |
 | Watchlist (keep retrying not-found items) | on |
-| Artist follow + new releases | **off**, configurable |
+| Artist follow + new releases | following an artist *is* the opt-in (Deezer releases, SoundCloud feeds) |
 | Quality upgrades (find better versions of owned albums) | **off**, configurable |
 
 ## Accounts
@@ -41,6 +41,12 @@ Decided with Aidan after research (see [research/README.md](research/README.md))
 
 ## Distribution
 - Docker image + compose · NixOS module + flake · static binaries on GitHub Releases · AUR + Homebrew (TUI client).
+- `install.sh` (checksum-verified release download) → `delune setup` TUI wizard → config.toml + systemd unit.
+- `delune-tui` is its own binary (2026-09-16): a client for any machine, finding the server from its address, host or the Navidrome next to it.
+
+## Bandcamp and SoundCloud (2026-09-16)
+- **Bandcamp:** buy links only (payment stays on Bandcamp). Each person links their own account with their `identity` cookie; purchases sync and download for review.
+- **SoundCloud:** public pages and SoundCloud's RSS feeds only. No use of SoundCloud's private web client id, so delune never fetches audio from SoundCloud itself; free downloads open the artist's link or go through the admin's opt-in fetch command.
 
 ## v0.1 milestone — vertical slice
 Paste link / search → Soulseek (native) → rank → download → verify → review → import → targeted Navidrome scan, working in **both** web and TUI.

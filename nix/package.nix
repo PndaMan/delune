@@ -76,6 +76,8 @@ rustPlatform.buildRustPackage {
   cargoBuildFlags = [
     "-p"
     "delune"
+    "-p"
+    "delune-tui"
   ];
 
   # The web UI is embedded into the binary at compile time.
