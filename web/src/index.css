@@ -219,6 +219,26 @@
   }
 }
 
+/* A bell ringing once, for the moment an artist is followed. */
+@keyframes wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(12deg);
+  }
+  60% {
+    transform: rotate(-8deg);
+  }
+  80% {
+    transform: rotate(5deg);
+  }
+}
+
 @layer utilities {
   /* Display type: IBM Plex Sans set heavy and tight for large sizes. */
   .type-display {

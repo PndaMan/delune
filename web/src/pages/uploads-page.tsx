@@ -41,7 +41,7 @@ export function UploadsPage() {
         illumination={0.1}
         title="You're not sharing anything yet"
         action={
-          <Button variant="outline" nativeButton={false} render={<Link to="/settings" hash="sharing" />}>
+          <Button variant="outline" nativeButton={false} render={<Link to="/settings/$section" params={{ section: "sharing" }} />}>
             Set up sharing
           </Button>
         }

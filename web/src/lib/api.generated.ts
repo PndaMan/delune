@@ -20,10 +20,6 @@ export type AuthMode = "navidrome" | "open"
 
 export type AutomationSettings = {
   /**
-   * Put new releases from followed artists on the wishlist.
-   */
-  follow_artists: boolean
-  /**
    * Look for better copies of lossy albums in the library.
    */
   quality_upgrades: boolean

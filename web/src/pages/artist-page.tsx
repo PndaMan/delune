@@ -3,24 +3,18 @@ import { CircleCheck, Search } from "lucide-react"
 
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
+import { FollowButton } from "@/components/follow-button"
 import { useMusicViews } from "@/components/music-views"
 import { Button } from "@/components/ui/button"
-import { useFollow, useFollows, useUnfollow } from "@/lib/automation"
 import { plural } from "@/lib/format"
 import { type ArtistAlbum, useArtist } from "@/lib/music"
-import { useMe } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { PageFrame } from "@/pages/placeholder-pages"
 
 /** One artist: what your library has by them, and everything else they've released. */
 export function ArtistPage({ name }: { name: string }) {
   const artist = useArtist(name)
-  const me = useMe()
   const views = useMusicViews()
-  const follows = useFollows()
-  const follow = useFollow()
-  const unfollow = useUnfollow()
-  const following = (follows.data ?? []).find((f) => f.artist.toLowerCase() === name.toLowerCase())
 
   if (artist.isError) {
     return (
@@ -63,24 +57,11 @@ export function ArtistPage({ name }: { name: string }) {
               .filter(Boolean)
               .join(" · ") || (artist.isPending ? "Looking them up" : "")}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button nativeButton={false} render={<Link to="/" search={{ q: info?.name ?? name }} />} variant="outline">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button size="lg" nativeButton={false} render={<Link to="/" search={{ q: info?.name ?? name }} />}>
               <Search /> Search Soulseek
             </Button>
-            {me.permissions.download &&
-              (following ? (
-                <Button
-                  variant="outline"
-                  onClick={() => unfollow.mutate(following.deezer_id)}
-                  disabled={unfollow.isPending}
-                >
-                  Following
-                </Button>
-              ) : (
-                <Button variant="outline" onClick={() => follow.mutate(info?.name ?? name)} disabled={follow.isPending}>
-                  Follow for new releases
-                </Button>
-              ))}
+            <FollowButton artist={info?.name ?? name} />
           </div>
         </div>
       </div>

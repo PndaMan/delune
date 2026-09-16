@@ -107,7 +107,8 @@ export const SearchField = forwardRef<SearchFieldHandle, SearchFieldProps>(funct
             }
           }}
           placeholder="Artist, album, or a link from any service"
-          autoFocus={large}
+          // On a phone the keyboard would jump up on every visit to Search; wait for a tap.
+          autoFocus={large && !window.matchMedia("(pointer: coarse)").matches}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}

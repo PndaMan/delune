@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { History, LogOut, SlidersHorizontal, Users } from "lucide-react"
+import { History, LogOut, SlidersHorizontal } from "lucide-react"
 
 import { Moon } from "@/components/moon"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
@@ -63,11 +63,6 @@ export function ProfileMenu({ side = "right" }: { side?: "right" | "bottom" }) {
           <span className={cn("min-w-0", soulseek.tone === "bad" && "text-destructive")}>{soulseek.text}</span>
         </p>
         <DropdownMenuSeparator />
-        {me.permissions.manage && (
-          <DropdownMenuItem onClick={() => void navigate({ to: "/settings", hash: "people" })}>
-            <Users /> People and permissions
-          </DropdownMenuItem>
-        )}
         <DropdownMenuItem onClick={() => void navigate({ to: "/history" })}>
           <History /> History
         </DropdownMenuItem>

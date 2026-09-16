@@ -4,7 +4,6 @@ import { toApiError } from "@/lib/api"
 import type { MinQuality } from "@/lib/wishlist"
 
 export type AutomationSettings = {
-  follow_artists: boolean
   quality_upgrades: boolean
   upgrade_to: MinQuality
   auto_download: boolean

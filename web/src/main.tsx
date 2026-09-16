@@ -21,10 +21,27 @@ applyAppearance()
       if (!(target instanceof Element)) return
       target.setAttribute("data-scrolling", "")
       window.clearTimeout(timers.get(target))
-      timers.set(target, window.setTimeout(() => target.removeAttribute("data-scrolling"), 900))
+      timers.set(
+        target,
+        window.setTimeout(() => target.removeAttribute("data-scrolling"), 900),
+      )
     },
     { capture: true, passive: true },
   )
+}
+
+// iOS leaves fixed bars (the bottom nav) floating above where they belong after the
+// keyboard closes, until something makes it lay the page out again. Nudge it.
+if (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) {
+  document.addEventListener("focusout", (event) => {
+    if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) return
+    window.requestAnimationFrame(() => window.scrollTo(window.scrollX, window.scrollY))
+  })
+  window.visualViewport?.addEventListener("resize", () => {
+    if (window.visualViewport && window.visualViewport.height >= window.innerHeight - 1) {
+      window.scrollTo(window.scrollX, window.scrollY)
+    }
+  })
 }
 
 // Installable app: the service worker only runs in built bundles, never under Vite's dev server.

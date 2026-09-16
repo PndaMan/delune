@@ -1112,13 +1112,14 @@ pub struct ExternalSource {
     pub arguments: Vec<String>,
 }
 
-/// `GET /api/v1/automation`: what delune does on its own. Both are off by default.
+/// `GET /api/v1/automation`: what delune does on its own.
+///
+/// Following an artist is its own switch — new releases from anyone followed always
+/// reach the wishlist — so what's left here is off by default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AutomationSettings {
-    /// Put new releases from followed artists on the wishlist.
-    pub follow_artists: bool,
     /// Look for better copies of lossy albums in the library.
     pub quality_upgrades: bool,
     /// What an upgrade must be.
@@ -1129,7 +1130,7 @@ pub struct AutomationSettings {
 
 impl Default for AutomationSettings {
     fn default() -> Self {
-        Self { follow_artists: false, quality_upgrades: false, upgrade_to: MinQuality::Lossless, auto_download: true }
+        Self { quality_upgrades: false, upgrade_to: MinQuality::Lossless, auto_download: true }
     }
 }
 

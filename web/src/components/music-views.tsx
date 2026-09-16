@@ -1,9 +1,10 @@
 import { Dialog } from "@base-ui/react/dialog"
 import { Link } from "@tanstack/react-router"
-import { CircleCheck, LoaderCircle, Search, Sparkles, X } from "lucide-react"
+import { CircleCheck, Copy, LoaderCircle, Quote, Search, Sparkles, X } from "lucide-react"
 import { createContext, use, useMemo, useState } from "react"
 
 import { Cover } from "@/components/cover"
+import { FollowButton } from "@/components/follow-button"
 import { Button } from "@/components/ui/button"
 import { useArtwork } from "@/lib/artwork"
 import { formatRuntime, formatTrackTime, plural } from "@/lib/format"
@@ -126,9 +127,8 @@ export function AlbumBody({
       <div className="flex gap-4 border-b p-5 sm:gap-5 sm:p-6">
         <Cover src={cover} pending={info.isPending} alt="" className="size-24 rounded-xl sm:size-32" />
         <div className="min-w-0 flex-1 pr-10">
-          <Dialog.Title className="type-title text-[21px] leading-tight text-balance sm:text-[26px]">
-            {title}
-          </Dialog.Title>
+          {/* A plain heading, so these bodies also work as pages outside a dialog. */}
+          <h2 className="type-title text-[21px] leading-tight text-balance sm:text-[26px]">{title}</h2>
           {artist && (
             <Link
               to="/artist/$name"
@@ -152,6 +152,11 @@ export function AlbumBody({
             <p className="mt-2 flex items-center gap-1.5 text-[13.5px] text-q-lossless">
               <CircleCheck className="size-4" /> In your library
             </p>
+          )}
+          {artist && (
+            <div className="mt-3">
+              <FollowButton artist={artist} size="small" />
+            </div>
           )}
         </div>
       </div>
@@ -233,46 +238,120 @@ function TrackDialog({ track, onClose }: { track: TrackRef | null; onClose: () =
   )
 }
 
-/** One song: where it's from, how long it is, and its words. */
+/** Lyrics arrive as lines; blank lines are where one verse ends and the next begins. */
+function verses(lines: string[]) {
+  const found: string[][] = [[]]
+  for (const line of lines) {
+    if (line.trim()) found[found.length - 1].push(line)
+    else if (found[found.length - 1].length) found.push([])
+  }
+  return found.filter((verse) => verse.length)
+}
+
+/**
+ * One song: its cover, where it's from, and its words set to be read — verse by
+ * verse in a narrow column, with the album art washed in behind the title.
+ */
 export function SongBody({ track, onClose }: { track: TrackRef; onClose?: () => void }) {
   const lyrics = useLyrics(track.artist, track.title, track.durationSecs)
+  const artwork = useArtwork(track.artist, track.album ?? track.title)
+  const cover = artwork.data?.cover ?? artwork.data?.thumb
   const lines = lyrics.data ? plainFrom(lyrics.data) : []
+  const [copied, setCopied] = useState(false)
+
+  const copy = () => {
+    void navigator.clipboard?.writeText(`${track.title}\n${track.artist ?? ""}\n\n${lines.join("\n")}`.trim())
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
     <>
-      <div className="border-b p-5 pr-14 sm:p-6 sm:pr-14">
-        <Dialog.Title className="type-title text-[20px] leading-tight text-balance" render={<h2 />}>
-          {track.title}
-        </Dialog.Title>
-        <p className="mt-1 text-[15px] text-muted-foreground">
-          {track.artist && (
-            <Link
-              to="/artist/$name"
-              params={{ name: track.artist }}
-              onClick={onClose}
-              className="underline-offset-4 hover:text-foreground hover:underline"
-            >
-              {track.artist}
-            </Link>
-          )}
-          {track.album && <span> · {track.album}</span>}
-          {track.durationSecs ? <span> · {formatTrackTime(track.durationSecs)}</span> : null}
-        </p>
+      <div className="relative overflow-hidden border-b">
+        {cover && (
+          <div
+            className="pointer-events-none absolute inset-0 scale-125 bg-cover bg-center opacity-20 blur-2xl"
+            style={{ backgroundImage: `url(${cover})` }}
+            aria-hidden
+          />
+        )}
+        <div className="relative flex gap-4 p-5 pr-14 sm:p-6 sm:pr-14">
+          <Cover src={cover} pending={artwork.isPending} alt="" className="size-16 shrink-0 rounded-xl sm:size-20" />
+          <div className="min-w-0 flex-1">
+            <h2 className="type-title text-[20px] leading-tight text-balance sm:text-[23px]">{track.title}</h2>
+            <p className="mt-1 text-[15px] text-muted-foreground">
+              {track.artist && (
+                <Link
+                  to="/artist/$name"
+                  params={{ name: track.artist }}
+                  onClick={onClose}
+                  className="underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  {track.artist}
+                </Link>
+              )}
+              {track.album && <span> · {track.album}</span>}
+              {track.durationSecs ? <span> · {formatTrackTime(track.durationSecs)}</span> : null}
+            </p>
+          </div>
+        </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-6">
         {lyrics.isPending ? (
-          <div className="space-y-2">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-4 animate-pulse rounded bg-muted/40" style={{ width: `${70 - i * 6}%` }} />
+          <div className="mx-auto max-w-[42ch] space-y-2.5">
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+              <div
+                key={i}
+                className="h-4 animate-pulse rounded bg-muted/40"
+                style={{ width: `${55 + ((i * 37) % 40)}%` }}
+              />
             ))}
           </div>
         ) : lines.length ? (
-          <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-foreground/90">{lines.join("\n")}</p>
+          <div className="mx-auto max-w-[42ch] space-y-6">
+            {verses(lines).map((verse, index) => (
+              <p key={index} className="text-[16px] leading-[1.7] text-foreground/90">
+                {verse.map((line, i) => (
+                  // A line too long for the column is indented where it carries on,
+                  // so it doesn't read as a line of its own.
+                  <span key={i} className="block -indent-4 pl-4 [text-wrap:pretty]">
+                    {line}
+                  </span>
+                ))}
+              </p>
+            ))}
+          </div>
         ) : (
-          <p className="text-[14.5px] text-muted-foreground">
-            No words for this one on LRCLIB, the open lyrics database delune asks.
-          </p>
+          <div className="mx-auto max-w-[42ch] py-6 text-center">
+            <Quote className="mx-auto size-6 text-muted-foreground/40" strokeWidth={1.6} />
+            <p className="mt-3 text-[14.5px] text-muted-foreground">
+              No words for this one on LRCLIB, the open lyrics database delune asks. Songs get added all the time, so
+              it's worth another look later.
+            </p>
+          </div>
         )}
       </div>
+
+      {lines.length > 0 && (
+        <div className="flex items-center gap-3 border-t px-5 py-3 sm:px-6">
+          <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
+            Words from{" "}
+            <a
+              href="https://lrclib.net"
+              target="_blank"
+              rel="noreferrer"
+              className="underline-offset-4 hover:text-foreground hover:underline"
+            >
+              LRCLIB
+            </a>
+            {lyrics.data?.synced ? ", timed to the song" : ""}
+          </p>
+          <Button variant="ghost" size="sm" onClick={copy}>
+            {copied ? <CircleCheck /> : <Copy />} {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+      )}
     </>
   )
 }

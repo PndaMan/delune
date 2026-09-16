@@ -5,27 +5,31 @@ import { PageFrame } from "@/pages/placeholder-pages"
 
 /**
  * The album and song views as pages, for links opened from outside delune. In the
- * app the same content appears in a dialog; here it's a page you can share.
+ * app the same content appears in a dialog; here it's a page you can share. Both
+ * bodies carry their own heading, so the page doesn't add a second one.
  */
+function Sheet({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto w-full max-w-[860px] px-4 pt-6 pb-10 sm:px-8 sm:pt-12">
+      <div className="overflow-hidden rounded-3xl border bg-card/60">{children}</div>
+    </div>
+  )
+}
+
 export function AlbumPage({ artist, title }: { artist: string | null; title: string }) {
   const views = useMusicViews()
   return (
-    <PageFrame title={title} wide>
-      <div className="mt-2 overflow-hidden rounded-3xl border bg-card/60 pb-2">
-        <AlbumBody album={{ artist, title }} onTrack={views.openTrack} />
-      </div>
-    </PageFrame>
+    <Sheet>
+      <AlbumBody album={{ artist, title }} onTrack={views.openTrack} />
+    </Sheet>
   )
 }
 
 export function SongPage({ artist, title, album }: { artist: string | null; title: string; album: string | null }) {
-  const navigate = useNavigate()
   return (
-    <PageFrame title={title} wide>
-      <div className="mt-2 overflow-hidden rounded-3xl border bg-card/60">
-        <SongBody track={{ artist, title, album }} onClose={() => void navigate({ to: "/" })} />
-      </div>
-    </PageFrame>
+    <Sheet>
+      <SongBody track={{ artist, title, album }} />
+    </Sheet>
   )
 }
 

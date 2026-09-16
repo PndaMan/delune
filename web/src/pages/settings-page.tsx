@@ -17,7 +17,7 @@ import {
   UserRound,
   Users,
 } from "lucide-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { ConnectionsForm } from "@/components/connections-form"
 import { ExternalSourcePanel } from "@/components/external-source"
@@ -125,6 +125,11 @@ export function SettingsPage({ section }: { section?: string }) {
   const navigate = useNavigate()
   const groups = visibleGroups(me.permissions.manage)
   const active = groups.find((group) => group.id === section)
+  // Older links named the group in the hash (/settings#sharing); send them to its page.
+  const legacy = !section && groups.find((group) => `#${group.id}` === window.location.hash)
+  useEffect(() => {
+    if (legacy) void navigate({ to: "/settings/$section", params: { section: legacy.id }, hash: "", replace: true })
+  }, [legacy, navigate])
 
   // Phones: the list is its own screen, so a group can be opened and closed.
   if (!active) {
@@ -544,12 +549,6 @@ function AutomationSettingsPanel() {
   )
   return (
     <div className="overflow-hidden rounded-2xl border bg-card/50">
-      {row(
-        "Follow artists",
-        "New albums and EPs from artists people follow go onto the wishlist. Follow an artist from any release.",
-        s.follow_artists,
-        (follow_artists) => set({ follow_artists }),
-      )}
       {row(
         "Quality upgrades",
         "Slowly look through the library for lossy albums and search for better copies.",

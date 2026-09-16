@@ -115,9 +115,8 @@ pub fn start(app: &AppState) {
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(120)).await;
             loop {
-                if app.automation.lock().settings.follow_artists {
-                    check_follows(&app).await;
-                }
+                // Following an artist is the opt-in; there's nothing else to switch on.
+                check_follows(&app).await;
                 tokio::time::sleep(Duration::from_secs(60 * 60)).await;
             }
         });
@@ -426,5 +425,15 @@ mod tests {
         assert!(!song_quality(Some("mp3"), Some(320)).unwrap().codec.is_lossless());
         assert!(song_quality(Some("flac"), None).unwrap().codec.is_lossless());
         assert!(song_quality(None, None).is_none());
+    }
+
+    #[test]
+    fn settings_saved_with_the_old_follow_switch_still_load() {
+        let stored: Stored = serde_json::from_str(
+            r#"{"settings":{"follow_artists":true,"quality_upgrades":true,"upgrade_to":"lossless","auto_download":false}}"#,
+        )
+        .unwrap();
+        assert!(stored.settings.quality_upgrades);
+        assert!(!stored.settings.auto_download);
     }
 }
