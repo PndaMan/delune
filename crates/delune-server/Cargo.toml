@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 futures-util = { version = "0.3.33", default-features = false, features = ["std"] }
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["multipart"] }
 delune-core = { version = "0.1.0-dev", path = "../delune-core", features = ["openapi"] }
 delune-resolve = { version = "0.1.0-dev", path = "../delune-resolve" }
 delune-soulseek = { version = "0.1.0-dev", path = "../delune-soulseek" }

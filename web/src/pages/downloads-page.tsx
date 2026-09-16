@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 
+import { UploadButton } from "@/components/upload-dialog"
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
 import { useMusicViews } from "@/components/music-views"
@@ -32,7 +33,7 @@ export function DownloadsPage() {
   const jobs = (downloads.data ?? []).filter((job) => job.status !== "imported")
 
   return (
-    <PageFrame title="Downloads" wide>
+    <PageFrame title="Downloads" wide action={<UploadButton />}>
       <Link
         to="/history"
         className="text-[14px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"

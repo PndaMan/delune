@@ -703,29 +703,43 @@ pub async fn follow_album(
     if let Some(denied) = user.refuse_unless(|p| p.search && p.download, "follow albums") {
         return denied;
     }
-    let (artist, album) = (request.artist.trim(), request.album.trim());
-    if album.is_empty() {
-        return error(StatusCode::BAD_REQUEST, "no-album", "Which album?");
+    match follow_album_for(&app, &user.username, Some(request.artist.trim()), request.album.trim()).await {
+        Ok((follow, true)) => (StatusCode::CREATED, Json(follow)).into_response(),
+        Ok((follow, false)) => Json(follow).into_response(),
+        Err(message) => error(StatusCode::NOT_FOUND, "no-such-album", &message),
     }
-    let artist = (!artist.is_empty()).then_some(artist);
-    let Some((found, _, _)) = crate::music::find_album(&app, artist, album).await else {
-        return error(StatusCode::NOT_FOUND, "no-such-album", "Couldn't find that album to follow.");
+}
+
+/// Follow an album for `username`: find it, remember it, and put what's missing on the
+/// wishlist now. Returns the follow and whether it's new.
+pub(crate) async fn follow_album_for(
+    app: &AppState,
+    username: &str,
+    artist: Option<&str>,
+    album: &str,
+) -> Result<(AlbumFollow, bool), String> {
+    if album.is_empty() {
+        return Err("Which album?".into());
+    }
+    let artist = artist.filter(|a| !a.is_empty());
+    let Some((found, _, _)) = crate::music::find_album(app, artist, album).await else {
+        return Err("Couldn't find that album to follow.".into());
     };
     let Some(id) = found.get("id").and_then(Value::as_u64) else {
-        return error(StatusCode::NOT_FOUND, "no-such-album", "Couldn't find that album to follow.");
+        return Err("Couldn't find that album to follow.".into());
     };
     let text = |pointer: &str| found.pointer(pointer).and_then(Value::as_str).map(str::to_owned);
     let follow = {
         let mut state = app.automation.lock();
-        if let Some(existing) = state.albums.iter().find(|f| f.id == id && f.added_by == user.username) {
-            return Json(existing.clone()).into_response();
+        if let Some(existing) = state.albums.iter().find(|f| f.id == id && f.added_by == username) {
+            return Ok((existing.clone(), false));
         }
         let follow = AlbumFollow {
             id,
             artist: text("/artist/name").or_else(|| artist.map(str::to_owned)).unwrap_or_default(),
             title: text("/title").unwrap_or_else(|| album.to_owned()),
             cover: text("/cover_medium"),
-            added_by: user.username.clone(),
+            added_by: username.to_owned(),
             since: now(),
             last_checked: None,
             tracks: found.get("nb_tracks").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or(0),
@@ -735,13 +749,13 @@ pub async fn follow_album(
         app.automation.save(&state);
         follow
     };
-    crate::events::changed(&app, crate::events::Topic::Follows);
+    crate::events::changed(app, crate::events::Topic::Follows);
     // What's missing today goes on the wishlist straight away.
     {
         let (app, follow) = (app.clone(), follow.clone());
         tokio::spawn(async move { check_album(&app, follow).await });
     }
-    (StatusCode::CREATED, Json(follow)).into_response()
+    Ok((follow, true))
 }
 
 /// `DELETE /api/v1/follows/albums/{id}`

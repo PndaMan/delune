@@ -39,6 +39,16 @@ The Review page shows all of that per track, with the planned paths. Then:
 
 The Review tab shows how many albums are waiting.
 
+### Adding music you have
+
+**Add music** (the button at the top of Downloads) takes tracks, a whole folder (choose
+it, or drag it in) or a zip. Only music and pictures are kept. The upload becomes a
+download like any other: its files are played through and checked, named from their
+tags (the album and artist fields are only needed for untagged files), joined to an
+album you already have part of, and wait here for review, or go straight in for people
+who may import their own downloads. **Keep this album complete** also follows the album,
+so its missing tracks are looked for.
+
 ### Listening first
 
 Every track in Review has a play button: the file streams from the server, so it starts

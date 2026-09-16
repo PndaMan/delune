@@ -33,6 +33,7 @@ pub mod sharing;
 pub mod soundcloud;
 pub mod stats;
 pub mod store;
+pub mod uploads;
 pub mod users;
 mod web;
 pub mod webpush;
@@ -277,6 +278,7 @@ impl AppState {
 
 /// Build the application router. Separate from [`serve`] so tests can call routes
 /// in-process without opening a socket.
+#[allow(clippy::too_many_lines, reason = "the route table, one line per route")]
 pub fn router(state: AppState) -> Router {
     // Everything except health, signing in and the web UI itself needs a session.
     let signed_in = Router::new()
@@ -333,6 +335,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/chat/rooms/{room}/messages", post(chat::say))
         .route("/api/v1/search", get(search::stream))
         .route("/api/v1/downloads", get(downloads::list).post(downloads::create))
+        .route(
+            "/api/v1/uploads",
+            post(uploads::create).layer(axum::extract::DefaultBodyLimit::max(
+                usize::try_from(uploads::MAX_UPLOAD).unwrap_or(usize::MAX),
+            )),
+        )
         .route("/api/v1/downloads/{id}", delete(downloads::remove))
         .route("/api/v1/downloads/{id}/stop", post(downloads::stop))
         .route("/api/v1/downloads/{id}/resume", post(downloads::resume_one))

@@ -57,8 +57,16 @@ server {
 
 ## Uploads
 
-Profile pictures are small; nginx's default `client_max_body_size` (1 MB) is fine for
-them, but raise it if pictures fail to save.
+**Add music** on the Downloads page uploads whole albums, often hundreds of megabytes,
+and delune accepts up to 20 GB in one go. nginx refuses anything over 1 MB by default, so
+raise its limit and let the upload stream through:
+
+```nginx
+client_max_body_size 20g;
+proxy_request_buffering off;
+```
+
+Caddy and Traefik don't limit request sizes unless told to.
 
 ## A sub-path
 

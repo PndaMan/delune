@@ -59,6 +59,7 @@ use utoipa::OpenApi;
         crate::sharing::history,
         crate::diagnostics::diagnostics,
         crate::alerts::settings,
+        crate::uploads::create,
         crate::alerts::update,
         crate::alerts::add_device,
         crate::alerts::remove_device,

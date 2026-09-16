@@ -261,6 +261,14 @@ impl Downloads {
         format!("{millis:x}{:04x}", self.counter.fetch_add(1, Ordering::Relaxed) & 0xffff)
     }
 
+    /// Give a job the album and artist it turned out to be.
+    pub(crate) fn retitle(&self, id: &str, title: &str, artist: Option<&str>) {
+        self.update(id, |job| {
+            title.clone_into(&mut job.title);
+            job.parent = artist.map(str::to_owned);
+        });
+    }
+
     fn update(&self, id: &str, f: impl FnOnce(&mut DownloadJob)) {
         let changed = self.lock().iter_mut().find(|e| e.job.id == id).and_then(|entry| {
             let before = entry.job.status;

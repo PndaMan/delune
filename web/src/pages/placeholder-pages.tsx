@@ -1,6 +1,17 @@
 import { cn } from "@/lib/utils"
 
-export function PageFrame({ title, children, wide = false }: { title: string; children: React.ReactNode; wide?: boolean }) {
+export function PageFrame({
+  title,
+  children,
+  wide = false,
+  action,
+}: {
+  title: string
+  children: React.ReactNode
+  wide?: boolean
+  /** Shown beside the title, like an "add" button. */
+  action?: React.ReactNode
+}) {
   return (
     <div
       className={cn(
@@ -8,7 +19,10 @@ export function PageFrame({ title, children, wide = false }: { title: string; ch
         wide ? "max-w-[1100px]" : "max-w-[900px]",
       )}
     >
-      <h1 className="type-display pt-10 pb-2 text-[44px] sm:pt-14">{title}</h1>
+      <div className="flex items-end justify-between gap-4 pt-10 pb-2 sm:pt-14">
+        <h1 className="type-display text-[44px]">{title}</h1>
+        {action && <div className="shrink-0 pb-1.5">{action}</div>}
+      </div>
       {children}
     </div>
   )
