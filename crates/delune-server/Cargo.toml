@@ -38,6 +38,8 @@ toml = "0.9"
 igd-next = { version = "0.17", features = ["aio_tokio"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 utoipa = "5"
+zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+delune-bandcamp = { version = "0.1.0-dev", path = "../delune-bandcamp" }
 
 [dev-dependencies]
 bytes = "1.12.1"

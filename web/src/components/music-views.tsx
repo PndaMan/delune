@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { CircleCheck, Copy, LoaderCircle, Quote, Search, Sparkles, X } from "lucide-react"
 import { createContext, use, useMemo, useState } from "react"
 
+import { BandcampOfferLine } from "@/components/bandcamp"
 import { Cover } from "@/components/cover"
 import { FollowButton } from "@/components/follow-button"
 import { Button } from "@/components/ui/button"
@@ -200,6 +201,7 @@ export function AlbumBody({
         )}
       </div>
 
+      {!owned && <BandcampOfferLine artist={artist} title={title} />}
       <div className="flex flex-wrap gap-2 border-t p-4 sm:p-5">
         <Button
           nativeButton={false}

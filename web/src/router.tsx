@@ -21,10 +21,15 @@ const searchRoute = createRoute({
   path: "/",
   // `?q=` makes every search a link you can share, bookmark or reload.
   // `?q=` makes a search shareable; `?wishlist` opens the wishlist over it.
-  validateSearch: (search: Record<string, unknown>): { q?: string; wishlist?: boolean } => {
+  // `?purchases` opens what you've bought on Bandcamp.
+  validateSearch: (search: Record<string, unknown>): { q?: string; wishlist?: boolean; purchases?: boolean } => {
     const q = typeof search.q === "string" ? search.q.trim() : ""
-    const wishlist = search.wishlist === true || search.wishlist === "true"
-    return { ...(q ? { q } : {}), ...(wishlist ? { wishlist: true } : {}) }
+    const flag = (value: unknown) => value === true || value === "true"
+    return {
+      ...(q ? { q } : {}),
+      ...(flag(search.wishlist) ? { wishlist: true } : {}),
+      ...(flag(search.purchases) ? { purchases: true } : {}),
+    }
   },
   component: SearchPage,
 })

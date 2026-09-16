@@ -10,6 +10,7 @@
 pub mod accounts;
 pub mod artwork;
 pub mod automation;
+pub mod bandcamp;
 pub mod chat;
 pub mod downloads;
 pub mod events;
@@ -95,6 +96,8 @@ pub struct AppState {
     pub browse: Arc<users::BrowseCache>,
     /// Soulseek users people starred, whose shares are kept.
     pub favourites: Arc<favourites::Favourites>,
+    /// Bandcamp: albums to buy, and each person's linked account.
+    pub bandcamp: Arc<bandcamp::Bandcamp>,
     pub chat: Arc<chat::Chat>,
     pub sharing: Arc<sharing::Sharing>,
     pub wishlist: Arc<wishlist::Wishlist>,
@@ -138,6 +141,7 @@ impl Default for AppState {
             accounts: Arc::new(accounts::Accounts::in_memory(None)),
             browse: Arc::default(),
             favourites: Arc::default(),
+            bandcamp: Arc::default(),
             chat: Arc::default(),
             sharing: Arc::default(),
             wishlist: Arc::default(),
@@ -187,6 +191,7 @@ impl AppState {
         let requests = Arc::new(requests::Requests::open(&db));
         let external = Arc::new(external::External::open(&db));
         let favourites = Arc::new(favourites::Favourites::open(&db));
+        let bandcamp = Arc::new(bandcamp::Bandcamp::open(&db));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -216,6 +221,7 @@ impl AppState {
             requests,
             external,
             favourites,
+            bandcamp,
             db,
             ..Self::default()
         };
@@ -241,6 +247,7 @@ impl AppState {
         sharing::Totals::start(&state);
         automation::start(&state);
         favourites::start(&state);
+        bandcamp::start(&state);
         Ok(state)
     }
 }
@@ -267,6 +274,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/users/{username}/picture", get(users::picture))
         .route("/api/v1/soulseek/users/{username}/shares", get(users::share_tree))
         .route("/api/v1/soulseek/users/{username}/folder", get(users::folder))
+        .route("/api/v1/bandcamp/release", get(bandcamp::release))
+        .route("/api/v1/bandcamp/account", get(bandcamp::account).put(bandcamp::link).delete(bandcamp::unlink))
+        .route("/api/v1/bandcamp/purchases", get(bandcamp::purchases))
+        .route("/api/v1/bandcamp/purchases/sync", post(bandcamp::sync))
+        .route("/api/v1/bandcamp/purchases/{id}/download", post(bandcamp::download))
         .route("/api/v1/soulseek/favourites", get(favourites::list))
         .route("/api/v1/soulseek/favourites/{username}", put(favourites::add).delete(favourites::remove))
         .route("/api/v1/soulseek/stats", get(sharing::stats))

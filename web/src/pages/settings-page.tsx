@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { BandcampGlyph, BandcampGroup } from "@/components/bandcamp"
 import { ConnectionsForm } from "@/components/connections-form"
 import { ExternalSourcePanel } from "@/components/external-source"
 import { NamingEditor } from "@/components/naming-editor"
@@ -53,6 +54,14 @@ const GROUPS = [
     icon: Palette,
     manage: false,
     panel: () => <AppearancePicker />,
+  },
+  {
+    id: "bandcamp",
+    title: "Bandcamp",
+    blurb: "Link your account to see and fetch what you've bought.",
+    icon: BandcampGlyph,
+    manage: false,
+    panel: () => <BandcampGroup />,
   },
   {
     id: "library",

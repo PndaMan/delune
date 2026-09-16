@@ -2,6 +2,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router"
 import { ArrowDownToLine, Bookmark, LoaderCircle, RotateCw, Sparkles, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { PurchasesButton, PurchasesSheet } from "@/components/bandcamp"
 import { EmptyState } from "@/components/empty-state"
 import { Moon } from "@/components/moon"
 import { PlaylistImport } from "@/components/playlist-import"
@@ -30,7 +31,7 @@ import { cn } from "@/lib/utils"
 const route = getRouteApi("/")
 
 export function SearchPage() {
-  const { q, wishlist } = route.useSearch()
+  const { q, wishlist, purchases } = route.useSearch()
   const navigate = route.useNavigate()
   const search = useSearch(q ?? null)
   const { recent, remember, forget } = useRecentSearches()
@@ -50,11 +51,13 @@ export function SearchPage() {
   }, [q, search.resolved])
 
   const closeWishlist = () => void navigate({ search: (old) => ({ ...old, wishlist: undefined }) })
+  const closePurchases = () => void navigate({ search: (old) => ({ ...old, purchases: undefined }) })
   if (!q) {
     return (
       <>
         <Idle onSubmit={submit} recent={recent} onForget={forget} />
         <WishlistSheet open={!!wishlist} onClose={closeWishlist} />
+        <PurchasesSheet open={!!purchases} onClose={closePurchases} />
       </>
     )
   }
@@ -67,6 +70,7 @@ export function SearchPage() {
       <ResolvedContext.Provider value={search.resolved}>
         <Results key={q} query={q} search={search} onSubmit={submit} />
         <WishlistSheet open={!!wishlist} onClose={closeWishlist} />
+        <PurchasesSheet open={!!purchases} onClose={closePurchases} />
       </ResolvedContext.Provider>
     </SearchContext.Provider>
   )
@@ -142,8 +146,9 @@ function Idle({
         <SearchField size="lg" onSubmit={onSubmit} />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
         <WishlistButton withLabel />
+        <PurchasesButton />
       </div>
 
       {soulseek.tone === "bad" && (

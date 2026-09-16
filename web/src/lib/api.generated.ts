@@ -33,6 +33,69 @@ export type AutomationSettings = {
   auto_download: boolean
 }
 
+export type BandcampAccount = {
+  linked: boolean
+  username: string | null
+  name: string | null
+  purchases: number
+  /**
+   * When purchases were last fetched (Unix seconds).
+   */
+  synced_at: number | null
+  syncing: boolean
+  /**
+   * Why the last sync failed, such as an expired login.
+   */
+  problem: string | null
+}
+
+export type BandcampDownload = {
+  /**
+   * `flac` (the default), `mp3-320`, `mp3-v0`, `alac`, `aac-hi`, `vorbis`, `wav` or `aiff-lossless`.
+   */
+  format: string | null
+}
+
+export type BandcampOffer = {
+  /**
+   * The album's page on Bandcamp, where it's bought.
+   */
+  url: string
+  title: string
+  artist: string
+  /**
+   * The digital price; name-your-price albums give their minimum.
+   */
+  price: number | null
+  currency: string | null
+  name_your_price: boolean
+  /**
+   * The signed-in person's linked account has bought it.
+   */
+  owned: boolean
+  /**
+   * Their purchase, when owned, for downloading it again.
+   */
+  purchase: string | null
+}
+
+export type BandcampPurchase = {
+  id: string
+  title: string
+  artist: string
+  purchased_at: number | null
+  art: string | null
+  url: string | null
+  /**
+   * Bandcamp offers the files again.
+   */
+  downloadable: boolean
+  /**
+   * The download job fetching it, once one was started.
+   */
+  job: string | null
+}
+
 export type Candidate = {
   /**
    * Stable within a search: `username` + folder path.
@@ -248,6 +311,13 @@ export type LibraryMatch = {
 export type LibraryState = "unknown" | "not-in-library" | "in-library"
 
 export type LibraryTrack = { title: string; track: number | null; disc: number | null }
+
+export type LinkBandcamp = {
+  /**
+   * The `identity` cookie, a whole `Cookie:` header, or a cookies.txt file.
+   */
+  cookie: string
+}
 
 export type LoginRequest = {
   username: string

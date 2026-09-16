@@ -796,6 +796,77 @@ pub struct ShareTree {
     pub saved_at: Option<u64>,
 }
 
+/// `GET /api/v1/bandcamp/release`: an album on Bandcamp, to buy there or fetch again.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BandcampOffer {
+    /// The album's page on Bandcamp, where it's bought.
+    pub url: String,
+    pub title: String,
+    pub artist: String,
+    /// The digital price; name-your-price albums give their minimum.
+    pub price: Option<f64>,
+    pub currency: Option<String>,
+    pub name_your_price: bool,
+    /// The signed-in person's linked account has bought it.
+    pub owned: bool,
+    /// Their purchase, when owned, for downloading it again.
+    pub purchase: Option<String>,
+}
+
+/// `GET /api/v1/bandcamp/account`: someone's linked Bandcamp account. The login
+/// itself is never sent back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BandcampAccount {
+    pub linked: bool,
+    pub username: Option<String>,
+    pub name: Option<String>,
+    pub purchases: u32,
+    /// When purchases were last fetched (Unix seconds).
+    pub synced_at: Option<u64>,
+    pub syncing: bool,
+    /// Why the last sync failed, such as an expired login.
+    pub problem: Option<String>,
+}
+
+/// `PUT /api/v1/bandcamp/account`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LinkBandcamp {
+    /// The `identity` cookie, a whole `Cookie:` header, or a cookies.txt file.
+    pub cookie: String,
+}
+
+/// `GET /api/v1/bandcamp/purchases`: something bought on Bandcamp.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BandcampPurchase {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub purchased_at: Option<u64>,
+    pub art: Option<String>,
+    pub url: Option<String>,
+    /// Bandcamp offers the files again.
+    pub downloadable: bool,
+    /// The download job fetching it, once one was started.
+    pub job: Option<String>,
+}
+
+/// `POST /api/v1/bandcamp/purchases/{id}/download`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BandcampDownload {
+    /// `flac` (the default), `mp3-320`, `mp3-v0`, `alac`, `aac-hi`, `vorbis`, `wav` or `aiff-lossless`.
+    pub format: Option<String>,
+}
+
 /// `GET /api/v1/soulseek/favourites`: a Soulseek user someone starred, so their
 /// shares are kept to hand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

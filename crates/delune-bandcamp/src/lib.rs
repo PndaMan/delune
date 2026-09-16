@@ -368,7 +368,12 @@ fn release_detail(page: &str, url: &str) -> Option<ReleaseDetail> {
         url: str_at(&blob, "/url").unwrap_or(url).to_owned(),
         art: art_id.map(|id| format!("https://f4.bcbits.com/img/a{id}_10.jpg")),
         price,
-        currency: str_at(current, "/currency").or_else(|| str_at(&blob, "/currency")).map(str::to_owned),
+        // The band's currency sits on the page rather than in the blob; packages carry it too.
+        currency: str_at(current, "/currency")
+            .or_else(|| str_at(&blob, "/currency"))
+            .map(str::to_owned)
+            .or_else(|| attribute(page, "data-band-currency"))
+            .or_else(|| str_at(&blob, "/packages/0/currency").map(str::to_owned)),
         name_your_price: current.get("is_set_price").and_then(Value::as_bool) != Some(true)
             && price.unwrap_or(0.0) >= 0.0
             && current.get("minimum_price_nonzero").and_then(Value::as_f64).is_some(),
@@ -415,6 +420,14 @@ fn prepared(text: &str) -> Prepared {
     }
 }
 
+/// A plain attribute's value (`data-band-currency="GBP"`).
+fn attribute(page: &str, attribute: &str) -> Option<String> {
+    let start = page.find(&format!("{attribute}=\""))? + attribute.len() + 2;
+    let end = start + page[start..].find('"')?;
+    let value = unescape(page[start..end].trim());
+    (!value.is_empty()).then_some(value)
+}
+
 /// Read a JSON attribute (`data-tralbum="{…}"`) out of a page.
 fn attribute_json(page: &str, attribute: &str) -> Option<Value> {
     let start = page.find(&format!("{attribute}=\""))? + attribute.len() + 2;
@@ -452,6 +465,16 @@ mod tests {
         assert_eq!(detail.track_titles, ["Archangel"]);
         assert!(detail.owned);
         assert!(detail.art.unwrap().contains("a123"));
+        assert!(detail.name_your_price, "a minimum with no set price means pay what you like above it");
+    }
+
+    #[test]
+    fn finds_the_currency_on_the_page() {
+        let page = r#"<div data-tralbum="{&quot;artist&quot;:&quot;Boards of Canada&quot;,&quot;current&quot;:{&quot;title&quot;:&quot;Twoism&quot;,&quot;minimum_price&quot;:8.0,&quot;is_set_price&quot;:true}}"></div>
+            <script src="https://bandcamp.com/api/currency_data/1/javascript" data-band-currency="GBP"></script>"#;
+        let detail = release_detail(page, "https://x").unwrap();
+        assert_eq!(detail.currency.as_deref(), Some("GBP"));
+        assert!(!detail.name_your_price);
     }
 
     #[test]
