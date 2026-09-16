@@ -246,6 +246,17 @@ fn whoami() -> String {
 }
 
 fn install_system_service(answers: &Answers, data_dir: &Path) -> Result<bool> {
+    // NixOS builds /etc from its configuration; a service belongs there.
+    if Path::new("/etc/NIXOS").exists() {
+        println!("  {BOLD}On NixOS, add delune to your configuration instead:{RESET}");
+        println!(
+            "    services.delune = {{ enable = true; dataDir = \"{}\"; listen = \"{}\"; }};",
+            data_dir.display(),
+            answers.bind.trim()
+        );
+        println!("    {MUTED}with the module from github:PndaMan/delune (nixosModules.default).{RESET}");
+        return Ok(false);
+    }
     // Under sudo, run as the person who asked rather than as root.
     let account = std::env::var("SUDO_USER").unwrap_or_else(|_| "root".to_owned());
     let text = unit(answers, data_dir, Some(&account))?;

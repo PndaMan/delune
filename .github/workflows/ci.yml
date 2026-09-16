@@ -71,6 +71,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --locked
 
+  static:
+    name: Static Linux binaries
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: web-dist
+          path: web/dist
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --locked --target x86_64-unknown-linux-musl -p delune -p delune-tui
+      - name: The binaries are static and start
+        run: |
+          for bin in delune delune-tui; do
+            path="target/x86_64-unknown-linux-musl/debug/$bin"
+            file "$path" | grep -Eq "statically linked|static-pie linked" || { file "$path"; exit 1; }
+            "$path" --version
+          done
+
   macos:
     name: macOS
     runs-on: macos-15

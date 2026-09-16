@@ -172,8 +172,10 @@ The quickest way, on Linux or macOS:
 curl -fsSL https://raw.githubusercontent.com/PndaMan/delune/main/install.sh | sh
 ```
 
-It installs `delune` and `delune-tui` from the latest release (checking the
-download's checksum) and starts `delune setup`: a wizard in the terminal that asks
+It works out your system (Linux or macOS, Intel or ARM), installs `delune` and
+`delune-tui` from the latest release (checking the download's checksum; the Linux
+builds are static, so they run on any distribution, NixOS included) and starts
+`delune setup`: a wizard in the terminal that asks
 for your music folder, Navidrome and Soulseek, tries each one, writes the settings,
 and sets delune up as a systemd service. Run `delune setup` again any time.
 
@@ -218,7 +220,24 @@ delune is a flake with a NixOS module:
 ```
 
 The service listens on `127.0.0.1:7474`; put your reverse proxy in front of it.
-`nix build github:PndaMan/delune` builds just the binary.
+`nix build github:PndaMan/delune` builds the binaries, and
+`nix profile install github:PndaMan/delune` puts `delune-tui` on your path.
+
+**Through a VPN.** Soulseek shows peers your IP address. To keep delune's traffic on a
+VPN (and stop it if the VPN drops), either run it inside a VPN container's network or
+in a network namespace that only has the VPN:
+
+```nix
+services.delune.vpn.container = "gluetun";  # delune runs as a container in gluetun's network
+services.delune.listen = "0.0.0.0:7474";    # publish 7474 and the Soulseek port on gluetun
+services.delune.vpn.user = "1024:100";      # match the owner of a NAS music share
+
+# or, with namespaced WireGuard:
+services.delune.vpn.namespace = "wg";       # /run/netns/wg
+```
+
+Settings → Connections shows the address Soulseek sees, so you can check it's the VPN's.
+With Docker, `compose.yaml` has the same setup with gluetun, commented out.
 
 ### Docker
 

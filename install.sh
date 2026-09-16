@@ -45,7 +45,7 @@ else
 fi
 
 case "$(uname -s)" in
-  Linux) os="unknown-linux-gnu" ;;
+  Linux) os="unknown-linux-musl" ;;
   Darwin) os="apple-darwin" ;;
   *) fail "delune has builds for Linux and macOS. On $(uname -s), build it from source: cargo install --git https://github.com/$repo delune delune-tui" ;;
 esac
@@ -56,6 +56,21 @@ case "$(uname -m)" in
 esac
 target="$arch-$os"
 step "This machine is $target"
+
+if [ -e /etc/NIXOS ]; then
+  say ""
+  say "  ${bold}On NixOS, the module is the better fit:${reset} a declarative service with secrets kept"
+  say "  out of the store, and optional VPN routing. In your flake:"
+  say ""
+  say "    inputs.delune.url = \"github:$repo\";"
+  say "    # then in your configuration"
+  say "    imports = [ inputs.delune.nixosModules.default ];"
+  say "    services.delune = { enable = true; libraryDir = \"/srv/music\"; };"
+  say ""
+  say "  ${muted}The terminal client alone:${reset} nix profile install github:$repo"
+  say "  ${muted}Carrying on with a standalone install (these binaries are static, so they run here too).${reset}"
+  say ""
+fi
 
 version="${DELUNE_VERSION:-}"
 if [ -z "$version" ]; then

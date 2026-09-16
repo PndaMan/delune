@@ -16,5 +16,19 @@ services:
       # The same music folder Navidrome scans.
       - /path/to/music:/music
 
+  # Through a VPN instead: uncomment gluetun, give delune `network_mode: service:gluetun`,
+  # and move delune's `ports` onto gluetun. Soulseek traffic then only leaves through
+  # the VPN, and stops if the VPN drops. Forward the Soulseek port with your provider.
+  #
+  # gluetun:
+  #   image: qmcgaw/gluetun
+  #   cap_add: [NET_ADMIN]
+  #   devices: [/dev/net/tun]
+  #   env_file: gluetun.env        # VPN_SERVICE_PROVIDER, keys, FIREWALL_VPN_INPUT_PORTS=2234
+  #   ports:
+  #     - "7474:7474"
+  #     - "2234:2234"
+  #   restart: unless-stopped
+
 volumes:
   delune-data:

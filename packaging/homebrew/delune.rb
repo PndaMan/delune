@@ -20,11 +20,11 @@ class Delune < Formula
 
   on_linux do
     on_arm do
-      url "https://github.com/PndaMan/delune/releases/download/v#{version}/delune-v#{version}-aarch64-unknown-linux-gnu.tar.gz"
+      url "https://github.com/PndaMan/delune/releases/download/v#{version}/delune-v#{version}-aarch64-unknown-linux-musl.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     end
     on_intel do
-      url "https://github.com/PndaMan/delune/releases/download/v#{version}/delune-v#{version}-x86_64-unknown-linux-gnu.tar.gz"
+      url "https://github.com/PndaMan/delune/releases/download/v#{version}/delune-v#{version}-x86_64-unknown-linux-musl.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     end
   end

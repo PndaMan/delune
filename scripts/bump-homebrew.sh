@@ -8,7 +8,7 @@ formula=packaging/homebrew/delune.rb
 base="https://github.com/PndaMan/delune/releases/download/v$version"
 
 sed -i.bak "s/^  version \".*\"/  version \"$version\"/" "$formula"
-for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do
   sum=$(curl -fsSL "$base/delune-v$version-$target.tar.gz.sha256" | cut -d' ' -f1)
   # The sha256 line follows the url line for each target.
   awk -v target="$target" -v sum="$sum" '
