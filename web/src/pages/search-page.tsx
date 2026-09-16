@@ -116,24 +116,29 @@ function Idle({
   const soulseek = describeSoulseek(status.data, status.isError)
 
   return (
-    <div className="relative mx-auto flex min-h-[calc(100dvh-5rem)] max-w-[760px] flex-col items-center justify-center px-5 py-16 md:min-h-dvh">
+    <div className="relative mx-auto flex min-h-[calc(100dvh-var(--chrome-top)-var(--chrome-bottom))] max-w-[760px] flex-col items-center justify-center px-5 py-8 sm:py-14">
       <div className="flex flex-col items-center text-center">
-        <Moon
-          illumination={tonight.illumination}
-          waxing={tonight.waxing}
-          size={188}
-          glow
-          label={`${tonight.name}, ${Math.round(tonight.illumination * 100)} percent lit`}
-        />
-        <p className="mt-6 text-sm text-muted-foreground">
+        {/* Kept to the height it really occupies, so the page still fits a phone. */}
+        <div className="h-[135px] sm:h-[188px]">
+          <div className="origin-top scale-[0.72] sm:scale-100">
+            <Moon
+              illumination={tonight.illumination}
+              waxing={tonight.waxing}
+              size={188}
+              glow
+              label={`${tonight.name}, ${Math.round(tonight.illumination * 100)} percent lit`}
+            />
+          </div>
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground sm:mt-6">
           Tonight's moon is a {tonight.name.toLowerCase()}, {Math.round(tonight.illumination * 100)}% lit
         </p>
-        <h1 className="type-display mt-8 text-[clamp(2.6rem,7.5vw,4.4rem)] text-balance">
+        <h1 className="type-display mt-5 text-[clamp(2.1rem,7.5vw,4.4rem)] text-balance sm:mt-8">
           Find something to listen to
         </h1>
       </div>
 
-      <div className="mt-10 w-full">
+      <div className="mt-7 w-full sm:mt-10">
         <SearchField size="lg" onSubmit={onSubmit} />
       </div>
 

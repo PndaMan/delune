@@ -13,5 +13,15 @@
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
+  "shortcuts": [
+    { "name": "Search", "url": "/", "description": "Find something to listen to" },
+    { "name": "Wishlist", "url": "/?wishlist=true", "description": "What delune is watching for" },
+    { "name": "Review", "url": "/review", "description": "Downloads waiting to be checked" }
   ]
 }

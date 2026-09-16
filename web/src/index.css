@@ -141,25 +141,66 @@
 }
 
 /* Accent presets. "moon" is the palette above; the rest swap the primary colour. */
-[data-accent="aurora"] { --primary: #0f8a86; --ring: #0f8a86; }
-.dark[data-accent="aurora"] { --primary: #6fe0d6; --ring: #6fe0d6; }
-[data-accent="dusk"] { --primary: #c2407a; --ring: #c2407a; }
-.dark[data-accent="dusk"] { --primary: #ff9ec7; --ring: #ff9ec7; }
-[data-accent="ember"] { --primary: #b8610b; --ring: #b8610b; }
-.dark[data-accent="ember"] { --primary: #ffbe73; --ring: #ffbe73; }
-[data-accent="tide"] { --primary: #2466c9; --ring: #2466c9; }
-.dark[data-accent="tide"] { --primary: #8cbcff; --ring: #8cbcff; }
-[data-accent="fern"] { --primary: #2f7d3f; --ring: #2f7d3f; }
-.dark[data-accent="fern"] { --primary: #9ee29a; --ring: #9ee29a; }
+[data-accent="aurora"] {
+  --primary: #0f8a86;
+  --ring: #0f8a86;
+}
+.dark[data-accent="aurora"] {
+  --primary: #6fe0d6;
+  --ring: #6fe0d6;
+}
+[data-accent="dusk"] {
+  --primary: #c2407a;
+  --ring: #c2407a;
+}
+.dark[data-accent="dusk"] {
+  --primary: #ff9ec7;
+  --ring: #ff9ec7;
+}
+[data-accent="ember"] {
+  --primary: #b8610b;
+  --ring: #b8610b;
+}
+.dark[data-accent="ember"] {
+  --primary: #ffbe73;
+  --ring: #ffbe73;
+}
+[data-accent="tide"] {
+  --primary: #2466c9;
+  --ring: #2466c9;
+}
+.dark[data-accent="tide"] {
+  --primary: #8cbcff;
+  --ring: #8cbcff;
+}
+[data-accent="fern"] {
+  --primary: #2f7d3f;
+  --ring: #2f7d3f;
+}
+.dark[data-accent="fern"] {
+  --primary: #9ee29a;
+  --ring: #9ee29a;
+}
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  /* No rubber-banding past the header or the bottom bar. */
+  /* No rubber-banding past the header or the bottom bar, and no pinch or
+     double-tap zoom: delune is laid out for the screen it's on. */
   html,
   body {
     overscroll-behavior: none;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+  /* Phones zoom in on any field set smaller than 16px, which leaves the page off-centre. */
+  @media (pointer: coarse) {
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1em);
+    }
   }
   html {
     @apply font-sans antialiased;
@@ -206,9 +247,7 @@
   }
   /* A faint vertical sky gradient behind the whole app. */
   .night-sky {
-    background:
-      radial-gradient(120% 70% at 50% -10%, var(--sky-1), transparent 70%),
-      var(--sky-2);
+    background: radial-gradient(120% 70% at 50% -10%, var(--sky-1), transparent 70%), var(--sky-2);
   }
 }
 

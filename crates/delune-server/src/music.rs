@@ -297,14 +297,16 @@ pub async fn search(State(app): State<AppState>, _user: CurrentUser, Query(param
         return Json(MusicSearch::default()).into_response();
     }
     // Both lists at once: people type an artist as often as an album.
-    let (artist_query, album_query) = ([("q", query), ("limit", "6")], [("q", query), ("limit", "12")]);
+    // Deezer's own order buries well-known acts under same-named obscure ones, so ask
+    // for plenty and rank them by how many people follow them.
+    let (artist_query, album_query) = ([("q", query), ("limit", "25")], [("q", query), ("limit", "12")]);
     let (artists, albums) =
         tokio::join!(deezer(&app, "/search/artist", &artist_query), deezer(&app, "/search/album", &album_query),);
     let artists = artists
         .as_ref()
         .and_then(|v| v.get("data")?.as_array())
         .map(|items| {
-            items
+            let mut hits = items
                 .iter()
                 .filter_map(|a| {
                     Some(ArtistHit {
@@ -313,8 +315,11 @@ pub async fn search(State(app): State<AppState>, _user: CurrentUser, Query(param
                         listeners: a.get("nb_fan").and_then(Value::as_u64),
                     })
                 })
-                .take(5)
-                .collect()
+                .collect::<Vec<_>>();
+            // Closest name first, and among equally close ones the one most people follow.
+            hits.sort_by_key(|hit| (closeness(&hit.name, query), std::cmp::Reverse(hit.listeners.unwrap_or(0))));
+            hits.truncate(5);
+            hits
         })
         .unwrap_or_default();
     let albums = albums
@@ -344,6 +349,21 @@ pub async fn search(State(app): State<AppState>, _user: CurrentUser, Query(param
         })
         .unwrap_or_default();
     Json(MusicSearch { artists, albums }).into_response()
+}
+
+/// How close a name is to what someone typed: 0 the same, 1 starts with it, 2 contains
+/// it, 3 anything else. Ties are broken by followers, so "Burial" finds the Burial.
+fn closeness(name: &str, typed: &str) -> u8 {
+    let (name, typed) = (normalize(name), normalize(typed));
+    if names_match(&name, &typed) {
+        0
+    } else if name.starts_with(&typed) {
+        1
+    } else if name.contains(&typed) {
+        2
+    } else {
+        3
+    }
 }
 
 /// `GET /api/v1/music/lyrics?artist=…&title=…`: words for a song, from LRCLIB.
@@ -390,5 +410,22 @@ mod tests {
         assert_eq!(str_at(&album, "/title"), Some("Untrue"));
         assert_eq!(year_of(str_at(&album, "/release_date")), Some(2007));
         assert_eq!(year_of(Some("nope")), None);
+    }
+
+    #[test]
+    fn the_best_known_artist_wins() {
+        let mut hits = [
+            ArtistHit { name: "Burial Hex".into(), picture: None, listeners: Some(900) },
+            ArtistHit { name: "Burial".into(), picture: None, listeners: Some(400_000) },
+            ArtistHit { name: "Burial".into(), picture: None, listeners: Some(12) },
+            ArtistHit { name: "The Burial".into(), picture: None, listeners: Some(5_000) },
+        ];
+
+        hits.sort_by_key(|hit| (closeness(&hit.name, "burial"), std::cmp::Reverse(hit.listeners.unwrap_or(0))));
+        let order: Vec<_> = hits.iter().map(|hit| (hit.name.as_str(), hit.listeners)).collect();
+        assert_eq!(order[0], ("Burial", Some(400_000)), "the one most people follow comes first");
+        assert_eq!(order[1], ("The Burial", Some(5_000)), "a leading “the” still counts as the same name");
+        assert_eq!(order[2], ("Burial", Some(12)));
+        assert_eq!(order[3].0, "Burial Hex", "a different name comes last however close it looks");
     }
 }

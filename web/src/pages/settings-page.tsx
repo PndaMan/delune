@@ -237,12 +237,12 @@ function LibraryGroup() {
   )
 }
 
-/** The connections themselves, then what Soulseek says about this delune. */
+/** The connections themselves, then how well other Soulseek users can reach this delune. */
 function ConnectionsGroup() {
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <Connections />
-      <Part title="Soulseek" hint="delune connects to Soulseek itself; no separate client needed.">
+      <Part title="Being found" hint="Other Soulseek users answering delune's searches, and reaching it to download.">
         <SoulseekAccount />
       </Part>
     </div>

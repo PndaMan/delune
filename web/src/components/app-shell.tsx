@@ -12,6 +12,7 @@ import { useLiveUpdates } from "@/lib/live"
 import { moonPhase } from "@/lib/moon-phase"
 import { useMe, useSession } from "@/lib/session"
 import { setupSkipped, useSetupStatus } from "@/lib/setup"
+import { cn } from "@/lib/utils"
 import { SetupPage } from "@/pages/setup-page"
 import { SignInPage } from "@/pages/sign-in-page"
 
@@ -51,7 +52,15 @@ function SignedIn() {
 
   return (
     <MusicViewsProvider>
-      <div className="night-sky min-h-dvh md:pl-[76px]">
+      <div
+        className={cn(
+          "night-sky min-h-dvh md:pl-[76px]",
+          // How much of the screen the app's own bars take, so a page can fill exactly
+          // what's left instead of guessing and ending up scrollable.
+          "[--chrome-bottom:calc(4.25rem+env(safe-area-inset-bottom))] [--chrome-top:calc(3.5rem+env(safe-area-inset-top))]",
+          "md:[--chrome-bottom:0px] md:[--chrome-top:0px]",
+        )}
+      >
         <nav
           aria-label="Main"
           className="fixed inset-y-0 left-0 z-30 hidden w-[76px] flex-col items-center border-r bg-card/30 py-5 backdrop-blur-md md:flex"
@@ -92,7 +101,7 @@ function SignedIn() {
           </div>
         </nav>
 
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-1 border-b bg-background/80 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-xl md:hidden">
+        <header className="sticky top-0 z-30 flex h-[var(--chrome-top)] items-center gap-1 border-b bg-background/80 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-xl md:hidden">
           <Link
             to="/"
             search={{}}
@@ -108,20 +117,20 @@ function SignedIn() {
           </div>
         </header>
 
-        <main className="pb-24 md:pb-0">
+        <main className="pb-[var(--chrome-bottom)]">
           <Outlet />
         </main>
 
         <nav
           aria-label="Main"
-          className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t bg-card/85 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 flex h-[var(--chrome-bottom)] items-center justify-around border-t bg-card/85 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
         >
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
               to={to}
               activeOptions={{ exact: to === "/", includeSearch: false }}
-              className="flex min-w-16 flex-col items-center gap-1 rounded-lg px-3 py-1.5 text-[11.5px] text-muted-foreground data-[status=active]:text-foreground"
+              className="flex min-w-16 flex-col items-center gap-1 rounded-lg px-3 py-1 text-[11.5px] text-muted-foreground data-[status=active]:text-foreground"
             >
               <Icon className="size-5" strokeWidth={1.8} />
               {label}
