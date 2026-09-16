@@ -39,6 +39,16 @@ The Review page shows all of that per track, with the planned paths. Then:
 
 The Review tab shows how many albums are waiting.
 
+### Filling gaps in an album you have
+
+When the library already has part of an album, the release view picks only the missing
+tracks. On import they go into the album's existing folder and get its album, artist
+and year tags, so Navidrome shows one album rather than two. Albums that change after
+release (tracks added, order changed, like Fred again..'s *USB*) are numbered by their
+current tracklist: new tracks get their place in it, and tracks already in the library
+are renamed and renumbered to match. The review lists what moves. On albums with more
+than one disc, numbers are left as they are.
+
 ## Artwork and lyrics
 
 On import (Settings → Library and imports):

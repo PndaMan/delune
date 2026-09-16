@@ -204,8 +204,38 @@ pub async fn album(State(app): State<AppState>, _user: CurrentUser, Query(params
     if title.is_empty() {
         return error(StatusCode::BAD_REQUEST, "no-album", "Say which album.");
     }
-    // Deezer's field query finds nothing for some artists, so plain words are the fallback.
     let artist = artist.filter(|a| !a.is_empty());
+    let in_library = crate::library::lookup(&app, artist, title, None).await;
+    let Some((best, full, tracks)) = find_album(&app, artist, title).await else {
+        return Json(AlbumInfo {
+            title: title.to_owned(),
+            artist: artist.map(str::to_owned),
+            year: None,
+            cover: None,
+            tracks: Vec::new(),
+            in_library,
+        })
+        .into_response();
+    };
+
+    Json(AlbumInfo {
+        title: str_at(&best, "/title").unwrap_or(title).to_owned(),
+        artist: str_at(&best, "/artist/name").map(str::to_owned).or_else(|| artist.map(str::to_owned)),
+        year: year_of(str_at(full.as_ref().unwrap_or(&best), "/release_date")),
+        cover: str_at(&best, "/cover_xl").or_else(|| str_at(&best, "/cover_medium")).map(str::to_owned),
+        tracks,
+        in_library,
+    })
+    .into_response()
+}
+
+/// An album on Deezer, with its full record and tracklist.
+async fn find_album(
+    app: &AppState,
+    artist: Option<&str>,
+    title: &str,
+) -> Option<(Value, Option<Value>, Vec<AlbumTrack>)> {
+    // Deezer's field query finds nothing for some artists, so plain words are the fallback.
     let mut queries = Vec::new();
     if let Some(artist) = artist {
         queries.push(format!("artist:\"{artist}\" album:\"{title}\""));
@@ -217,38 +247,34 @@ pub async fn album(State(app): State<AppState>, _user: CurrentUser, Query(params
     let wanted_artist = artist.map(normalize);
     let mut best = None;
     for query in queries {
-        let found = deezer(&app, "/search/album", &[("q", query.as_str()), ("limit", "10")]).await;
+        let found = deezer(app, "/search/album", &[("q", query.as_str()), ("limit", "10")]).await;
         best = found.as_ref().and_then(|v| v.get("data")?.as_array()).and_then(|albums| {
+            // Some albums keep growing (and get listed again when they do): prefer the
+            // exact title, then the edition with the most tracks.
             albums
                 .iter()
-                .find(|album| {
+                .filter(|album| {
                     let title_ok = str_at(album, "/title").is_some_and(|t| names_match(&normalize(t), &wanted));
                     let artist_ok = wanted_artist
                         .as_ref()
                         .is_none_or(|a| str_at(album, "/artist/name").is_some_and(|n| names_match(&normalize(n), a)));
                     title_ok && artist_ok
                 })
-                .cloned()
+                .enumerate()
+                .max_by_key(|(index, album)| {
+                    let exact = str_at(album, "/title").is_some_and(|t| normalize(t) == wanted);
+                    let tracks = album.get("nb_tracks").and_then(Value::as_u64).unwrap_or(0);
+                    (exact, tracks, std::cmp::Reverse(*index))
+                })
+                .map(|(_, album)| album.clone())
         });
         if best.is_some() {
             break;
         }
     }
-    let in_library = crate::library::lookup(&app, artist, title, None).await;
-
-    let Some(best) = best else {
-        return Json(AlbumInfo {
-            title: title.to_owned(),
-            artist: artist.map(str::to_owned),
-            year: None,
-            cover: None,
-            tracks: Vec::new(),
-            in_library,
-        })
-        .into_response();
-    };
+    let best = best?;
     let id = best.get("id").and_then(Value::as_u64).unwrap_or(0).to_string();
-    let full = deezer(&app, &format!("/album/{id}"), &[]).await;
+    let full = deezer(app, &format!("/album/{id}"), &[]).await;
     let tracks = full
         .as_ref()
         .and_then(|v| v.pointer("/tracks/data")?.as_array())
@@ -274,16 +300,33 @@ pub async fn album(State(app): State<AppState>, _user: CurrentUser, Query(params
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    Some((best, full, tracks))
+}
 
-    Json(AlbumInfo {
-        title: str_at(&best, "/title").unwrap_or(title).to_owned(),
-        artist: str_at(&best, "/artist/name").map(str::to_owned).or_else(|| artist.map(str::to_owned)),
-        year: year_of(str_at(full.as_ref().unwrap_or(&best), "/release_date")),
-        cover: str_at(&best, "/cover_xl").or_else(|| str_at(&best, "/cover_medium")).map(str::to_owned),
-        tracks,
-        in_library,
-    })
-    .into_response()
+/// The album's current tracklist, for numbering tracks added to it. Empty when unknown,
+/// and for albums on several discs, whose positions start again on each.
+pub async fn tracklist(app: &AppState, artist: Option<&str>, title: &str) -> Vec<delune_library::merge::ListedTrack> {
+    let Some((best, _, _)) = find_album(app, artist, title).await else { return Vec::new() };
+    let id = best.get("id").and_then(Value::as_u64).unwrap_or(0);
+    let found = deezer(app, &format!("/album/{id}/tracks"), &[("limit", "500")]).await;
+    let Some(items) = found.as_ref().and_then(|v| v.get("data")?.as_array()) else { return Vec::new() };
+    if items.iter().any(|t| t.get("disk_number").and_then(Value::as_u64).is_some_and(|d| d > 1)) {
+        return Vec::new();
+    }
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, track)| {
+            Some(delune_library::merge::ListedTrack {
+                position: track
+                    .get("track_position")
+                    .and_then(Value::as_u64)
+                    .and_then(|p| u32::try_from(p).ok())
+                    .unwrap_or_else(|| u32::try_from(index + 1).unwrap_or(1)),
+                title: str_at(track, "/title")?.to_owned(),
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]

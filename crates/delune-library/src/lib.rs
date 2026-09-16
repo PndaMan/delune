@@ -13,6 +13,7 @@ pub mod extras;
 pub mod import;
 pub mod inspect;
 pub mod layout;
+pub mod merge;
 pub mod naming;
 pub mod verify;
 

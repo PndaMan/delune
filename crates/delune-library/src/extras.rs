@@ -41,6 +41,42 @@ fn tag_of(file: &mut lofty::file::TaggedFile) -> &mut Tag {
     file.primary_tag_mut().expect("a primary tag was just inserted")
 }
 
+/// Album tags to set on a file; `None` leaves a tag as it is.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AlbumTags {
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<u16>,
+    pub track: Option<u32>,
+    pub disc: Option<u32>,
+}
+
+/// Set album tags, so a track joins the album it was filed with.
+///
+/// # Errors
+///
+/// When the file can't be read or its tags can't be written.
+pub fn write_album_tags(audio: &Path, tags: &AlbumTags) -> Result<(), String> {
+    let mut file = lofty::read_from_path(audio).map_err(|e| e.to_string())?;
+    let tag = tag_of(&mut file);
+    if let Some(album) = &tags.album {
+        tag.set_album(album.clone());
+    }
+    if let Some(album_artist) = &tags.album_artist {
+        tag.insert_text(ItemKey::AlbumArtist, album_artist.clone());
+    }
+    if let Some(year) = tags.year {
+        tag.insert_text(ItemKey::Year, year.to_string());
+    }
+    if let Some(track) = tags.track {
+        tag.set_track(track);
+    }
+    if let Some(disc) = tags.disc {
+        tag.set_disk(disc);
+    }
+    file.save_to_path(audio, WriteOptions::default()).map_err(|e| e.to_string())
+}
+
 /// Embed `image` as the front cover, unless the file already has one.
 ///
 /// # Errors

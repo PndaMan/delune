@@ -30,7 +30,6 @@ use tokio::sync::{Notify, broadcast, watch};
 
 use crate::AppState;
 use crate::accounts::CurrentUser;
-use crate::naming::Naming;
 use crate::review::{self, Checked, LibrarySettings};
 use crate::store::Database;
 
@@ -583,10 +582,14 @@ fn collect(staging: &Path) -> Vec<(String, u64)> {
 
 /// Download a job's remaining files, then check them for review.
 fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, cancel: watch::Receiver<bool>) {
-    let context = ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
+    let context = ReleaseContext {
+        artist: job.parent.clone(),
+        album: job.title.clone(),
+        source: "Soulseek".into(),
+        ..ReleaseContext::default()
+    };
     let staging = staging_dir(&app.data_dir, &job.id);
     let downloads = app.downloads.clone();
-    let (library, naming) = (app.library.clone(), app.naming.clone());
     let (id, username, files) = (job.id.clone(), job.username.clone(), job.files.clone());
     let app = app.clone();
     tokio::spawn(async move {
@@ -599,7 +602,7 @@ fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, can
         downloads.release_slot(&id);
         let ready = downloads.review(&id).is_some_and(|(status, ..)| status == JobStatus::Ready);
         if ready {
-            check_job(&downloads, &id, staging, context, library, &naming).await;
+            check_job(&app, &id, staging, context).await;
             crate::review::auto_import(&app, &id).await;
         }
     });
@@ -667,12 +670,16 @@ fn tidy(app: &AppState) {
 
 /// Check a finished job again, for example after the naming template changed.
 fn recheck(app: &AppState, job: &DownloadJob) {
-    let context = ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
-    let (downloads, library, naming) = (app.downloads.clone(), app.library.clone(), app.naming.clone());
+    let context = ReleaseContext {
+        artist: job.parent.clone(),
+        album: job.title.clone(),
+        source: "Soulseek".into(),
+        ..ReleaseContext::default()
+    };
     let (id, staging) = (job.id.clone(), staging_dir(&app.data_dir, &job.id));
     let app = app.clone();
     tokio::spawn(async move {
-        check_job(&downloads, &id, staging, context, library, &naming).await;
+        check_job(&app, &id, staging, context).await;
         // Fetched jobs and restarts come through here too.
         crate::review::auto_import(&app, &id).await;
     });
@@ -845,17 +852,12 @@ pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
 }
 
 /// Verify and plan a finished job so it can be reviewed.
-async fn check_job(
-    downloads: &Downloads,
-    id: &str,
-    staging: PathBuf,
-    context: ReleaseContext,
-    library: Arc<LibrarySettings>,
-    naming: &Naming,
-) {
-    let (template, options) = naming.current();
-    let library = LibrarySettings { library_dir: library.library_dir.clone(), template, options };
+async fn check_job(app: &AppState, id: &str, staging: PathBuf, mut context: ReleaseContext) {
+    let downloads = &app.downloads;
+    let (template, options) = app.naming.current();
+    let library = LibrarySettings { library_dir: app.library.library_dir.clone(), template, options };
     downloads.set_review(id, ReviewState::Checking, None);
+    joining_existing(app, &mut context, &library).await;
     let result = tokio::task::spawn_blocking(move || review::check(&staging, &context, &library)).await;
     match result {
         Ok(Ok(checked)) => {
@@ -868,6 +870,31 @@ async fn check_job(
         }
         Err(_) => downloads.set_review(id, ReviewState::Failed, None),
     }
+}
+
+/// When the library already has this album, find its folder and current tracklist so
+/// the new tracks join it instead of starting a second copy.
+async fn joining_existing(app: &AppState, context: &mut ReleaseContext, library: &LibrarySettings) {
+    let Some(root) = library.library_dir.clone() else { return };
+    let found = crate::library::lookup(app, context.artist.as_deref(), &context.album, None).await;
+    if found.state != delune_core::api::LibraryState::InLibrary {
+        return;
+    }
+    let Some(artist) = found.artist.clone().or_else(|| context.artist.clone()) else { return };
+    let album = found.album.clone().unwrap_or_else(|| context.album.clone());
+    let (template, options, year) = (library.template.clone(), library.options.clone(), found.year);
+    let existing = tokio::task::spawn_blocking(move || {
+        delune_library::merge::find_existing(&root, &template, &options, &artist, &album, year)
+    })
+    .await
+    .ok()
+    .flatten();
+    let Some(existing) = existing else {
+        tracing::debug!(album = %context.album, "in the library, but its folder wasn't found");
+        return;
+    };
+    context.tracklist = crate::music::tracklist(app, Some(&existing.album_artist), &existing.album).await;
+    context.existing = Some(existing);
 }
 
 async fn run_job(
