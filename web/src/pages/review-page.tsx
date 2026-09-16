@@ -6,6 +6,7 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
+  Disc3,
   FolderInput,
   LoaderCircle,
   Search,
@@ -17,6 +18,7 @@ import { useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { useMusicViews } from "@/components/music-views"
+import { useAlbum } from "@/lib/music"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { api, type DownloadJob, type ReviewReport, type ReviewTrack } from "@/lib/api"
@@ -99,100 +101,130 @@ function ImportedRow({ job }: { job: DownloadJob }) {
 /** What an import brought in: where it went, and what the library holds now. */
 function ImportedDialog({ job, open, onClose }: { job: DownloadJob; open: boolean; onClose: () => void }) {
   const me = useMe()
+  const views = useMusicViews()
   const artwork = useArtwork(job.parent, job.title)
   const library = useLibraryAlbum(open ? job.parent : null, open ? job.title : null)
+  const inLibrary = library.data?.state === "in-library" ? library.data : null
+  // Navidrome lists the tracks once it has scanned; until then, the album's own tracklist.
+  const album = useAlbum(open && !inLibrary?.tracks.length ? (job.parent ?? null) : null, open ? job.title : null)
   const remove = useRemoveDownload()
   const requester = requesterLabel(me, job.requested_by)
-  const tracks = library.data?.state === "in-library" ? library.data.tracks : []
+  const artist = inLibrary?.artist ?? artwork.data?.artist ?? job.parent ?? null
+  const title = inLibrary?.album ?? artwork.data?.album ?? job.title
+  const tracks: { key: string; number: string; title: string; durationSecs?: number | null }[] = inLibrary?.tracks
+    .length
+    ? inLibrary.tracks.map((t, i) => ({
+        key: `${t.disc}-${t.track}-${i}`,
+        number: `${t.disc && t.disc > 1 ? `${t.disc}-` : ""}${t.track ?? i + 1}`,
+        title: t.title,
+      }))
+    : (album.data?.tracks ?? []).map((t) => ({
+        key: `${t.position}-${t.title}`,
+        number: String(t.position),
+        title: t.title,
+        durationSecs: t.duration_secs,
+      }))
+  const folder = job.imported_to?.split("/").filter(Boolean).at(-1) ?? job.imported_to
 
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-[#05060f]/70 backdrop-blur-md" />
-        <Dialog.Popup className="fixed inset-0 z-50 m-auto flex h-[100dvh] w-full flex-col overflow-hidden bg-card outline-none sm:h-auto sm:max-h-[85dvh] sm:w-[min(92vw,640px)] sm:rounded-3xl sm:border">
-          <div className="flex items-start gap-5 p-6">
-            <Cover src={artwork.data?.cover} alt="" className="size-28 shrink-0 rounded-2xl shadow-lg" />
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-[#05060f]/70 backdrop-blur-md transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Popup className="fixed inset-x-0 bottom-0 z-50 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-3xl border-t bg-card outline-none transition-transform duration-200 data-ending-style:translate-y-full data-starting-style:translate-y-full sm:inset-0 sm:m-auto sm:h-fit sm:max-h-[86dvh] sm:w-[min(92vw,620px)] sm:rounded-3xl sm:border sm:shadow-[0_40px_120px_-20px_rgb(0_0_0/0.8)] sm:data-ending-style:translate-y-0 sm:data-starting-style:translate-y-0">
+          <Dialog.Close
+            className="absolute top-3 right-3 z-10 flex size-9 items-center justify-center rounded-full bg-background/70 text-muted-foreground outline-none backdrop-blur hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Close"
+          >
+            <X className="size-4" />
+          </Dialog.Close>
+
+          <div className="flex items-start gap-4 p-5 pr-14 sm:gap-5 sm:p-6 sm:pr-14">
+            <Cover src={artwork.data?.cover} alt="" className="size-20 shrink-0 rounded-xl shadow-lg sm:size-24" />
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="type-title line-clamp-2 text-[24px]">
-                {library.data?.album ?? artwork.data?.album ?? job.title}
+              <Dialog.Title className="type-title line-clamp-2 text-[21px] leading-tight sm:text-[24px]">
+                {title}
               </Dialog.Title>
-              <Dialog.Description className="truncate text-muted-foreground">
-                {library.data?.artist ?? artwork.data?.artist ?? job.parent}
-                {library.data?.year ? `, ${library.data.year}` : ""}
-              </Dialog.Description>
-              <p className="mt-3 flex items-center gap-1.5 text-[14px] text-q-lossless">
-                <Check className="size-4" /> In your library
-                {library.data?.quality_label && (
-                  <span className="text-muted-foreground">as {library.data.quality_label}</span>
-                )}
-              </p>
-            </div>
-            <Dialog.Close className="rounded-full p-2 text-muted-foreground hover:text-foreground" aria-label="Close">
-              <X className="size-5" />
-            </Dialog.Close>
-          </div>
-
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-t px-6 py-4 text-sm">
-            <div className="col-span-2 min-w-0">
-              <dt className="text-[12px] text-muted-foreground">Imported to</dt>
-              <dd className="truncate" title={job.imported_to ?? undefined}>
-                {job.imported_to ?? "Your library"}
-              </dd>
-            </div>
-            {job.imported_at && (
-              <div>
-                <dt className="text-[12px] text-muted-foreground">When</dt>
-                <dd>{new Date(job.imported_at * 1000).toLocaleString()}</dd>
-              </div>
-            )}
-            <div className="min-w-0">
-              <dt className="text-[12px] text-muted-foreground">From</dt>
-              <dd className="truncate">
-                <Link to="/soulseek/users/$username" params={{ username: job.username }} className="hover:underline">
-                  {job.username}
-                </Link>
-              </dd>
-            </div>
-            {requester && (
-              <div>
-                <dt className="text-[12px] text-muted-foreground">Requested by</dt>
-                <dd>{requester}</dd>
-              </div>
-            )}
-          </dl>
-
-          <div className="scrollbar-themed min-h-0 flex-1 overflow-y-auto border-t px-3 py-3">
-            {library.isPending ? (
-              <p className="px-3 py-4 text-sm text-muted-foreground">Looking it up in Navidrome</p>
-            ) : tracks.length ? (
-              <ol>
-                {tracks.map((t, i) => (
-                  <li
-                    key={`${t.disc}-${t.track}-${i}`}
-                    className="flex items-center gap-3 rounded-lg px-3 py-1.5 text-[14.5px]"
+              <Dialog.Description className="mt-0.5 truncate text-muted-foreground" render={<div />}>
+                {artist ? (
+                  <Link
+                    to="/artist/$name"
+                    params={{ name: artist }}
+                    onClick={onClose}
+                    className="underline-offset-4 hover:text-foreground hover:underline"
                   >
-                    <span className="w-8 text-right text-[13px] text-muted-foreground/70">
-                      {t.disc && t.disc > 1 ? `${t.disc}-` : ""}
-                      {t.track ?? i + 1}
-                    </span>
-                    <span className="truncate">{t.title}</span>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="px-3 py-4 text-sm text-muted-foreground">
-                Navidrome hasn't listed it yet. It appears once its scan finishes.
+                    {artist}
+                  </Link>
+                ) : (
+                  "Unknown artist"
+                )}
+                {inLibrary?.year ? `, ${inLibrary.year}` : ""}
+              </Dialog.Description>
+              <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13.5px] text-q-lossless">
+                <Check className="size-4" />
+                In your library
+                {inLibrary?.quality_label && (
+                  <span className="text-muted-foreground">as {inLibrary.quality_label}</span>
+                )}
+                <span className="text-muted-foreground">· added {importedWhen(job.imported_at)}</span>
               </p>
-            )}
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-t px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={<Link to="/" search={{ q: [job.parent, job.title].filter(Boolean).join(" ") }} />}
+          {tracks.length > 0 && (
+            <ol className="scrollbar-themed max-h-[38dvh] min-h-0 overflow-y-auto border-t p-2 sm:p-3">
+              {tracks.map((track) => (
+                <li key={track.key}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      views.openTrack({ artist, title: track.title, album: title, durationSecs: track.durationSecs })
+                    }
+                    className="flex w-full items-center gap-4 rounded-lg px-3 py-1.5 text-left outline-none hover:bg-accent/60 focus-visible:bg-accent/60"
+                  >
+                    <span className="w-7 shrink-0 text-right text-[13px] text-muted-foreground/70">{track.number}</span>
+                    <span className="min-w-0 flex-1 truncate text-[14.5px]">{track.title}</span>
+                    {track.durationSecs ? (
+                      <span className="shrink-0 text-[13px] text-muted-foreground">
+                        {formatTrackTime(track.durationSecs)}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          <p className="border-t px-5 py-3 text-[13px] text-muted-foreground sm:px-6">
+            {folder ? (
+              <>
+                Filed under <span className="text-foreground">{folder}</span>
+              </>
+            ) : (
+              "In your library"
+            )}
+            , from{" "}
+            <Link
+              to="/soulseek/users/$username"
+              params={{ username: job.username }}
+              onClick={onClose}
+              className="underline-offset-4 hover:text-foreground hover:underline"
             >
-              <Search /> Search again
+              {job.username}
+            </Link>
+            {requester && <>, for {requester}</>}
+            {!tracks.length && !library.isPending && " · Navidrome lists the songs once its scan finishes"}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 border-t px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+            <Button variant="outline" onClick={() => views.openAlbum({ artist, title })}>
+              <Disc3 /> About this album
+            </Button>
+            <Button
+              variant="ghost"
+              nativeButton={false}
+              render={<Link to="/" search={{ q: [artist, title].filter(Boolean).join(" ") }} onClick={onClose} />}
+            >
+              <Search /> Find another copy
             </Button>
             <Button
               variant="ghost"
@@ -207,6 +239,17 @@ function ImportedDialog({ job, open, onClose }: { job: DownloadJob; open: boolea
       </Dialog.Portal>
     </Dialog.Root>
   )
+}
+
+/** "today at 09:08", "yesterday", or a date, which reads better than a full timestamp. */
+function importedWhen(at: number | null): string {
+  if (!at) return "recently"
+  const when = new Date(at * 1000)
+  const time = when.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  const days = Math.floor((Date.now() - at * 1000) / 86_400_000)
+  if (days < 1 && when.getDate() === new Date().getDate()) return `today at ${time}`
+  if (days < 2) return `yesterday at ${time}`
+  return when.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })
 }
 
 function ReviewCard({ job }: { job: DownloadJob }) {
