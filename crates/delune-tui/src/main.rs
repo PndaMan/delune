@@ -7,9 +7,11 @@
 //! ```
 
 use std::io::{self, BufRead as _, IsTerminal as _, Write as _};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use clap::Parser;
+use delune_tui::Exit;
 use delune_tui::connect::{self, Saved};
 
 #[derive(Debug, Parser)]
@@ -61,25 +63,51 @@ async fn main() -> Result<()> {
             ask("Server: ")?
         }
     };
-    let server = if saved.server.as_deref() == Some(given.as_str()) {
-        given
+    let mut server = if saved.server.as_deref() == Some(given.as_str()) {
+        // Remembered: check it hasn't moved (say, to https), or signing in can't stick.
+        connect::settle(&given).await
     } else {
         println!("Looking for delune at {given}…");
         let found = connect::find(&given).await?;
         println!("Found it at {found}.");
-        if saved.server.as_deref() != Some(found.as_str()) {
-            // A different server; its sessions are its own.
-            saved.token = None;
-        }
         found
     };
-
-    let (http, token) =
-        delune_tui::auth::signed_in(&server, cli.username, cli.password, saved.token.as_deref()).await?;
-    saved.server = Some(server.clone());
-    saved.token = token;
-    if let Err(e) = saved.save() {
-        eprintln!("Couldn't remember the server for next time: {e}");
+    if saved.server.as_deref() != Some(server.as_str()) && !same_server(saved.server.as_deref(), &server) {
+        // A different server; its sessions are its own.
+        saved.token = None;
     }
-    delune_tui::run(server, &http)
+    server = server.trim_end_matches('/').to_owned();
+
+    let (mut username, mut password) = (cli.username, cli.password);
+    let mut last_sign_in: Option<Instant> = None;
+    loop {
+        let (http, token) =
+            delune_tui::auth::signed_in(&server, username.take(), password.take(), saved.token.as_deref()).await?;
+        saved.server = Some(server.clone());
+        saved.token = token;
+        if let Err(e) = saved.save() {
+            eprintln!("Couldn't remember the server for next time: {e}");
+        }
+        match delune_tui::run(server.clone(), &http)? {
+            Exit::Quit => return Ok(()),
+            Exit::SignedOut => {
+                if last_sign_in.is_some_and(|at| at.elapsed() < Duration::from_secs(30)) {
+                    saved.token = None;
+                    let _ = saved.save();
+                    bail!("{server} keeps refusing the sign-in. Check the address, or run delune-tui --forget.");
+                }
+                last_sign_in = Some(Instant::now());
+                println!("Your session ended. Sign in again to carry on.");
+                saved.token = None;
+            }
+        }
+    }
+}
+
+/// The same host, reached another way (`http` then `https`).
+fn same_server(before: Option<&str>, now: &str) -> bool {
+    let host = |url: &str| {
+        url.split_once("://").map_or(url, |(_, rest)| rest).split(['/', ':']).next().unwrap_or("").to_owned()
+    };
+    before.is_some_and(|b| host(b) == host(now))
 }

@@ -97,9 +97,30 @@ pub fn candidates(input: &str) -> Vec<String> {
     found
 }
 
-async fn is_delune(http: &reqwest::Client, base: &str) -> bool {
-    let Ok(response) = http.get(format!("{base}/api/v1/health")).send().await else { return false };
-    response.json::<Health>().await.is_ok_and(|h| h.name == "delune")
+const HEALTH: &str = "/api/v1/health";
+
+/// Where delune answers for `base`, after any redirects (`http` to `https`, say), or
+/// `None` when it isn't delune. Following redirects matters: HTTP clients drop the
+/// sign-in header when a redirect changes the scheme or port, so every call after
+/// signing in would be refused.
+async fn answering(http: &reqwest::Client, base: &str) -> Option<String> {
+    let response = http.get(format!("{base}{HEALTH}")).send().await.ok()?;
+    let landed = response.url().as_str().to_owned();
+    let health = response.json::<Health>().await.ok()?;
+    if health.name != "delune" {
+        return None;
+    }
+    let settled = landed.split_once(HEALTH).map_or(base, |(root, _)| root).trim_end_matches('/');
+    Some(settled.to_owned())
+}
+
+/// The address delune really answers at for a remembered `base`: the same, unless the
+/// server now redirects somewhere else. Unreachable servers keep their address.
+pub async fn settle(base: &str) -> String {
+    let Ok(http) = reqwest::Client::builder().timeout(Duration::from_secs(4)).build() else {
+        return base.to_owned();
+    };
+    answering(&http, base).await.unwrap_or_else(|| base.to_owned())
 }
 
 /// The first of [`candidates`] where a delune server answers.
@@ -114,8 +135,8 @@ pub async fn find(input: &str) -> Result<String> {
         bail!("“{input}” isn't an address. Try the host delune or Navidrome runs on, like myserver or 192.168.1.20.");
     }
     for base in &tried {
-        if is_delune(&http, base).await {
-            return Ok(base.clone());
+        if let Some(found) = answering(&http, base).await {
+            return Ok(found);
         }
     }
     bail!("No delune server answered. Tried:\n  {}", tried.join("\n  "))
@@ -161,13 +182,19 @@ mod tests {
                     let mut buf = [0u8; 1024];
                     let n = stream.read(&mut buf).await.unwrap_or(0);
                     let request = String::from_utf8_lossy(&buf[..n]);
-                    let (status, body) = if request.starts_with("GET /api/v1/health") {
-                        ("200 OK", body)
+                    let (status, body, extra) = if request.starts_with("GET /api/v1/health") {
+                        ("200 OK", body, String::new())
+                    } else if request.starts_with("GET /old/api/v1/health") {
+                        (
+                            "308 Permanent Redirect",
+                            String::new(),
+                            format!("location: http://127.0.0.1:{port}/api/v1/health\r\n"),
+                        )
                     } else {
-                        ("404 Not Found", String::new())
+                        ("404 Not Found", String::new(), String::new())
                     };
                     let response = format!(
-                        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status}\r\n{extra}content-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     );
                     let _ = stream.write_all(response.as_bytes()).await;
@@ -176,5 +203,11 @@ mod tests {
         });
         assert_eq!(find(&format!("127.0.0.1:{port}")).await.unwrap(), format!("http://127.0.0.1:{port}"));
         assert!(find("no-such-host.invalid").await.is_err());
+        assert_eq!(
+            settle(&format!("http://127.0.0.1:{port}/old")).await,
+            format!("http://127.0.0.1:{port}"),
+            "a redirect is followed to where delune really is"
+        );
+        assert_eq!(settle("http://no-such-host.invalid").await, "http://no-such-host.invalid");
     }
 }
