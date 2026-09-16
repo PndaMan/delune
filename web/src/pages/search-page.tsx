@@ -1,5 +1,5 @@
 import { getRouteApi, Link } from "@tanstack/react-router"
-import { RotateCw, Sparkles, X } from "lucide-react"
+import { ArrowDownToLine, LoaderCircle, RotateCw, Sparkles, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { EmptyState } from "@/components/empty-state"
@@ -13,7 +13,9 @@ import { SearchField, type SearchFieldHandle } from "@/components/search-field"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
 import { Button } from "@/components/ui/button"
 import { type Candidate, type Codec, PROVIDER_NAMES, type ResolvedLink } from "@/lib/api"
+import { useExternalSource, useFetchWithCommand } from "@/lib/external"
 import { useHiddenUsers } from "@/lib/hidden-users"
+import { useMe } from "@/lib/session"
 import { SearchContext, useAccentColour, useArtwork } from "@/lib/artwork"
 import { plural } from "@/lib/format"
 import { moonPhase } from "@/lib/moon-phase"
@@ -259,6 +261,9 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
             {resolved ? (
               <>
                 <ResolvedHeading link={resolved} />
+                {resolved.kind !== "playlist" && search.status === "done" && search.candidates.length === 0 && (
+                  <FetchWithCommand link={resolved} url={query} />
+                )}
                 {resolved.kind !== "playlist" && <StatusLine search={search} visible={visible.length} query={query} />}
               </>
             ) : (
@@ -354,6 +359,37 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
 }
 
 /** A pasted link, named: title first, then who made it and where the link came from. */
+/** Fetch a link with the program someone set up, when nobody on Soulseek has it. */
+function FetchWithCommand({ link, url }: { link: ResolvedLink; url: string }) {
+  const me = useMe()
+  const source = useExternalSource(me.permissions.manage)
+  const fetchIt = useFetchWithCommand()
+  if (!source.data?.enabled || !source.data.program) return null
+  if (fetchIt.isSuccess) {
+    return (
+      <p className="mt-3 text-[14px] text-q-lossless">
+        Fetching with {source.data.program}.{" "}
+        <Link to="/downloads" className="underline underline-offset-4">
+          See downloads
+        </Link>
+      </p>
+    )
+  }
+  return (
+    <div className="mt-3">
+      <Button
+        variant="outline"
+        disabled={fetchIt.isPending}
+        onClick={() => fetchIt.mutate({ url, title: link.album ?? link.title, artist: link.artist })}
+      >
+        {fetchIt.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowDownToLine />} Fetch with{" "}
+        {source.data.program}
+      </Button>
+      {fetchIt.isError && <p className="mt-1.5 text-sm text-destructive">{fetchIt.error.message}</p>}
+    </div>
+  )
+}
+
 function ResolvedHeading({ link }: { link: ResolvedLink }) {
   const kind = link.kind
   const facts = [

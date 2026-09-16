@@ -90,6 +90,8 @@ impl Downloads {
         let entries = jobs
             .into_iter()
             .map(|mut job| {
+                // A fetch command that got nothing has no files to work the status out from.
+                let failed_empty = job.status == JobStatus::Failed && job.files.is_empty();
                 for file in &mut job.files {
                     if !matches!(file.status, FileStatus::Done | FileStatus::Failed | FileStatus::Cancelled) {
                         file.status = FileStatus::Waiting;
@@ -100,6 +102,9 @@ impl Downloads {
                     job.review = ReviewState::Waiting;
                 }
                 job.refresh();
+                if failed_empty {
+                    job.status = JobStatus::Failed;
+                }
                 // A ready job's review isn't saved; it's recomputed on startup.
                 if job.status == JobStatus::Ready {
                     job.review = ReviewState::Waiting;
