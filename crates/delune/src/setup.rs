@@ -187,27 +187,32 @@ fn unit(answers: &Answers, data_dir: &Path, system: Option<&str>) -> Result<Stri
     let user = system.map(|u| format!("User={u}\n")).unwrap_or_default();
     let target = if system.is_some() { "multi-user.target" } else { "default.target" };
     Ok(format!(
-        "[Unit]
+        r#"[Unit]
 Description=delune: find music on Soulseek, review it, add it to your library
 Documentation=https://github.com/PndaMan/delune
 Wants=network-online.target
 After=network-online.target
 
 [Service]
-{user}ExecStart={exe} serve
-Environment=DELUNE_DATA_DIR={data}
-Environment=DELUNE_BIND={bind}
+{user}ExecStart="{exe}" serve
+Environment="DELUNE_DATA_DIR={data}"
+Environment="DELUNE_BIND={bind}"
 Restart=on-failure
 RestartSec=5
 UMask=0002
 
 [Install]
 WantedBy={target}
-",
-        exe = exe.display(),
-        data = data_dir.display(),
-        bind = answers.bind.trim(),
+"#,
+        exe = systemd_escape(&exe.display().to_string()),
+        data = systemd_escape(&data_dir.display().to_string()),
+        bind = systemd_escape(answers.bind.trim()),
     ))
+}
+
+/// A value for inside a quoted unit-file setting: `%` and quotes would otherwise be read.
+fn systemd_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%")
 }
 
 fn systemctl(args: &[&str]) -> bool {
@@ -255,7 +260,12 @@ fn install_system_service(answers: &Answers, data_dir: &Path) -> Result<bool> {
     let path = Path::new("/etc/systemd/system/delune.service");
     std::fs::write(path, text).context("writing /etc/systemd/system/delune.service")?;
     if account != "root" {
-        let _ = Command::new("chown").args(["-R", &account, &data_dir.display().to_string()]).status();
+        // Only what setup made, never a whole tree someone may have mistyped.
+        let mut owned = vec![data_dir.to_path_buf()];
+        owned.extend(["config.toml", "delune.db", "delune.db-wal", "delune.db-shm"].iter().map(|f| data_dir.join(f)));
+        for path in owned.iter().filter(|p| p.exists()) {
+            let _ = Command::new("chown").arg(&account).arg(path).status();
+        }
     }
     done(format!("Wrote {} (runs as {account})", path.display()));
     if answers.start_now && systemctl(&["daemon-reload"]) && systemctl(&["enable", "--now", "delune"]) {
@@ -283,9 +293,11 @@ mod tests {
     fn units_run_this_binary_with_the_chosen_settings() {
         let answers = Answers { bind: "0.0.0.0:8080".into(), ..Answers::default() };
         let text = unit(&answers, Path::new("/srv/delune"), None).unwrap();
-        assert!(text.contains("Environment=DELUNE_DATA_DIR=/srv/delune"));
-        assert!(text.contains("Environment=DELUNE_BIND=0.0.0.0:8080"));
-        assert!(text.contains(" serve\n"));
+        assert!(text.contains("Environment=\"DELUNE_DATA_DIR=/srv/delune\""));
+        assert!(text.contains("Environment=\"DELUNE_BIND=0.0.0.0:8080\""));
+        assert!(text.contains("\" serve\n"));
+        let odd = unit(&answers, Path::new("/home/a/My 100% Data"), None).unwrap();
+        assert!(odd.contains("Environment=\"DELUNE_DATA_DIR=/home/a/My 100%% Data\""));
         assert!(text.contains("WantedBy=default.target"));
         assert!(!text.contains("User="));
         let system = unit(&answers, Path::new("/srv/delune"), Some("aidan")).unwrap();

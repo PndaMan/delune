@@ -108,7 +108,7 @@ fn bandcamp_error(e: &BandcampError) -> Response {
             "Bandcamp didn't accept that login. Copy it again while signed in to bandcamp.com.",
         ),
         BandcampError::NotFound => error(StatusCode::NOT_FOUND, "not-on-bandcamp", "That isn't on Bandcamp."),
-        BandcampError::Http(_) | BandcampError::Unreadable => {
+        BandcampError::Http(_) | BandcampError::Unreadable | BandcampError::NotReady => {
             error(StatusCode::BAD_GATEWAY, "bandcamp-unreachable", "Couldn't reach Bandcamp just now. Try again soon.")
         }
     }
@@ -508,10 +508,14 @@ pub async fn download(
 
 /// Download a purchase into `staging`, unpacking it when Bandcamp sends a zip.
 async fn fetch(client: &Client, cookie: &str, page: &str, format: &str, staging: &Path) -> Result<(), String> {
-    let url = client
-        .download_url(cookie, page, format)
-        .await
-        .map_err(|e| format!("Bandcamp didn't hand over the files: {e}."))?;
+    let url = client.download_url(cookie, page, format).await.map_err(|e| {
+        // Bandcamp's links are signed; keep them out of logs and job errors.
+        match e {
+            BandcampError::Http(e) => tracing::warn!(error = %e.without_url(), "Bandcamp download failed"),
+            e => tracing::warn!(error = %e, "Bandcamp download failed"),
+        }
+        "Bandcamp didn't hand over the files. Try again in a while.".to_owned()
+    })?;
     tokio::fs::create_dir_all(staging).await.map_err(|e| format!("Couldn't make a folder to download into: {e}"))?;
     let mut response = reqwest::Client::new()
         .get(&url)
@@ -581,15 +585,18 @@ fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
             std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
             continue;
         }
-        total += entry.size();
-        if total > MAX_UNPACKED {
-            return Err("That download unpacks to far more than an album should.".to_owned());
-        }
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let mut out = std::fs::File::create(&path).map_err(|e| format!("Couldn't unpack the download: {e}"))?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| format!("Couldn't unpack the download: {e}"))?;
+        // Count what actually comes out, not what the zip claims.
+        let room = MAX_UNPACKED - total;
+        let written = std::io::copy(&mut (&mut entry).take(room + 1), &mut out)
+            .map_err(|e| format!("Couldn't unpack the download: {e}"))?;
+        if written > room {
+            return Err("That download unpacks to far more than an album should.".to_owned());
+        }
+        total += written;
     }
     Ok(())
 }

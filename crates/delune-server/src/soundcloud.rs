@@ -394,7 +394,14 @@ pub async fn unfollow(State(app): State<AppState>, user: CurrentUser, UrlPath(ar
     }
     {
         let mut follows = app.soundcloud.follows();
-        follows.retain(|f| f.id.to_string() != artist && !f.permalink.eq_ignore_ascii_case(&artist));
+        let matches = |f: &SoundcloudFollow| f.id.to_string() == artist || f.permalink.eq_ignore_ascii_case(&artist);
+        // Someone else's follow is theirs to drop, unless you manage delune.
+        let others = follows.iter().any(|f| matches(f) && f.added_by != user.username);
+        if others && !user.permissions.manage {
+            drop(follows);
+            return error(StatusCode::FORBIDDEN, "not-your-follow", "Someone else follows this artist.");
+        }
+        follows.retain(|f| !matches(f));
         app.soundcloud.save(&follows);
     }
     changed(&app, Topic::Soundcloud);

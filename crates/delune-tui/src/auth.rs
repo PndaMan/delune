@@ -52,11 +52,14 @@ pub async fn signed_in(
 ) -> Result<(reqwest::Client, Option<String>)> {
     if let Some(token) = saved {
         let client = with_token(token)?;
-        let still_good = match client.get(format!("{base}/api/v1/session")).send().await {
-            Ok(response) => matches!(response.json::<Option<Me>>().await, Ok(Some(_))),
-            Err(_) => false,
+        // Only a server that answers "not signed in" makes the token worthless; one that's
+        // down or restarting keeps it, and the UI shows the problem.
+        let refused = match client.get(format!("{base}/api/v1/session")).send().await {
+            Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => true,
+            Ok(response) if response.status().is_success() => matches!(response.json::<Option<Me>>().await, Ok(None)),
+            _ => false,
         };
-        if still_good {
+        if !refused {
             return Ok((client, Some(token.to_owned())));
         }
     }

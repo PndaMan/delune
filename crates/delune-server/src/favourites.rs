@@ -77,25 +77,20 @@ impl Favourites {
     /// Whether anyone has starred `username`.
     #[must_use]
     pub fn anyone_starred(&self, username: &str) -> bool {
-        self.lock().values().flatten().any(|s| s.username.eq_ignore_ascii_case(username))
+        self.lock().values().flatten().any(|s| s.username == username)
     }
 
     /// Everyone starred by anyone, once each.
     fn everyone(&self) -> Vec<String> {
         let mut seen = HashSet::new();
-        self.lock()
-            .values()
-            .flatten()
-            .filter(|s| seen.insert(s.username.to_ascii_lowercase()))
-            .map(|s| s.username.clone())
-            .collect()
+        self.lock().values().flatten().filter(|s| seen.insert(s.username.clone())).map(|s| s.username.clone()).collect()
     }
 
     /// Star `username` for `account`. False when they already were, or the list is full.
     fn star(&self, account: &str, username: &str) -> bool {
         let mut starred = self.lock();
         let mine = starred.entry(account.to_owned()).or_default();
-        if mine.len() >= MAX_PER_PERSON || mine.iter().any(|s| s.username.eq_ignore_ascii_case(username)) {
+        if mine.len() >= MAX_PER_PERSON || mine.iter().any(|s| s.username == username) {
             return false;
         }
         mine.insert(0, Starred { username: username.to_owned(), since: now() });
@@ -107,10 +102,10 @@ impl Favourites {
     fn unstar(&self, account: &str, username: &str) -> bool {
         let mut starred = self.lock();
         if let Some(mine) = starred.get_mut(account) {
-            mine.retain(|s| !s.username.eq_ignore_ascii_case(username));
+            mine.retain(|s| s.username != username);
         }
         self.save(&starred);
-        !starred.values().flatten().any(|s| s.username.eq_ignore_ascii_case(username))
+        !starred.values().flatten().any(|s| s.username == username)
     }
 
     fn list(&self, account: &str, db: &Database) -> Vec<FavouriteUser> {
@@ -119,7 +114,7 @@ impl Favourites {
         mine.into_iter()
             .map(|s| {
                 let saved_at = db.share_list_saved_at(&s.username);
-                let (folders, files) = sizes.get(&s.username.to_ascii_lowercase()).copied().unwrap_or_default();
+                let (folders, files) = sizes.get(&s.username).copied().unwrap_or_default();
                 FavouriteUser { username: s.username, since: s.since, saved_at, folders, files }
             })
             .collect()
@@ -127,7 +122,7 @@ impl Favourites {
 
     fn note_size(&self, username: &str, list: &SharedFileList) {
         let mut sizes = self.sizes.lock().unwrap_or_else(PoisonError::into_inner);
-        sizes.insert(username.to_ascii_lowercase(), (count(list.directories.len()), count(list.file_count())));
+        sizes.insert(username.to_owned(), (count(list.directories.len()), count(list.file_count())));
         if let Some(db) = &self.store {
             db.save("favourite-sizes", &*sizes);
         }
@@ -135,7 +130,7 @@ impl Favourites {
 
     fn forget_size(&self, username: &str) {
         let mut sizes = self.sizes.lock().unwrap_or_else(PoisonError::into_inner);
-        sizes.remove(&username.to_ascii_lowercase());
+        sizes.remove(username);
         if let Some(db) = &self.store {
             db.save("favourite-sizes", &*sizes);
         }
@@ -171,7 +166,7 @@ impl Favourites {
 /// Clients hear about it on the `favourites` topic when it lands.
 pub fn refresh(app: &AppState, username: &str) {
     let Some(client) = app.soulseek.clone() else { return };
-    let key = username.to_ascii_lowercase();
+    let key = username.to_owned();
     if !app.favourites.fetching.lock().unwrap_or_else(PoisonError::into_inner).insert(key.clone()) {
         return;
     }
@@ -262,8 +257,7 @@ pub async fn add(State(app): State<AppState>, user: CurrentUser, UrlPath(usernam
             .into_response();
     }
     if !app.favourites.star(&user.username, username) {
-        let already =
-            app.favourites.list(&user.username, &app.db).iter().any(|f| f.username.eq_ignore_ascii_case(username));
+        let already = app.favourites.list(&user.username, &app.db).iter().any(|f| f.username == username);
         if !already {
             return (
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -298,9 +292,10 @@ pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(user
     if let Some(denied) = refuse(&user) {
         return denied;
     }
-    if app.favourites.unstar(&user.username, &username) {
-        app.db.forget_share_list(&username);
-        app.favourites.forget_size(&username);
+    let username = username.trim();
+    if app.favourites.unstar(&user.username, username) {
+        app.db.forget_share_list(username);
+        app.favourites.forget_size(username);
     }
     changed(&app, Topic::Favourites);
     Json(app.favourites.list(&user.username, &app.db)).into_response()
@@ -328,19 +323,22 @@ mod tests {
         assert!(db.share_list("stranger").is_none(), "nobody starred them");
 
         assert!(favourites.star("aidan", "Kindred"));
-        assert!(!favourites.star("aidan", "kindred"), "starring twice does nothing");
-        assert!(favourites.star("sam", "kindred"));
+        assert!(!favourites.star("aidan", "Kindred"), "starring twice does nothing");
+        assert!(favourites.star("aidan", "KINDRED"), "Soulseek names are case-sensitive");
+        assert!(favourites.star("sam", "Kindred"));
         favourites.fetched(&db, "Kindred", &sample());
 
         let (list, _) = favourites.saved(&db, "Kindred").unwrap();
         assert_eq!(list, sample());
+        assert!(favourites.saved(&db, "KINDRED").is_none(), "another person's name, nothing saved");
         let mine = favourites.list("aidan", &db);
-        assert_eq!(mine.len(), 1);
-        assert_eq!((mine[0].folders, mine[0].files), (1, 0));
-        assert!(mine[0].saved_at.is_some());
+        assert_eq!(mine.len(), 2);
+        let kindred = mine.iter().find(|f| f.username == "Kindred").unwrap();
+        assert_eq!((kindred.folders, kindred.files), (1, 0));
+        assert!(kindred.saved_at.is_some());
         assert!(favourites.list("nobody", &db).is_empty());
 
-        assert!(!favourites.unstar("aidan", "kindred"), "sam still has them");
+        assert!(!favourites.unstar("aidan", "Kindred"), "sam still has them");
         assert!(favourites.unstar("sam", "Kindred"));
         assert!(favourites.saved(&db, "Kindred").is_none());
     }
@@ -372,7 +370,7 @@ mod tests {
         let (status, listed) = call("PUT", "/api/v1/soulseek/favourites/kindred").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(listed[0]["username"], "kindred");
-        let (_, again) = call("PUT", "/api/v1/soulseek/favourites/Kindred").await;
+        let (_, again) = call("PUT", "/api/v1/soulseek/favourites/kindred").await;
         assert_eq!(again.as_array().unwrap().len(), 1, "starring twice keeps one");
         let (status, _) = call("PUT", "/api/v1/soulseek/favourites/%20").await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -388,7 +386,8 @@ mod tests {
         let db = Arc::new(Database::in_memory());
         Favourites::open(&db).star("aidan", "kindred");
         let reopened = Favourites::open(&db);
-        assert!(reopened.anyone_starred("KINDRED"));
+        assert!(reopened.anyone_starred("kindred"));
+        assert!(!reopened.anyone_starred("KINDRED"));
         assert_eq!(reopened.everyone(), ["kindred"]);
     }
 }

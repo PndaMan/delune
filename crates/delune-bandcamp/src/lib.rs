@@ -44,6 +44,8 @@ pub enum Error {
     SignedOut,
     #[error("nothing there")]
     NotFound,
+    #[error("Bandcamp is still preparing the download")]
+    NotReady,
 }
 
 /// A release on Bandcamp, as found by a search.
@@ -236,16 +238,24 @@ impl Client {
         let url = download_link(&page, format).ok_or(Error::Unreadable)?;
         // Bandcamp prepares big downloads, answering with JSON until the file is ready.
         for attempt in 0..10u32 {
-            let response = self.http.get(&url).header(reqwest::header::COOKIE, cookie_header(cookie)).send().await;
-            let Ok(response) = response else { break };
-            let text = response.text().await.unwrap_or_default();
-            match prepared(&text) {
+            let response = self.http.get(&url).header(reqwest::header::COOKIE, cookie_header(cookie)).send().await?;
+            // The file itself: don't read it here, the caller downloads it.
+            let kind = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if !(kind.contains("json") || kind.contains("javascript") || kind.starts_with("text/")) {
+                return Ok(url);
+            }
+            match prepared(&response.text().await?) {
                 Prepared::Ready(ready) => return Ok(ready),
                 Prepared::Wait => tokio::time::sleep(Duration::from_secs(2 + u64::from(attempt))).await,
                 Prepared::NotJson => return Ok(url),
             }
         }
-        Ok(url)
+        Err(Error::NotReady)
     }
 }
 

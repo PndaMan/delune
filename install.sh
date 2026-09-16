@@ -89,10 +89,12 @@ fetch_to "$base/$name.tar.gz.sha256" "$tmp/$name.tar.gz.sha256" || fail "Couldn'
 expected=$(cut -d' ' -f1 <"$tmp/$name.tar.gz.sha256")
 if command -v sha256sum >/dev/null 2>&1; then
   actual=$(sha256sum "$tmp/$name.tar.gz" | cut -d' ' -f1)
-else
+elif command -v shasum >/dev/null 2>&1; then
   actual=$(shasum -a 256 "$tmp/$name.tar.gz" | cut -d' ' -f1)
+else
+  fail "sha256sum or shasum is needed to check the download."
 fi
-[ "$expected" = "$actual" ] || fail "The download doesn't match its checksum; not installing it."
+[ -n "$expected" ] && [ "$expected" = "$actual" ] || fail "The download doesn't match its checksum; not installing it."
 step "Downloaded and verified"
 
 tar xzf "$tmp/$name.tar.gz" -C "$tmp"
@@ -118,7 +120,8 @@ if [ -n "${DELUNE_NO_SETUP:-}" ]; then
 fi
 
 # The script itself usually arrives on stdin through a pipe; the wizard needs the terminal.
-if [ -r /dev/tty ]; then
+# Opening it is the real test: containers often list /dev/tty without one behind it.
+if (: </dev/tty) 2>/dev/null; then
   say ""
   "$bin_dir/delune" setup </dev/tty >/dev/tty 2>&1
 else

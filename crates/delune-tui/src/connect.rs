@@ -62,8 +62,11 @@ impl Saved {
         {
             use std::io::Write as _;
             use std::os::unix::fs::OpenOptionsExt as _;
+            use std::os::unix::fs::PermissionsExt as _;
             let mut file =
                 std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&path)?;
+            // `mode` only applies to new files; an older one may be readable by others.
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
             file.write_all(text.as_bytes())
         }
         #[cfg(not(unix))]
@@ -83,9 +86,11 @@ pub fn candidates(input: &str) -> Vec<String> {
     let mut found = vec![exact];
     // Next to Navidrome, or wherever the host is: delune's own port, then behind the
     // same web server at /delune, as a reverse proxy often puts it.
-    found.push(format!("http://{host}:{PORT}"));
-    found.push(format!("{}://{host}/delune", url.scheme()));
-    if url.scheme() == "http" {
+    // Asked for https, so never fall back to plain http.
+    let scheme = url.scheme();
+    found.push(format!("{scheme}://{host}:{PORT}"));
+    found.push(format!("{scheme}://{host}/delune"));
+    if scheme == "http" {
         found.push(format!("https://{host}/delune"));
     }
     found.dedup();
@@ -131,7 +136,11 @@ mod tests {
                 "https://music.home/delune"
             ]
         );
-        assert_eq!(candidates("https://delune.example.com/")[0], "https://delune.example.com");
+        assert_eq!(
+            candidates("https://delune.example.com/"),
+            ["https://delune.example.com", "https://delune.example.com:7474", "https://delune.example.com/delune"],
+            "https stays https"
+        );
         assert_eq!(candidates("http://[::1]:4533")[1], "http://[::1]:7474");
         assert!(candidates("").is_empty());
         assert!(candidates("   ").is_empty());
