@@ -222,6 +222,17 @@ Tagged releases publish binaries for Linux and macOS (x86_64 and ARM) on the
 (`brew services start delune` runs it in the background). On other Linux systems,
 copy the binary to `/usr/bin` and use the unit in [`packaging/systemd/`](packaging/systemd/).
 
+## Other sources
+
+delune downloads from Soulseek. It has no built-in downloaders for streaming
+services: fetching from them means getting around their copy protection and terms,
+which delune won't do. If you already have a downloader you trust, Settings has an
+opt-in "Other sources" section where someone who manages delune can name a program
+(`yt-dlp`, say) and its arguments. delune runs it for a link — directly, with no
+shell, substituting only the link and the folder to write to — and whatever it
+fetches goes through the same review before it reaches your library. The program
+runs as the delune server, so only point it at something you'd run yourself.
+
 ## Project layout
 
 ```text

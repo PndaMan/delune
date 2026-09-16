@@ -432,6 +432,9 @@ pub struct DownloadJob {
     /// While held back by the limit on downloads at once: its place in line, from 1.
     #[serde(default)]
     pub waiting_for_slot: Option<u32>,
+    /// Why the job failed, when the files can't say (a fetch command that got nothing).
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 impl DownloadJob {
@@ -1096,6 +1099,19 @@ const fn yes() -> bool {
     true
 }
 
+/// `GET/PUT /api/v1/external`: a program delune may run to fetch a link, for
+/// sources it has no lawful downloader of its own for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ExternalSource {
+    pub enabled: bool,
+    /// The program to run, such as `yt-dlp`.
+    pub program: String,
+    /// Its arguments. `{url}` and `{output}` are replaced; nothing else is.
+    pub arguments: Vec<String>,
+}
+
 /// `GET /api/v1/automation`: what delune does on its own. Both are off by default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -1401,6 +1417,7 @@ mod tests {
             imported_at: None,
             priority: 0,
             waiting_for_slot: None,
+            error: None,
         };
         job.refresh();
         assert_eq!((job.status, job.total_bytes), (JobStatus::Queued, 20));

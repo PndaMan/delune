@@ -157,6 +157,8 @@ export type DownloadJob = {
   imported_to: string | null
   imported_at: number | null
   priority: number
+  /** Why the job failed, when the files can't say. */
+  error: string | null
   /** While held back by the limit on downloads at once: its place in line, from 1. */
   waiting_for_slot: number | null
 }

@@ -663,6 +663,7 @@ mod tests {
             imported_at: None,
             priority: 0,
             waiting_for_slot: None,
+            error: None,
         }
     }
 

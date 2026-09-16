@@ -164,6 +164,10 @@ export type DownloadJob = {
    * While held back by the limit on downloads at once: its place in line, from 1.
    */
   waiting_for_slot: number | null
+  /**
+   * Why the job failed, when the files can't say (a fetch command that got nothing).
+   */
+  error: string | null
 }
 
 export type DownloadJobRequest = {

@@ -87,6 +87,7 @@ export function describeJob(job: DownloadJob): string {
     case "imported":
       return "Imported into your library"
     case "failed": {
+      if (job.error) return job.error
       const failed = job.files.filter((f) => f.status === "failed")
       return `${plural(failed.length, "file")} couldn't be downloaded${failed[0]?.error ? `: ${failed[0].error}` : ""}`
     }

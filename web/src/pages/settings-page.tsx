@@ -3,6 +3,7 @@ import { Camera, LoaderCircle, LogOut, Lock } from "lucide-react"
 import { useEffect, useRef } from "react"
 
 import { ConnectionsForm } from "@/components/connections-form"
+import { ExternalSourcePanel } from "@/components/external-source"
 import { NamingEditor } from "@/components/naming-editor"
 import { SharingSettingsPanel } from "@/components/sharing-settings"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
@@ -96,6 +97,15 @@ export function SettingsPage() {
         >
           <SoulseekAccount />
         </Section>
+        {me.permissions.manage && (
+          <Section
+            id="fetching"
+            title="Other sources"
+            description="A downloader of your own, for links delune can't fetch itself. Off by default."
+          >
+            <ExternalSourcePanel />
+          </Section>
+        )}
         <Section
           id="lyrics"
           title="Lyrics and artwork"
@@ -127,6 +137,7 @@ function SectionNav({ manage }: { manage: boolean }) {
           ["automation", "Automation"],
           ["sharing", "Sharing"],
           ["connections", "Connections"],
+          ["fetching", "Other sources"],
         ]
       : []),
     ["soulseek", "Soulseek"],

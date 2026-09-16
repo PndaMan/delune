@@ -264,6 +264,26 @@ impl Downloads {
         self.lock().iter().find(|e| e.job.id == id).map(|e| e.job.requested_by.clone())
     }
 
+    /// What a fetch command left behind. Unlike a Soulseek job the status can't be
+    /// worked out from the files: a fetch that got nothing has none.
+    fn fetched(&self, id: &str, files: Vec<JobFile>, status: JobStatus, error: Option<String>) {
+        let changed = self.lock().iter_mut().find(|e| e.job.id == id).map(|entry| {
+            let before = entry.job.status;
+            entry.job.files = files;
+            entry.job.refresh();
+            entry.job.status = status;
+            entry.job.error.clone_from(&error);
+            if let Some(error) = error {
+                entry.job.files.iter_mut().for_each(|f| f.error = Some(error.clone()));
+            }
+            (entry.job.clone(), before)
+        });
+        self.changed();
+        if let Some(change) = changed {
+            let _ = self.status_changes.send(change);
+        }
+    }
+
     pub fn mark_imported(&self, id: &str, folder: &str) {
         let changed = self.lock().iter_mut().find(|e| e.job.id == id).map(|entry| {
             let before = entry.job.status;
@@ -396,6 +416,7 @@ pub fn begin(
         imported_at: None,
         priority: 0,
         waiting_for_slot: None,
+        error: None,
     };
     let (cancel, cancel_rx) = watch::channel(false);
     app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None, slot: Slot::None });
@@ -403,6 +424,108 @@ pub fn begin(
     tracing::info!(%id, username = %request.username, folder = %request.folder, files = job.files.len(), "download job created");
     start(app, client, &job, cancel_rx);
     Ok(job)
+}
+
+/// Start a job that something other than Soulseek fills in, such as a fetch command.
+pub fn begin_external(
+    app: &AppState,
+    source: &str,
+    title: &str,
+    artist: Option<&str>,
+    requested_by: &str,
+) -> DownloadJob {
+    let id = app.downloads.new_id();
+    // Just the program's name; the full path would read oddly in "Downloading from…".
+    let name = Path::new(source).file_name().and_then(|n| n.to_str()).unwrap_or(source);
+    let job = DownloadJob {
+        id,
+        username: name.to_owned(),
+        folder: String::new(),
+        title: title.to_owned(),
+        parent: artist.map(str::to_owned),
+        created_at: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+        status: JobStatus::Downloading,
+        files: Vec::new(),
+        bytes: 0,
+        total_bytes: 0,
+        review: ReviewState::Waiting,
+        requested_by: Some(requested_by.to_owned()),
+        imported_to: None,
+        imported_at: None,
+        priority: 0,
+        waiting_for_slot: None,
+        error: None,
+    };
+    app.downloads.lock().push(Entry {
+        job: job.clone(),
+        cancel: watch::channel(false).0,
+        checked: None,
+        slot: Slot::None,
+    });
+    app.downloads.changed();
+    job
+}
+
+/// A fetch command finished: list what it left and send the job on to review.
+pub async fn finish_external(app: &AppState, id: &str, outcome: Result<(), String>) {
+    let staging = staging_dir(&app.data_dir, id);
+    let found = tokio::task::spawn_blocking({
+        let staging = staging.clone();
+        move || collect(&staging)
+    })
+    .await
+    .unwrap_or_default();
+    let status = crate::external::status_of(found.len(), &outcome);
+    let reason = match &outcome {
+        Err(reason) => Some(reason.clone()),
+        Ok(()) if found.is_empty() => Some("The command didn't leave any music behind.".to_owned()),
+        Ok(()) => None,
+    };
+    if let Some(reason) = &reason {
+        tracing::warn!(%id, %reason, "fetch command didn't work out");
+    }
+    let files = found
+        .iter()
+        .map(|(name, size)| JobFile {
+            path: name.clone(),
+            name: name.clone(),
+            size: *size,
+            status: if status == JobStatus::Ready { FileStatus::Done } else { FileStatus::Failed },
+            bytes: *size,
+            place_in_queue: None,
+            error: reason.clone(),
+        })
+        .collect();
+    app.downloads.fetched(id, files, status, reason);
+    if status == JobStatus::Ready {
+        let job = app.downloads.list().into_iter().find(|j| j.id == id);
+        if let Some(job) = job {
+            recheck(app, &job);
+        }
+    }
+}
+
+/// Files a fetch left in the staging folder, by name and size, deepest paths flattened.
+fn collect(staging: &Path) -> Vec<(String, u64)> {
+    let mut files = Vec::new();
+    let mut folders = vec![staging.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else { continue };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push(path);
+                continue;
+            }
+            let Some(name) = path.strip_prefix(staging).ok().and_then(|p| p.to_str()).map(str::to_owned) else {
+                continue;
+            };
+            let size = entry.metadata().map_or(0, |m| m.len());
+            files.push((name, size));
+        }
+    }
+    files.sort();
+    files
 }
 
 /// Download a job's remaining files, then check them for review.
@@ -819,6 +942,7 @@ mod tests {
             imported_at: None,
             priority: 0,
             waiting_for_slot: None,
+            error: None,
         }];
         std::fs::write(dir.join("jobs.json"), serde_json::to_vec(&saved).unwrap()).unwrap();
 
@@ -859,6 +983,7 @@ mod tests {
                 imported_at: None,
                 priority: 0,
                 waiting_for_slot: None,
+                error: None,
             },
             cancel: watch::channel(false).0,
             checked: None,

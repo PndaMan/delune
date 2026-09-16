@@ -12,6 +12,7 @@ pub mod artwork;
 pub mod automation;
 pub mod chat;
 pub mod downloads;
+pub mod external;
 pub mod finishing;
 pub mod library;
 pub mod naming;
@@ -105,6 +106,8 @@ pub struct AppState {
     pub requests: Arc<requests::Requests>,
     /// Where everything above is saved.
     pub db: Arc<store::Database>,
+    /// A program people who manage delune may point it at for other sources.
+    pub external: Arc<external::External>,
     pub nat: Arc<nat::Nat>,
     /// Nudged when the port-mapping setting changes.
     pub nat_wake: Arc<tokio::sync::watch::Sender<u64>>,
@@ -138,6 +141,7 @@ impl Default for AppState {
             notifications: Arc::default(),
             requests: Arc::default(),
             db: Arc::default(),
+            external: Arc::default(),
             nat: Arc::default(),
             nat_wake: Arc::new(tokio::sync::watch::channel(0).0),
         }
@@ -166,6 +170,7 @@ impl AppState {
         let naming = Arc::new(naming::Naming::open(&db, &config.library));
         let notifications = Arc::new(notifications::Notifier::open(&db));
         let requests = Arc::new(requests::Requests::open(&db));
+        let external = Arc::new(external::External::open(&db));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -193,6 +198,7 @@ impl AppState {
             locked: config.locked,
             notifications,
             requests,
+            external,
             db,
             ..Self::default()
         };
@@ -278,6 +284,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/requests/{id}/decision", post(requests::decide))
         .route("/api/v1/notifications", get(notifications::list).delete(notifications::clear))
         .route("/api/v1/notifications/read", post(notifications::read))
+        .route("/api/v1/external", get(external::settings).put(external::update))
+        .route("/api/v1/external/fetch", post(external::fetch))
         .route("/api/v1/setup", get(setup::status).put(setup::update))
         .route("/api/v1/setup/check", post(setup::check))
         .route("/api/v1/naming", get(naming::get).put(naming::update))
@@ -672,6 +680,7 @@ mod tests {
             imported_at: None,
             priority: 0,
             waiting_for_slot: None,
+            error: None,
         };
         requests::job_changed(&state, &job);
         let (_, body) = call("GET", "/api/v1/requests", &sam, None).await;

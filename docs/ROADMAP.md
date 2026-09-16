@@ -71,7 +71,9 @@ Navidrome, from both the web UI and the TUI.
 - [x] Roles and permissions: admin (from Navidrome admin), and per-person rights to search,
       download, skip approval and manage; an "imports need approval" switch
 - [x] Revoke sessions: your devices, sign out elsewhere; admins sign someone out everywhere
-- [ ] Per-person rights for streaming sources (with the streaming sources themselves)
+- [x] Other sources: a downloader of your own that delune runs for a link (opt-in, admins only).
+      delune has no built-in streaming downloads: those need getting around copy protection
+      and terms, so they're out (decided with Aidan, 2026-09-16).
 - [x] Requests: people ask for an album; admins or permitted users approve; request status
       visible to the requester (pending, approved, downloading, in library, declined)
 - [x] Profile menu at the bottom of the rail (avatar, role, connection status, sign out)
