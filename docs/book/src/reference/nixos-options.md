@@ -33,25 +33,3 @@ All options live under `services.delune`.
   certificates), started after the VPN container, mounting `dataDir` and `libraryDir`
   (with `rslave`), waiting for `libraryDir`'s mount and restarting every 30 s until it
   works.
-
-## `services.autodeploy`
-
-From `nixosModules.autodeploy`; see [Updating on its own](../install/nixos.md#updating-on-its-own-with-rollback).
-
-| Option | Type | Default | |
-|---|---|---|---|
-| `enable` | bool | `false` | Deploy this machine's flake when it changes, and roll back if it breaks |
-| `repo` | string | | The flake checkout on this machine |
-| `host` | string | `networking.hostName` | The `nixosConfigurations` entry to deploy |
-| `inputs` | list of strings | `[ ]` | `github:` inputs to follow |
-| `pull` | bool | `true` | Fast-forward the repo to its upstream when it's clean |
-| `requireChecks` | bool | `true` | Wait for a commit's GitHub checks to pass |
-| `githubTokenFile` | null or string | `null` | Token for reading checks (private repos, rate limits) |
-| `interval` | string | `"2min"` | How often to look |
-| `units` | list of strings | `[ ]` | Units that must be active after a deploy |
-| `checks` | list of strings | `[ ]` | Commands that must succeed after a deploy |
-| `settleSeconds` | positive int | `20` | Wait between health checks |
-| `healthTries` | positive int | `6` | Checks before rolling back |
-| `commitLock` | bool | `true` | Commit `flake.lock` after a good deploy |
-| `push` | bool | `false` | Push that commit |
-| `ntfyUrlFile` | null or string | `null` | File with an ntfy topic URL for deploy and rollback messages |

@@ -20,7 +20,6 @@
 
       nixosModules = rec {
         delune = import ./nix/module.nix self;
-        autodeploy = import ./nix/autodeploy.nix;
         default = delune;
       };
 
