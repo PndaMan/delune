@@ -14,6 +14,7 @@ import { useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
+import { useMusicViews } from "@/components/music-views"
 import { RequestsSection } from "@/components/requests-section"
 import { WishlistSection } from "@/components/wishlist-section"
 import { Button } from "@/components/ui/button"
@@ -75,6 +76,7 @@ export function JobCard({ job }: { job: DownloadJob }) {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const artwork = useArtwork(job.parent, job.title)
+  const views = useMusicViews()
   const remove = useRemoveDownload()
   const toggle = useToggleDownload()
   const stopped = job.status === "failed" || job.status === "cancelled"
@@ -85,7 +87,21 @@ export function JobCard({ job }: { job: DownloadJob }) {
   return (
     <li className="overflow-hidden rounded-2xl border bg-card/60">
       <div className="flex items-center gap-5 p-4 sm:p-5">
-        <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-16 rounded-xl sm:size-20" />
+        <button
+          type="button"
+          onClick={() =>
+            views.openAlbum({ artist: artwork.data?.artist ?? job.parent, title: artwork.data?.album ?? job.title })
+          }
+          aria-label={`About ${artwork.data?.album ?? job.title}`}
+          className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Cover
+            src={artwork.data?.thumb}
+            pending={artwork.isPending}
+            alt=""
+            className="size-16 rounded-xl sm:size-20"
+          />
+        </button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[16px] font-semibold">{artwork.data?.album ?? job.title}</p>
           <p className="truncate text-sm text-muted-foreground">

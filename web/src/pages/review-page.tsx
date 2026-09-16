@@ -16,6 +16,7 @@ import {
 import { useState } from "react"
 
 import { Cover } from "@/components/cover"
+import { useMusicViews } from "@/components/music-views"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { api, type DownloadJob, type ReviewReport, type ReviewTrack } from "@/lib/api"
@@ -251,16 +252,24 @@ function ReviewCard({ job }: { job: DownloadJob }) {
   )
 
   const artistName = report.data?.album_artist ?? artwork.data?.artist ?? job.parent ?? null
+  const views = useMusicViews()
 
   return (
     <li className="overflow-clip rounded-3xl border bg-card/60">
       <header className="flex flex-wrap items-center gap-5 p-5 sm:p-6">
-        <Cover
-          src={artwork.data?.cover}
-          pending={artwork.isPending}
-          alt=""
-          className="size-24 rounded-2xl shadow-lg sm:size-28"
-        />
+        <button
+          type="button"
+          onClick={() => views.openAlbum({ artist: artistName, title: report.data?.album ?? job.title })}
+          aria-label={`About ${report.data?.album ?? job.title}`}
+          className="rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Cover
+            src={artwork.data?.cover}
+            pending={artwork.isPending}
+            alt=""
+            className="size-24 rounded-2xl shadow-lg sm:size-28"
+          />
+        </button>
         <div className="min-w-0 flex-1">
           <h2 className="type-title line-clamp-2 text-[22px] sm:truncate sm:text-[24px]">
             {report.data?.album ?? artwork.data?.album ?? job.title}
