@@ -621,6 +621,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "delune-bandcamp"
+version = "0.1.0-dev"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "delune-core"
 version = "0.1.0-dev"
 dependencies = [
