@@ -122,3 +122,31 @@ Navidrome, from both the web UI and the TUI.
 - [x] Followed artists and automatic quality upgrades (off by default)
 - Opt-in streaming providers: Qobuz, Tidal, Deezer, YouTube Music, SoundCloud, Bandcamp
 - Album art in the TUI (kitty, sixel, iTerm2)
+
+## Ideas (2026-09-16)
+
+Proposed after an app-wide review; not yet scheduled.
+
+**Listening and discovery**
+- Listen before you import: play any track from Review (and from a peer's folder) in the browser.
+- Release radar: a calendar of upcoming and new releases from followed artists.
+- Complete an artist: see which albums the library is missing and want them all in one tap.
+- Recommendations from what people actually play (Navidrome play counts, ListenBrainz).
+- Keep playlists in sync: a Spotify, Deezer or YouTube playlist that's re-checked for new songs.
+
+**Library care**
+- Library health: duplicates, lossy albums, missing artwork or lyrics, odd tags — each with a fix.
+- Quality ladder: upgrade an album automatically when a better copy turns up, with a spectrogram in review.
+- Tagging against MusicBrainz releases, choosing the edition, before import.
+
+**Staying in touch**
+- Push notifications for the installed app (Web Push), plus ntfy, Discord and email.
+- An activity log: who asked for, approved and imported what.
+- A diagnostics page: Soulseek, Navidrome, port reachability and VPN address, with what to do about each.
+
+**Polish**
+- A command palette (⌘K / long-press) and keyboard shortcuts across the app.
+- Request comments, and per-person request limits.
+- Backup and restore of delune's database from Settings.
+- SOCKS5 proxy support for Soulseek, for VPNs that aren't a container or namespace.
+- Several libraries (Navidrome music folders) with a choice at import.
