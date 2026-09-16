@@ -19,11 +19,12 @@ import { SetupPage } from "@/pages/setup-page"
 import { SignInPage } from "@/pages/sign-in-page"
 
 const NAV = [
-  { to: "/", label: "Search", icon: Search },
-  { to: "/downloads", label: "Downloads", icon: ArrowDownToLine },
-  { to: "/review", label: "Review", icon: Inbox },
-  { to: "/soulseek", label: "Soulseek", icon: Earth },
-  { to: "/settings", label: "Settings", icon: SlidersHorizontal },
+  { to: "/", label: "Search", icon: Search, manage: false },
+  { to: "/downloads", label: "Downloads", icon: ArrowDownToLine, manage: false },
+  { to: "/review", label: "Review", icon: Inbox, manage: false },
+  // The Soulseek account, its chat and sharing belong to whoever runs delune.
+  { to: "/soulseek", label: "Soulseek", icon: Earth, manage: true },
+  { to: "/settings", label: "Settings", icon: SlidersHorizontal, manage: false },
 ] as const
 
 export function AppShell() {
@@ -96,6 +97,7 @@ function SignedIn() {
   const tonight = moonPhase()
   const reviews = useReviewCount()
   const typing = useTyping()
+  const nav = NAV.filter((item) => !item.manage || me.permissions.manage)
   useLiveUpdates(true)
   const me = useMe()
   const setup = useSetupStatus(me.permissions.manage)
@@ -126,7 +128,7 @@ function SignedIn() {
             <Moon illumination={Math.max(tonight.illumination, 0.18)} waxing={tonight.waxing} size={30} />
           </Link>
           <ul className="flex flex-col gap-1.5">
-            {NAV.map(({ to, label, icon: Icon }) => (
+            {nav.map(({ to, label, icon: Icon }) => (
               <li key={to}>
                 <Tooltip>
                   <TooltipTrigger
@@ -182,7 +184,7 @@ function SignedIn() {
             typing && "hidden",
           )}
         >
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {nav.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
               to={to}

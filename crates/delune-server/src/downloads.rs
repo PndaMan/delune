@@ -588,6 +588,7 @@ fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, can
     let downloads = app.downloads.clone();
     let (library, naming) = (app.library.clone(), app.naming.clone());
     let (id, username, files) = (job.id.clone(), job.username.clone(), job.files.clone());
+    let app = app.clone();
     tokio::spawn(async move {
         let mut cancel = cancel;
         if !downloads.wait_for_slot(&id, &mut cancel).await {
@@ -599,6 +600,7 @@ fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, can
         let ready = downloads.review(&id).is_some_and(|(status, ..)| status == JobStatus::Ready);
         if ready {
             check_job(&downloads, &id, staging, context, library, &naming).await;
+            crate::review::auto_import(&app, &id).await;
         }
     });
 }
@@ -668,7 +670,12 @@ fn recheck(app: &AppState, job: &DownloadJob) {
     let context = ReleaseContext { artist: job.parent.clone(), album: job.title.clone(), source: "Soulseek".into() };
     let (downloads, library, naming) = (app.downloads.clone(), app.library.clone(), app.naming.clone());
     let (id, staging) = (job.id.clone(), staging_dir(&app.data_dir, &job.id));
-    tokio::spawn(async move { check_job(&downloads, &id, staging, context, library, &naming).await });
+    let app = app.clone();
+    tokio::spawn(async move {
+        check_job(&downloads, &id, staging, context, library, &naming).await;
+        // Fetched jobs and restarts come through here too.
+        crate::review::auto_import(&app, &id).await;
+    });
 }
 
 /// Check every album waiting in review again, so planned paths follow new naming settings.

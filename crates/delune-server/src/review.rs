@@ -243,17 +243,27 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
             "An admin needs to approve this before it goes into the library.",
         );
     }
-    let Some((status, _, Some(checked))) = app.downloads.review(&id) else {
-        return error(StatusCode::CONFLICT, "not-ready", "This download isn't ready for import yet.");
+    match import_job(&app, &id, &user.username, owner.as_deref()).await {
+        Ok(result) => Json(result).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// Import a checked download into the library as `actor`, telling its owner if that's
+/// someone else. Artwork, lyrics and the Navidrome rescan follow in the background.
+async fn import_job(app: &AppState, id: &str, actor: &str, owner: Option<&str>) -> Result<ImportResult, Box<Response>> {
+    let fail = |status, code: &str, message: &str| Box::new(error(status, code, message));
+    let Some((status, _, Some(checked))) = app.downloads.review(id) else {
+        return Err(fail(StatusCode::CONFLICT, "not-ready", "This download isn't ready for import yet."));
     };
     if status != JobStatus::Ready {
-        return error(StatusCode::CONFLICT, "not-ready", "Only finished downloads can be imported.");
+        return Err(fail(StatusCode::CONFLICT, "not-ready", "Only finished downloads can be imported."));
     }
     if let Some(reason) = &checked.report.blocked_reason {
-        return error(StatusCode::CONFLICT, "blocked", reason);
+        return Err(fail(StatusCode::CONFLICT, "blocked", reason));
     }
     let Some(root) = app.library.library_dir.clone() else {
-        return error(StatusCode::CONFLICT, "no-library", "No library folder is configured.");
+        return Err(fail(StatusCode::CONFLICT, "no-library", "No library folder is configured."));
     };
 
     let plan = checked.plan.clone();
@@ -264,14 +274,14 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
     .await;
     let imported = match result {
         Ok(Ok(imported)) => imported,
-        Ok(Err(e)) => return error(StatusCode::CONFLICT, "import-failed", &format!("Import stopped: {e}.")),
-        Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "import-failed", "Import stopped unexpectedly."),
+        Ok(Err(e)) => return Err(fail(StatusCode::CONFLICT, "import-failed", &format!("Import stopped: {e}."))),
+        Err(_) => return Err(fail(StatusCode::INTERNAL_SERVER_ERROR, "import-failed", "Import stopped unexpectedly.")),
     };
 
     app.library_cache.clear();
     // Share what just arrived.
-    crate::sharing::refresh(&app);
-    let staging = crate::downloads::staging_dir(&app.data_dir, &id);
+    crate::sharing::refresh(app);
+    let staging = crate::downloads::staging_dir(&app.data_dir, id);
     let _ = tokio::fs::remove_dir_all(&staging).await;
 
     let folder = checked
@@ -280,17 +290,14 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         .first()
         .and_then(|t| t.destination.rsplit_once('/').map(|(dir, _)| dir.to_owned()))
         .unwrap_or_default();
-    app.downloads.mark_imported(&id, &folder);
-    crate::events::changed(&app, crate::events::Topic::Downloads);
+    app.downloads.mark_imported(id, &folder);
+    crate::events::changed(app, crate::events::Topic::Downloads);
     // Requests tell their requester themselves; otherwise say who approved it.
-    if let Some(owner) = owner.as_deref().filter(|o| *o != user.username && !crate::requests::asked_for(&app, &id)) {
+    if let Some(owner) = owner.filter(|o| *o != actor && !crate::requests::asked_for(app, id)) {
         app.notifications.notify(
             owner,
             delune_core::api::NotificationKind::Imported,
-            format!(
-                "{} added {} by {} to the library",
-                user.username, checked.report.album, checked.report.album_artist
-            ),
+            format!("{} added {} by {} to the library", actor, checked.report.album, checked.report.album_artist),
             None,
             "/review",
         );
@@ -307,13 +314,126 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         })
         .collect();
     let cover = checked.plan.cover.as_ref().map(|(_, relative)| root.join(relative));
-    crate::finishing::finish(&app, finishing, cover);
+    crate::finishing::finish(app, finishing, cover);
     let scan_started = app.navidrome.is_some();
     tracing::info!(%id, files = imported.len(), %folder, scan_started, "imported into the library");
-    Json(ImportResult { imported: u32::try_from(imported.len()).unwrap_or(u32::MAX), folder, scan_started })
-        .into_response()
+    Ok(ImportResult { imported: u32::try_from(imported.len()).unwrap_or(u32::MAX), folder, scan_started })
+}
+
+/// A download just passed its checks. If it belongs to someone who manages delune and
+/// nothing about it needs a look, it goes straight into the library; everyone else's,
+/// and anything flagged, waits in Review.
+pub async fn auto_import(app: &AppState, id: &str) {
+    let Some(owner) = app.downloads.owner(id).flatten() else { return };
+    if !app.accounts.person(&owner).is_some_and(|p| p.permissions.manage) {
+        return;
+    }
+    let Some((JobStatus::Ready, _, Some(checked))) = app.downloads.review(id) else { return };
+    let report = &checked.report;
+    let clean = report.blocked_reason.is_none()
+        && report.conflicts.is_empty()
+        && report.tracks.iter().all(|t| !t.suspect_transcode && t.problem.is_none());
+    if !clean {
+        tracing::info!(%id, "left for review: something about it needs a look");
+        return;
+    }
+    if let Ok(result) = import_job(app, id, &owner, Some(&owner)).await {
+        {
+            tracing::info!(%id, folder = %result.folder, "imported automatically for an admin");
+            app.notifications.notify(
+                &owner,
+                delune_core::api::NotificationKind::Imported,
+                format!("{} by {} is in the library", report.album, report.album_artist),
+                Some("It passed every check, so it went straight in.".into()),
+                "/review",
+            );
+            crate::events::changed(app, crate::events::Topic::Notifications);
+        }
+    } else {
+        tracing::warn!(%id, "automatic import didn't work; it's waiting in Review");
+    }
 }
 
 fn error(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(ApiError::new(code, message))).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::*;
+
+    /// One second of 16-bit mono silence, as a WAV file.
+    fn wav(path: &std::path::Path) {
+        let (rate, samples) = (44_100u32, 44_100u32);
+        let mut file = std::fs::File::create(path).unwrap();
+        let data = samples * 2;
+        let mut header = Vec::new();
+        header.extend_from_slice(b"RIFF");
+        header.extend_from_slice(&(36 + data).to_le_bytes());
+        header.extend_from_slice(b"WAVEfmt ");
+        header.extend_from_slice(&16u32.to_le_bytes());
+        header.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        header.extend_from_slice(&1u16.to_le_bytes()); // mono
+        header.extend_from_slice(&rate.to_le_bytes());
+        header.extend_from_slice(&(rate * 2).to_le_bytes());
+        header.extend_from_slice(&2u16.to_le_bytes());
+        header.extend_from_slice(&16u16.to_le_bytes());
+        header.extend_from_slice(b"data");
+        header.extend_from_slice(&data.to_le_bytes());
+        file.write_all(&header).unwrap();
+        file.write_all(&vec![0u8; data as usize]).unwrap();
+    }
+
+    /// Fetch a one-track album for `owner` and wait until its checks are done.
+    async fn fetched_album(app: &AppState, owner: &str, name: &str) -> String {
+        let (job, _cancel) = crate::downloads::begin_external(app, "test", name, Some("Test Artist"), owner);
+        let staging = crate::downloads::staging_dir(&app.data_dir, &job.id);
+        std::fs::create_dir_all(&staging).unwrap();
+        wav(&staging.join("01 - Song.wav"));
+        crate::downloads::finish_external(app, &job.id, Ok(())).await;
+        job.id
+    }
+
+    async fn status_settles(app: &AppState, id: &str, wanted: JobStatus) -> bool {
+        for _ in 0..200 {
+            let job = app.downloads.list().into_iter().find(|j| j.id == id).unwrap();
+            if job.status == wanted {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn admins_downloads_go_straight_in_and_members_wait_for_review() {
+        let root = std::env::temp_dir().join(format!("delune-auto-import-{}", std::process::id()));
+        let library = root.join("music");
+        std::fs::create_dir_all(&library).unwrap();
+        let accounts = Arc::new(crate::accounts::Accounts::in_memory(Some("http://navidrome.invalid".into())));
+        accounts.signed_in("aidan", true);
+        accounts.signed_in("sam", false);
+        let app = AppState {
+            accounts,
+            data_dir: root.join("data"),
+            library: Arc::new(LibrarySettings { library_dir: Some(library.clone()), ..LibrarySettings::default() }),
+            ..AppState::default()
+        };
+
+        let admins = fetched_album(&app, "aidan", "Admin Album").await;
+        assert!(status_settles(&app, &admins, JobStatus::Imported).await, "an admin's clean download imports itself");
+        assert!(library.join("Test Artist").exists());
+
+        let members = fetched_album(&app, "sam", "Member Album").await;
+        // Give an import every chance to happen, then check it didn't.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let job = app.downloads.list().into_iter().find(|j| j.id == members).unwrap();
+        assert_eq!(job.status, JobStatus::Ready, "a member's download waits for review");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

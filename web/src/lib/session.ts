@@ -64,10 +64,16 @@ export function useSignIn() {
 export function useSignOut() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: () => api.signOut(),
     onSettled: () => {
-      client.clear()
+      // Show the sign-in page first, so nothing still on screen reads a session that
+      // has gone; then drop what was cached for this person.
       client.setQueryData(KEY, null)
+      window.setTimeout(() => {
+        void client.cancelQueries({ predicate: (query) => query.queryKey[0] !== "session" })
+        client.removeQueries({ predicate: (query) => query.queryKey[0] !== "session" })
+      }, 0)
     },
   })
 }

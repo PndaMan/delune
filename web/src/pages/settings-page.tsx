@@ -76,7 +76,8 @@ const GROUPS = [
     title: "Library and imports",
     blurb: "How imported music is named, and what's added to it.",
     icon: Library,
-    manage: false,
+    // Naming and import options shape everyone's library; they're for whoever runs delune.
+    manage: true,
     panel: () => <LibraryGroup />,
   },
   {

@@ -249,6 +249,7 @@ impl AppState {
             });
         }
         notifications::start(&state);
+        accounts::start(&state);
         downloads::resume(&state);
         chat::start(&state);
         sharing::start(&state);

@@ -78,7 +78,8 @@ export function HistoryPage() {
   const downloads = useDownloads()
   const requests = useRequests()
   const [filter, setFilter] = useState<Filter>("all")
-  const [person, setPerson] = useState<string>(me.permissions.manage ? "everyone" : me.username)
+  // Your own history first; admins can switch to someone else's, or everyone's.
+  const [person, setPerson] = useState<string>(me.username)
 
   const entries = [
     ...(downloads.data ?? []).map(fromJob).filter(() => filter !== "requests"),

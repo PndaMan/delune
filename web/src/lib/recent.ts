@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react"
 
+import { useMe } from "@/lib/session"
+
 const LIMIT = 6
 
 function load(key: string): string[] {
@@ -15,7 +17,9 @@ function load(key: string): string[] {
 export const useRecentSearches = () => useRecentList("delune.recent-searches")
 
 /** A short most-recent-first list kept in this browser's storage under `key`. */
-export function useRecentList(key: string) {
+export function useRecentList(name: string) {
+  // Per person: a shared browser (a family computer) shouldn't show one person's searches to another.
+  const key = `${name}:${useMe().username}`
   const [recent, setRecent] = useState(() => load(key))
 
   const remember = useCallback((query: string) => {

@@ -125,7 +125,7 @@ export function AlbumBody({
 
   return (
     <>
-      <div className="flex gap-4 border-b p-5 sm:gap-5 sm:p-6">
+      <div className="flex shrink-0 gap-4 border-b p-5 sm:gap-5 sm:p-6">
         <Cover src={cover} pending={info.isPending} alt="" className="size-24 rounded-xl sm:size-32" />
         <div className="min-w-0 flex-1 pr-10">
           {/* A plain heading, so these bodies also work as pages outside a dialog. */}
@@ -202,7 +202,7 @@ export function AlbumBody({
       </div>
 
       {!owned && <BandcampOfferLine artist={artist} title={title} />}
-      <div className="flex flex-wrap gap-2 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5">
+      <div className="flex shrink-0 flex-wrap gap-2 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5">
         <Button
           nativeButton={false}
           render={<Link to="/" search={{ q: [artist, title].filter(Boolean).join(" ") }} onClick={onClose} />}
@@ -269,7 +269,7 @@ export function SongBody({ track, onClose }: { track: TrackRef; onClose?: () => 
 
   return (
     <>
-      <div className="relative overflow-hidden border-b">
+      <div className="relative shrink-0 overflow-hidden border-b">
         {cover && (
           <div
             className="pointer-events-none absolute inset-0 scale-125 bg-cover bg-center opacity-20 blur-2xl"
@@ -315,9 +315,7 @@ export function SongBody({ track, onClose }: { track: TrackRef; onClose?: () => 
             {verses(lines).map((verse, index) => (
               <p key={index} className="text-[16px] leading-[1.7] text-foreground/90">
                 {verse.map((line, i) => (
-                  // A line too long for the column is indented where it carries on,
-                  // so it doesn't read as a line of its own.
-                  <span key={i} className="block -indent-4 pl-4 [text-wrap:pretty]">
+                  <span key={i} className="block [text-wrap:pretty]">
                     {line}
                   </span>
                 ))}
@@ -336,7 +334,7 @@ export function SongBody({ track, onClose }: { track: TrackRef; onClose?: () => 
       </div>
 
       {lines.length > 0 && (
-        <div className="flex items-center gap-3 border-t px-5 py-3 sm:px-6">
+        <div className="flex shrink-0 items-center gap-3 border-t px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
           <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
             Words from{" "}
             <a

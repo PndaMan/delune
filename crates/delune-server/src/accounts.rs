@@ -284,6 +284,23 @@ impl Accounts {
         (token, user)
     }
 
+    /// People delune knows, to check against Navidrome.
+    fn usernames(&self) -> Vec<String> {
+        self.lock().users.keys().cloned().collect()
+    }
+
+    /// Record whether Navidrome says `username` is an admin. True when that changed.
+    fn set_admin(&self, username: &str, admin: bool) -> bool {
+        let mut state = self.lock();
+        let Some(record) = state.users.get_mut(username) else { return false };
+        if record.admin == admin {
+            return false;
+        }
+        record.admin = admin;
+        self.save(&mut state);
+        true
+    }
+
     fn sign_out(&self, token: &str) {
         let mut state = self.lock();
         if state.sessions.remove(&hash(token)).is_some() {
@@ -345,6 +362,16 @@ impl Accounts {
         self.failures.lock().unwrap_or_else(PoisonError::into_inner).remove(&username.to_lowercase());
     }
 
+    /// Someone's current rights, as if they were making a request now.
+    #[must_use]
+    pub fn person(&self, username: &str) -> Option<CurrentUser> {
+        if self.mode() == AuthMode::Open {
+            return self.authenticate(None);
+        }
+        let state = self.lock();
+        state.users.get(username).map(|record| Self::current(record, state.require_approval))
+    }
+
     /// Everyone who can approve requests: admins and people allowed to manage.
     #[must_use]
     pub fn managers(&self) -> Vec<String> {
@@ -377,6 +404,35 @@ impl Accounts {
 
 fn error(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(ApiError::new(code, message))).into_response()
+}
+
+/// How often admin rights are checked against Navidrome.
+const ADMIN_SYNC_EVERY: Duration = Duration::from_secs(20);
+
+/// Keep admin rights in step with Navidrome while delune runs, so making someone an
+/// admin there (or taking it away) shows up here within seconds, not at next sign-in.
+pub fn start(app: &AppState) {
+    let Some(navidrome) = app.navidrome.clone() else { return };
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(ADMIN_SYNC_EVERY);
+        loop {
+            every.tick().await;
+            let mut changed = false;
+            for username in app.accounts.usernames() {
+                if let Ok(user) = navidrome.user(&username).await
+                    && app.accounts.set_admin(&username, user.admin_role)
+                {
+                    tracing::info!(%username, admin = user.admin_role, "admin rights changed in Navidrome");
+                    changed = true;
+                }
+            }
+            if changed {
+                crate::events::changed(&app, crate::events::Topic::Session);
+                crate::events::changed(&app, crate::events::Topic::People);
+            }
+        }
+    });
 }
 
 /// The session token from the cookie, or from `Authorization: Bearer`.
