@@ -415,12 +415,13 @@ function AvatarPicker() {
       <input
         ref={input}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept="image/*"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file) setAvatar.mutate(file)
-          e.target.value = ""
+          // Clear the input only once the picture has been read: clearing it first
+          // can leave the browser unable to read the file.
+          if (file) setAvatar.mutate(file, { onSettled: () => input.current && (input.current.value = "") })
         }}
       />
       {setAvatar.isError && (

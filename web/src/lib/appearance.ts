@@ -76,12 +76,54 @@ export function useSetAppearance() {
   })
 }
 
+/** Profile pictures are stored this size, cropped square from the middle. */
+const AVATAR_SIZE = 512
+
+/**
+ * Any picture, any size, as a square JPEG small enough to upload. Phone photos are
+ * often several megabytes, and their orientation is applied here too.
+ */
+export async function fitAvatar(file: File): Promise<Blob> {
+  const url = URL.createObjectURL(file)
+  try {
+    // An <img> decodes whatever the browser can show (HEIC on Safari too) and
+    // applies the photo's orientation when drawn.
+    const image = new Image()
+    image.src = url
+    try {
+      await image.decode()
+    } catch {
+      throw new Error("That picture couldn't be read. Try a JPEG or PNG.")
+    }
+    const width = image.naturalWidth
+    const height = image.naturalHeight
+    const side = Math.min(width, height)
+    const size = Math.min(AVATAR_SIZE, side)
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = size
+    const ctx = canvas.getContext("2d")
+    if (!ctx) throw new Error("This browser can't prepare pictures.")
+    ctx.imageSmoothingQuality = "high"
+    ctx.drawImage(image, (width - side) / 2, (height - side) / 2, side, side, 0, 0, size, size)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88))
+    if (!blob) throw new Error("That picture couldn't be prepared.")
+    return blob
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 export function useSetAvatar() {
   const client = useQueryClient()
   return useMutation({
     meta: { quiet: true },
     mutationFn: async (file: File | null) => {
-      const res = await fetch("/api/v1/session/avatar", { method: file ? "PUT" : "DELETE", body: file ?? undefined })
+      const body = file ? await fitAvatar(file) : undefined
+      const res = await fetch("/api/v1/session/avatar", {
+        method: file ? "PUT" : "DELETE",
+        headers: body ? { "content-type": "image/jpeg" } : undefined,
+        body,
+      })
       if (!res.ok) throw await toApiError(res)
       return file ? ((await res.json()) as { avatar: number }).avatar : null
     },
