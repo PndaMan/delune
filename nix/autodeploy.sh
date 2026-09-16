@@ -88,12 +88,17 @@ fi
 known_bad() { grep -qxF "$1" "$state/bad" 2>/dev/null; }
 
 # 1. The repo itself: follow its upstream when the tree is clean.
+pulled=0
 if [[ "${PULL:-1}" == 1 ]] && git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
   if git diff --quiet && git diff --cached --quiet; then
     git fetch --quiet
     upstream=$(git rev-parse '@{u}')
     if [[ "$(git rev-parse HEAD)" != "$upstream" ]] && ! known_bad "repo=$upstream"; then
-      git merge --ff-only --quiet '@{u}' || log "can't fast-forward to upstream; leaving the repo as it is"
+      if git merge --ff-only --quiet '@{u}'; then
+        pulled=1
+      else
+        log "can't fast-forward to upstream; leaving the repo as it is"
+      fi
     fi
   else
     log "the repo has uncommitted changes; not pulling"
@@ -114,9 +119,32 @@ ci_state() {
       else "fail" end' <<<"$body"
 }
 
+toplevel=".#nixosConfigurations.$HOST.config.system.build.toplevel"
+tree_state() { { git rev-parse HEAD; git diff HEAD; cat flake.lock; } | sha256sum | cut -d' ' -f1; }
+running() { readlink -f "${CURRENT_SYSTEM:-/run/current-system}"; }
+
+# An input update deploys the tree as it stands, so it's only safe when the tree
+# (with the old lock) is exactly what's running. Edits nobody has switched to yet
+# stay undeployed: that's for a person to do. The answer is remembered per tree
+# and running system, so an unchanged situation isn't rebuilt every run.
+tree_is_running() {
+  [[ "$pulled" == 1 ]] && return 0
+  local key
+  key="$(tree_state) $(running)"
+  [[ -f "$state/refused" && "$(<"$state/refused")" == "$key" ]] && return 1
+  if [[ "$(nix build --no-link --print-out-paths "$toplevel" 2>/dev/null)" == "$(running)" ]]; then
+    return 0
+  fi
+  log "the repo has changes that aren't running yet; not deploying input updates over them"
+  notify "$HOST: update waiting" "An input moved, but $REPO has changes that aren't deployed. Switch or revert them, and the update follows." default
+  echo "$key" >"$state/refused"
+  return 1
+}
+
 # 2. Inputs that should follow their upstream.
 cp flake.lock "$state/lock-before"
 changes=()
+checked_tree=0
 for input in $INPUTS; do
   node=$(jq -r --arg i "$input" '.nodes[.root].inputs[$i] | if type == "array" then last else . end' flake.lock)
   locked=$(jq -r --arg n "$node" '.nodes[$n].locked.rev // empty' flake.lock)
@@ -140,6 +168,10 @@ for input in $INPUTS; do
             continue ;;
     esac
   fi
+  if [[ "$checked_tree" == 0 ]]; then
+    tree_is_running || break
+    checked_tree=1
+  fi
   nix flake update "$input" --refresh
   now=$(jq -r --arg n "$node" '.nodes[$n].locked.rev // empty' flake.lock)
   if [[ "$now" != "$remote" ]]; then
@@ -151,15 +183,18 @@ for input in $INPUTS; do
 done
 
 # 3. Build what the repo describes now, and stop if it's what's running.
+# Only an input update or a pull deploys; local edits are switched to by hand.
 # Nothing to do when the tree is exactly as it was on the last attempt.
-tree_state() { { git rev-parse HEAD; git diff HEAD; cat flake.lock; } | sha256sum | cut -d' ' -f1; }
+if [[ ${#changes[@]} -eq 0 && "$pulled" == 0 ]]; then
+  exit 0
+fi
 rev=$(git rev-parse HEAD)
 fingerprint=$(tree_state)
 if [[ -f "$state/tried" && "$(<"$state/tried")" == "$fingerprint" ]]; then
   exit 0
 fi
 echo "$fingerprint" >"$state/tried"
-if ! new=$(nix build --no-link --print-out-paths ".#nixosConfigurations.$HOST.config.system.build.toplevel" 2>"$state/build.log"); then
+if ! new=$(nix build --no-link --print-out-paths "$toplevel" 2>"$state/build.log"); then
   tail -n 30 "$state/build.log"
   cp "$state/lock-before" flake.lock
   for c in "${changes[@]}" "repo=$rev"; do echo "$c" >>"$state/bad"; done
@@ -176,7 +211,7 @@ commit_lock() {
   if [[ "${PUSH:-0}" == 1 ]]; then git push --quiet || log "couldn't push the lock"; fi
 }
 
-current=$(readlink -f "${CURRENT_SYSTEM:-/run/current-system}")
+current=$(running)
 if [[ "$new" == "$current" ]]; then
   [[ ${#changes[@]} -gt 0 ]] && log "inputs moved but the system is the same"
   commit_lock

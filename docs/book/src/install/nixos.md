@@ -111,8 +111,11 @@ A deploy counts as healthy when all of these hold:
 It checks six times, 20 seconds apart (`healthTries`, `settleSeconds`). If the
 switch fails, or the checks still fail after the last try, it switches back.
 
-- **Pushes to your config repo** are pulled when its checkout is clean. With local
-  changes it deploys the tree as it stands and leaves pulling to you.
+- **Pushes to your config repo** are pulled when its checkout is clean.
+- **Local edits are never deployed for you.** Only a pull or a moved input deploys. Before
+  updating an input, autodeploy builds your checkout as it is. If that isn't the system
+  that's running, you have edits nobody has switched to yet: it leaves everything alone
+  and tells you. Once you switch to (or revert) those edits, the update follows.
 - **A commit that failed** is recorded in `/var/lib/autodeploy/bad` and isn't tried
   again. Whether it failed its checks, the build, or the health checks, the next push
   is tried as normal. Delete a line to retry that commit.
