@@ -155,8 +155,9 @@ export function AlbumBody({
             </p>
           )}
           {artist && (
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap gap-2">
               <FollowButton artist={artist} size="small" />
+              {info.data?.tracks.length ? <FollowButton artist={artist} album={title} size="small" /> : null}
             </div>
           )}
         </div>

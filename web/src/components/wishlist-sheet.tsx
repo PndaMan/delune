@@ -9,8 +9,8 @@ import { FollowButton } from "@/components/follow-button"
 import { useMusicViews } from "@/components/music-views"
 import { SoundcloudGlyph } from "@/components/soundcloud"
 import { Button } from "@/components/ui/button"
-import { useFollows } from "@/lib/automation"
-import { plural } from "@/lib/format"
+import { type AlbumFollow, useAlbumFollows, useFollows } from "@/lib/automation"
+import { formatAgo, plural } from "@/lib/format"
 import { type AlbumHit, type ArtistHit, useMusicSearch } from "@/lib/music"
 import { type SoundcloudFollow, useSetSoundcloudFollow, useSoundcloudFollows } from "@/lib/soundcloud"
 import {
@@ -38,6 +38,7 @@ export function WishlistSheet({ open, onClose }: { open: boolean; onClose: () =>
   const search = useMusicSearch(useDeferredValue(query))
   const wishlist = useWishlist()
   const follows = useFollows()
+  const albumFollows = useAlbumFollows()
   const soundcloud = useSoundcloudFollows()
   const items = wishlist.data ?? []
   const waiting = items.filter((item) => !item.download_id && !item.paused)
@@ -117,12 +118,17 @@ export function WishlistSheet({ open, onClose }: { open: boolean; onClose: () =>
                     <FollowRow key={follow.deezer_id} follow={follow} onClose={onClose} />
                   ))}
                 </Group>
+                <Group title="Albums kept complete" count={albumFollows.data?.length ?? 0}>
+                  {(albumFollows.data ?? []).map((follow) => (
+                    <AlbumFollowRow key={`${follow.id}-${follow.added_by}`} follow={follow} />
+                  ))}
+                </Group>
                 <Group title="Following on SoundCloud" count={soundcloud.data?.length ?? 0}>
                   {(soundcloud.data ?? []).map((follow) => (
                     <SoundcloudFollowRow key={follow.id} follow={follow} onClose={onClose} />
                   ))}
                 </Group>
-                {!items.length && !follows.data?.length && !soundcloud.data?.length && (
+                {!items.length && !follows.data?.length && !albumFollows.data?.length && !soundcloud.data?.length && (
                   <p className="px-4 py-10 text-center text-[15px] text-muted-foreground">
                     Nothing on the list yet. Search above for an album to watch for, or an artist to follow.
                   </p>
@@ -379,6 +385,35 @@ function FollowRow({
         </p>
       </Link>
       <FollowButton artist={follow.artist} size="small" />
+    </li>
+  )
+}
+
+function AlbumFollowRow({ follow }: { follow: AlbumFollow }) {
+  const views = useMusicViews()
+  const asked = follow.queued.filter((q) => q !== "*album*").length
+  const status = follow.queued.includes("*album*")
+    ? "Whole album on the list"
+    : asked
+      ? `${plural(asked, "track")} put on the list so far`
+      : follow.last_checked
+        ? "Complete"
+        : "Checking what's missing"
+  return (
+    <li className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-accent/40">
+      <Cover src={follow.cover ?? undefined} alt="" className="size-11 rounded-lg" />
+      <button
+        type="button"
+        onClick={() => views.openAlbum({ artist: follow.artist, title: follow.title })}
+        className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <p className="truncate text-[15px]">{follow.title}</p>
+        <p className="truncate text-[13px] text-muted-foreground">
+          {follow.artist} · {status}
+          {follow.last_checked ? ` · checked ${formatAgo(follow.last_checked)}` : ""}
+        </p>
+      </button>
+      <FollowButton artist={follow.artist} album={follow.title} size="small" />
     </li>
   )
 }

@@ -20,7 +20,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use delune_core::api::{ApiError, AutomationSettings, Follow, MinQuality, WishlistItem};
+use delune_core::api::{AlbumFollow, ApiError, AutomationSettings, Follow, LibraryState, MinQuality, WishlistItem};
 use delune_core::{Codec, Quality};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,6 +47,8 @@ struct Stored {
     settings: AutomationSettings,
     #[serde(default)]
     follows: Vec<Follow>,
+    #[serde(default)]
+    albums: Vec<AlbumFollow>,
     /// Where the library walk continues.
     #[serde(default)]
     upgrade_offset: u32,
@@ -103,7 +105,7 @@ pub(crate) fn queue(
 ) {
     app.wishlist.with_items(|items| {
         // Someone else wishing for the same thing doesn't cover this person.
-        if items.iter().any(|i| i.query.eq_ignore_ascii_case(&query) && i.added_by == added_by)
+        if items.iter().any(|i| i.query.eq_ignore_ascii_case(&query) && i.track == track && i.added_by == added_by)
             || crate::wishlist::active(items) >= crate::wishlist::MAX_ITEMS
         {
             return;
@@ -136,6 +138,7 @@ pub fn start(app: &AppState) {
             loop {
                 // Following an artist is the opt-in; there's nothing else to switch on.
                 check_follows(&app).await;
+                check_albums(&app).await;
                 tokio::time::sleep(Duration::from_secs(60 * 60)).await;
             }
         });
@@ -204,6 +207,98 @@ async fn check_follows(app: &AppState) {
         }
         app.automation.save(&state);
     }
+}
+
+/// How many tracks one check may put on the wishlist.
+const TRACKS_PER_CHECK: usize = 50;
+/// What `queued` holds once the whole album has been wished for.
+const WHOLE_ALBUM: &str = "*album*";
+
+async fn check_albums(app: &AppState) {
+    let due: Vec<AlbumFollow> = app
+        .automation
+        .lock()
+        .albums
+        .iter()
+        .filter(|f| f.last_checked.is_none_or(|t| now().saturating_sub(t) >= CHECK_FOLLOWS_EVERY.as_secs()))
+        .cloned()
+        .collect();
+    for follow in due {
+        check_album(app, follow).await;
+    }
+}
+
+/// Tracks on the album that the library doesn't have and haven't been asked for, with
+/// their comparison keys.
+fn missing_tracks<'a>(
+    tracklist: &'a [delune_library::merge::ListedTrack],
+    library: &[&str],
+    queued: &[String],
+) -> Vec<(&'a delune_library::merge::ListedTrack, String)> {
+    use delune_library::merge::{same_song, title_key};
+    let have: Vec<String> = library.iter().map(|t| title_key(t)).collect();
+    tracklist
+        .iter()
+        .map(|t| (t, title_key(&t.title)))
+        .filter(|(_, key)| !key.is_empty() && !have.iter().any(|h| same_song(h, key)))
+        .filter(|(_, key)| !queued.contains(key))
+        .take(TRACKS_PER_CHECK)
+        .collect()
+}
+
+/// Put what's missing from a followed album on the wishlist.
+async fn check_album(app: &AppState, follow: AlbumFollow) {
+    let Some((tracklist, _)) = crate::music::tracklist_of(app, follow.id).await else { return };
+    let library = crate::library::lookup(app, Some(&follow.artist), &follow.title, None).await;
+    let auto_download = app.automation.lock().settings.auto_download;
+    let source = format!("{} (followed album)", follow.title);
+    let mut queued = follow.queued.clone();
+    match library.state {
+        // Can't tell what's there: try again tomorrow rather than fetch it all.
+        LibraryState::Unknown => {}
+        LibraryState::NotInLibrary => {
+            if !queued.iter().any(|q| q == WHOLE_ALBUM) {
+                tracing::info!(album = %follow.title, "followed album isn't in the library; wishing for it");
+                queue(
+                    app,
+                    format!("{} {}", follow.artist, follow.title),
+                    None,
+                    &follow.added_by,
+                    MinQuality::Lossless,
+                    auto_download,
+                    &source,
+                );
+                queued.push(WHOLE_ALBUM.to_owned());
+            }
+        }
+        LibraryState::InLibrary => {
+            let have: Vec<&str> = library.tracks.iter().map(|t| t.title.as_str()).collect();
+            for (track, key) in missing_tracks(&tracklist, &have, &queued) {
+                tracing::info!(album = %follow.title, track = %track.title, "followed album is missing a track");
+                // Searching for the album finds folders of it; the wishlist takes just this
+                // song from one, and the import files it with the rest.
+                queue(
+                    app,
+                    format!("{} {}", follow.artist, follow.title),
+                    Some(track.title.clone()),
+                    &follow.added_by,
+                    MinQuality::Lossless,
+                    auto_download,
+                    &source,
+                );
+                queued.push(key);
+            }
+        }
+    }
+    let mut state = app.automation.lock();
+    if let Some(f) = state.albums.iter_mut().find(|f| f.id == follow.id && f.added_by == follow.added_by) {
+        f.queued = queued;
+        f.tracks = u32::try_from(tracklist.len()).unwrap_or(u32::MAX);
+        f.last_checked = Some(now());
+    }
+    app.automation.save(&state);
+    drop(state);
+    crate::events::changed(app, crate::events::Topic::Follows);
 }
 
 /// "2026-09-01" → Unix seconds at midnight UTC.
@@ -432,9 +527,126 @@ pub async fn unfollow(State(app): State<AppState>, user: CurrentUser, UrlPath(id
     StatusCode::NO_CONTENT
 }
 
+/// `GET /api/v1/follows/albums`
+#[utoipa::path(
+    get,
+    operation_id = "automation_album_follows",
+    path = "/api/v1/follows/albums",
+    tag = "automation",
+    responses(
+        (status = 200, description = "OK", body = Vec<delune_core::api::AlbumFollow>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn album_follows(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<AlbumFollow>> {
+    Json(app.automation.lock().albums.iter().filter(|f| user.can_see(Some(&f.added_by))).cloned().collect())
+}
+
+/// `POST /api/v1/follows/albums`: keep an album complete, now and as it grows.
+#[utoipa::path(
+    post,
+    operation_id = "automation_follow_album",
+    path = "/api/v1/follows/albums",
+    tag = "automation",
+    request_body = delune_core::api::FollowAlbumRequest,
+    responses(
+        (status = 201, description = "Following", body = delune_core::api::AlbumFollow),
+        (status = 200, description = "Already following", body = delune_core::api::AlbumFollow),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn follow_album(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Json(request): Json<delune_core::api::FollowAlbumRequest>,
+) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.search && p.download, "follow albums") {
+        return denied;
+    }
+    let (artist, album) = (request.artist.trim(), request.album.trim());
+    if album.is_empty() {
+        return error(StatusCode::BAD_REQUEST, "no-album", "Which album?");
+    }
+    let artist = (!artist.is_empty()).then_some(artist);
+    let Some((found, _, _)) = crate::music::find_album(&app, artist, album).await else {
+        return error(StatusCode::NOT_FOUND, "no-such-album", "Couldn't find that album to follow.");
+    };
+    let Some(id) = found.get("id").and_then(Value::as_u64) else {
+        return error(StatusCode::NOT_FOUND, "no-such-album", "Couldn't find that album to follow.");
+    };
+    let text = |pointer: &str| found.pointer(pointer).and_then(Value::as_str).map(str::to_owned);
+    let follow = {
+        let mut state = app.automation.lock();
+        if let Some(existing) = state.albums.iter().find(|f| f.id == id && f.added_by == user.username) {
+            return Json(existing.clone()).into_response();
+        }
+        let follow = AlbumFollow {
+            id,
+            artist: text("/artist/name").or_else(|| artist.map(str::to_owned)).unwrap_or_default(),
+            title: text("/title").unwrap_or_else(|| album.to_owned()),
+            cover: text("/cover_medium"),
+            added_by: user.username.clone(),
+            since: now(),
+            last_checked: None,
+            tracks: found.get("nb_tracks").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or(0),
+            queued: Vec::new(),
+        };
+        state.albums.push(follow.clone());
+        app.automation.save(&state);
+        follow
+    };
+    crate::events::changed(&app, crate::events::Topic::Follows);
+    // What's missing today goes on the wishlist straight away.
+    {
+        let (app, follow) = (app.clone(), follow.clone());
+        tokio::spawn(async move { check_album(&app, follow).await });
+    }
+    (StatusCode::CREATED, Json(follow)).into_response()
+}
+
+/// `DELETE /api/v1/follows/albums/{id}`
+#[utoipa::path(
+    delete,
+    operation_id = "automation_unfollow_album",
+    path = "/api/v1/follows/albums/{id}",
+    tag = "automation",
+    params(("id" = u64, Path, description = "The album's Deezer id")),
+    responses(
+        (status = 204, description = "Done"),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn unfollow_album(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<u64>) -> StatusCode {
+    let mut state = app.automation.lock();
+    state.albums.retain(|f| !(f.id == id && user.can_see(Some(&f.added_by))));
+    app.automation.save(&state);
+    drop(state);
+    crate::events::changed(&app, crate::events::Topic::Follows);
+    StatusCode::NO_CONTENT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_followed_album_asks_for_each_missing_track_once() {
+        use delune_library::merge::ListedTrack;
+        let list: Vec<ListedTrack> = ["Lights Burn Dimmer", "solo", "solo (KETTAMA remix)", "Jungle"]
+            .iter()
+            .enumerate()
+            .map(|(i, t)| ListedTrack { position: u32::try_from(i + 1).unwrap(), title: (*t).into() })
+            .collect();
+        let library = ["Solo", "Jungle (feat. Elley Duhé)"];
+        let missing: Vec<&str> = missing_tracks(&list, &library, &[]).iter().map(|(t, _)| t.title.as_str()).collect();
+        assert_eq!(missing, ["Lights Burn Dimmer", "solo (KETTAMA remix)"], "the remix isn't the song you have");
+
+        let queued = vec!["lightsburndimmer".to_owned()];
+        let missing: Vec<&str> =
+            missing_tracks(&list, &library, &queued).iter().map(|(t, _)| t.title.as_str()).collect();
+        assert_eq!(missing, ["solo (KETTAMA remix)"], "asked for once");
+    }
 
     #[test]
     fn release_dates_become_timestamps() {

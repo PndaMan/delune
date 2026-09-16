@@ -89,17 +89,21 @@ impl Wishlist {
     }
 }
 
-fn squash(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
-}
-
-/// The shared file that is this song, if the folder has it.
+/// The shared file that is this song, if the folder has it. An exact title wins; a
+/// remix or live take of it doesn't count.
 fn track_file<'a>(candidate: &'a Candidate, title: &str) -> Option<&'a delune_core::api::CandidateFile> {
-    let wanted = squash(title);
+    use delune_library::merge::{file_title, same_song, title_key};
+    let wanted = title_key(title);
     if wanted.len() < 2 {
         return None;
     }
-    candidate.files.iter().find(|f| f.audio && squash(&f.name).contains(&wanted))
+    let audio: Vec<(&delune_core::api::CandidateFile, String)> =
+        candidate.files.iter().filter(|f| f.audio).map(|f| (f, title_key(&file_title(&f.name)))).collect();
+    audio
+        .iter()
+        .find(|(_, key)| *key == wanted)
+        .or_else(|| audio.iter().find(|(_, key)| same_song(key, &wanted)))
+        .map(|(f, _)| *f)
 }
 
 /// The best copy among `candidates` that `item` would accept.

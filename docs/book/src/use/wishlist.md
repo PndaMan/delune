@@ -22,6 +22,18 @@ once a day, using Deezer's catalogue. Following is per person.
 
 SoundCloud artists can be followed too; see [SoundCloud](soundcloud.md).
 
+## Following albums
+
+**Follow album** (in a release or album view) keeps an album complete. Once a day
+delune compares the album's current tracklist with your library and puts each missing
+track on the wishlist, once. That covers tracks you skipped, and tracks the artist adds
+after release, as with albums that keep growing. Each is found in a copy of the album and
+imported into the album you already have, numbered in the album's current order (see
+[Filling gaps](review.md#filling-gaps-in-an-album-you-have)). An album you don't have
+yet goes on the wishlist whole.
+
+Followed albums are listed under **Albums kept complete** in the wishlist.
+
 ## Quality upgrades
 
 Settings → Automation → **Quality upgrades** (off by default) slowly walks through the

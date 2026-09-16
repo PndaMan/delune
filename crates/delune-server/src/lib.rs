@@ -308,6 +308,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/automation", get(automation::settings).put(automation::update))
         .route("/api/v1/import-options", get(finishing::get_options).put(finishing::set_options))
         .route("/api/v1/follows", get(automation::follows).post(automation::follow))
+        .route("/api/v1/follows/albums", get(automation::album_follows).post(automation::follow_album))
+        .route("/api/v1/follows/albums/{id}", delete(automation::unfollow_album))
         .route("/api/v1/follows/{id}", delete(automation::unfollow))
         .route("/api/v1/wishlist/{id}", patch(wishlist::update).delete(wishlist::remove))
         .route("/api/v1/sharing/rescan", post(sharing::rescan))

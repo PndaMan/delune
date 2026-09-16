@@ -2,26 +2,42 @@ import { Bell, BellRing, LoaderCircle } from "lucide-react"
 import { useState } from "react"
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useFollow, useFollows, useUnfollow } from "@/lib/automation"
+import {
+  useAlbumFollows,
+  useFollow,
+  useFollowAlbum,
+  useFollows,
+  useUnfollow,
+  useUnfollowAlbum,
+} from "@/lib/automation"
 import { useMe } from "@/lib/session"
+import { sameTitle, titleKey } from "@/lib/track-name"
 import { cn } from "@/lib/utils"
 
 /**
- * Follow an artist, from anywhere they're named.
+ * Follow an artist, from anywhere they're named — or, given `album`, that album.
  *
- * Following is the whole switch: new albums and EPs from anyone followed land on
- * the wishlist by themselves. So the button carries that meaning — a bell that
- * rings once when it's turned on, and says what it does the moment you hover it.
+ * Following is the whole switch: new albums and EPs from a followed artist, and
+ * tracks missing from a followed album (including ones added after release), land on
+ * the wishlist by themselves. So the button carries that meaning — a bell that rings
+ * once when it's turned on, and says what it does the moment you hover it.
  */
-export function FollowButton({ artist, size = "default" }: { artist: string; size?: "default" | "small" }) {
+export function FollowButton({
+  artist,
+  album,
+  size = "default",
+}: {
+  artist: string
+  album?: string | null
+  size?: "default" | "small"
+}) {
   const me = useMe()
-  const follows = useFollows()
-  const follow = useFollow()
-  const unfollow = useUnfollow()
+  const artistFollow = useArtistFollow(artist)
+  const albumFollow = useAlbumFollow(artist, album ?? null)
+  const { following, follow, unfollow } = album ? albumFollow : artistFollow
   const [justFollowed, setJustFollowed] = useState(false)
   // Touch screens have no hover to warn with, so unfollowing takes a second tap.
   const [confirming, setConfirming] = useState(false)
-  const following = (follows.data ?? []).find((f) => f.artist.toLowerCase() === artist.toLowerCase())
   const busy = follow.isPending || unfollow.isPending
 
   if (!me.permissions.download || !me.permissions.search) return null
@@ -33,12 +49,12 @@ export function FollowButton({ artist, size = "default" }: { artist: string; siz
         window.setTimeout(() => setConfirming(false), 3000)
         return
       }
-      unfollow.mutate(following.deezer_id)
+      unfollow.mutate(following)
       setConfirming(false)
       setJustFollowed(false)
       return
     }
-    follow.mutate(artist)
+    follow.mutate()
     setJustFollowed(true)
     window.setTimeout(() => setJustFollowed(false), 900)
   }
@@ -78,17 +94,54 @@ export function FollowButton({ artist, size = "default" }: { artist: string; siz
             "Tap to unfollow"
           ) : (
             <>
-              <span className="group-hover:hidden">Following</span>
+              <span className="group-hover:hidden">{album ? "Following album" : "Following"}</span>
               <span className="hidden group-hover:inline">Unfollow</span>
             </>
           )
+        ) : album ? (
+          "Follow album"
         ) : (
           "Follow"
         )}
       </TooltipTrigger>
       <TooltipContent>
-        {following ? `New releases from ${artist} go on the wishlist` : "Put their new releases on the wishlist"}
+        {album
+          ? following
+            ? "Missing tracks, and any the artist adds, go on the wishlist"
+            : "Keep this album complete, even when tracks are added later"
+          : following
+            ? `New releases from ${artist} go on the wishlist`
+            : "Put their new releases on the wishlist"}
       </TooltipContent>
     </Tooltip>
   )
+}
+
+function useArtistFollow(artist: string) {
+  const follows = useFollows()
+  const follow = useFollow()
+  const unfollow = useUnfollow()
+  const found = (follows.data ?? []).find((f) => f.artist.toLowerCase() === artist.toLowerCase())
+  return {
+    following: found?.deezer_id,
+    follow: { isPending: follow.isPending, mutate: () => follow.mutate(artist) },
+    unfollow: { isPending: unfollow.isPending, mutate: (id: number) => unfollow.mutate(id) },
+  }
+}
+
+function useAlbumFollow(artist: string, album: string | null) {
+  const follows = useAlbumFollows()
+  const follow = useFollowAlbum()
+  const unfollow = useUnfollowAlbum()
+  const found = album
+    ? (follows.data ?? []).find(
+        (f) =>
+          sameTitle(titleKey(f.title), titleKey(album)) && sameTitle(titleKey(f.artist), titleKey(artist)),
+      )
+    : undefined
+  return {
+    following: found?.id,
+    follow: { isPending: follow.isPending, mutate: () => album && follow.mutate({ artist, album }) },
+    unfollow: { isPending: unfollow.isPending, mutate: (id: number) => unfollow.mutate(id) },
+  }
 }

@@ -1386,6 +1386,38 @@ pub struct Follow {
     pub seen: Vec<u64>,
 }
 
+/// An album someone follows: tracks missing from the library, and any the artist adds
+/// later, go on the wishlist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlbumFollow {
+    /// The album's Deezer id.
+    pub id: u64,
+    pub artist: String,
+    pub title: String,
+    pub cover: Option<String>,
+    pub added_by: String,
+    /// Unix seconds.
+    pub since: u64,
+    pub last_checked: Option<u64>,
+    /// Tracks on the album when last checked.
+    #[serde(default)]
+    pub tracks: u32,
+    /// Tracks already put on the wishlist (as comparison keys), so each is asked for once.
+    #[serde(default)]
+    pub queued: Vec<String>,
+}
+
+/// `POST /api/v1/follows/albums`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FollowAlbumRequest {
+    pub artist: String,
+    pub album: String,
+}
+
 /// `PATCH /api/v1/wishlist/{id}`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

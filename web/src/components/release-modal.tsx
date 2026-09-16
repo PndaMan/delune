@@ -179,7 +179,14 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
           {(artwork.data?.artist ?? artistFromFolder(c.parent)) && (
-            <FollowButton artist={(artwork.data?.artist ?? artistFromFolder(c.parent))!} size="small" />
+            <>
+              <FollowButton artist={(artwork.data?.artist ?? artistFromFolder(c.parent))!} size="small" />
+              <FollowButton
+                artist={(artwork.data?.artist ?? artistFromFolder(c.parent))!}
+                album={artwork.data?.album ?? albumFromFolder(c.title)}
+                size="small"
+              />
+            </>
           )}
           <HideSharer username={c.username} />
         </div>

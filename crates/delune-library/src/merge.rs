@@ -137,6 +137,28 @@ const VERSION_WORDS: &[&str] = &[
     "extended",
 ];
 
+/// Whether two title keys (from [`title_key`]) name the same song, allowing for extra
+/// words on one of them unless those words make it another version.
+#[must_use]
+pub fn same_song(a: &str, b: &str) -> bool {
+    same_title(a, b)
+}
+
+/// The song title in a shared file name: "Artist - Album - 03 - Time.flac" and
+/// "03. Time.flac" are both "Time".
+#[must_use]
+pub fn file_title(file_name: &str) -> String {
+    let stem = Path::new(file_name).file_stem().and_then(|s| s.to_str()).unwrap_or(file_name).replace('_', " ");
+    let parts: Vec<&str> = stem.split(" - ").map(str::trim).collect();
+    let is_number = |p: &str| !p.is_empty() && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit());
+    if let Some(i) = parts.iter().position(|p| is_number(p))
+        && i + 1 < parts.len()
+    {
+        return parts[i + 1..].join(" - ");
+    }
+    crate::import::parse_file_name(Path::new(file_name)).1
+}
+
 fn same_title(a: &str, b: &str) -> bool {
     if a.is_empty() || b.is_empty() {
         return false;
@@ -292,6 +314,16 @@ mod tests {
         assert_ne!(title_key("solo (KETTAMA remix)"), title_key("solo"));
         assert_eq!(title_key("Rock & Roll (Live)"), "rockandrolllive");
         assert_eq!(title_key("Unclosed (bracket"), "unclosedbracket");
+    }
+
+    #[test]
+    fn titles_come_out_of_file_names() {
+        assert_eq!(file_title("Fred again. - USB - 04 - solo.flac"), "solo");
+        assert_eq!(file_title("Fred again. - USB - 31 - solo (KETTAMA remix).flac"), "solo (KETTAMA remix)");
+        assert_eq!(file_title("03. Time.flac"), "Time");
+        assert_eq!(file_title("Aquarius.flac"), "Aquarius");
+        assert!(same_song(&title_key(&file_title("01 - solo.flac")), &title_key("Solo")));
+        assert!(!same_song(&title_key(&file_title("31 - solo (KETTAMA remix).flac")), &title_key("solo")));
     }
 
     #[test]

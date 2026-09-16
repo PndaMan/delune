@@ -3,6 +3,30 @@
 
 export type Accent = "moon" | "aurora" | "dusk" | "ember" | "tide" | "fern"
 
+export type AlbumFollow = {
+  /**
+   * The album's Deezer id.
+   */
+  id: number
+  artist: string
+  title: string
+  cover: string | null
+  added_by: string
+  /**
+   * Unix seconds.
+   */
+  since: number
+  last_checked: number | null
+  /**
+   * Tracks on the album when last checked.
+   */
+  tracks: number
+  /**
+   * Tracks already put on the wishlist (as comparison keys), so each is asked for once.
+   */
+  queued: Array<string>
+}
+
 export type ApiError = {
   /**
    * Stable machine-readable code, e.g. `soulseek-not-configured`.
@@ -274,6 +298,8 @@ export type Follow = {
    */
   seen: Array<number>
 }
+
+export type FollowAlbumRequest = { artist: string; album: string }
 
 export type Health = { name: string; version: string; status: HealthStatus }
 

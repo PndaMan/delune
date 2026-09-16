@@ -230,7 +230,7 @@ pub async fn album(State(app): State<AppState>, _user: CurrentUser, Query(params
 }
 
 /// An album on Deezer, with its full record and tracklist.
-async fn find_album(
+pub(crate) async fn find_album(
     app: &AppState,
     artist: Option<&str>,
     title: &str,
@@ -308,12 +308,16 @@ async fn find_album(
 pub async fn tracklist(app: &AppState, artist: Option<&str>, title: &str) -> Vec<delune_library::merge::ListedTrack> {
     let Some((best, _, _)) = find_album(app, artist, title).await else { return Vec::new() };
     let id = best.get("id").and_then(Value::as_u64).unwrap_or(0);
+    tracklist_of(app, id).await.filter(|(_, discs)| *discs <= 1).map(|(tracks, _)| tracks).unwrap_or_default()
+}
+
+/// A Deezer album's whole tracklist, and how many discs it spans. `None` when it
+/// couldn't be read.
+pub(crate) async fn tracklist_of(app: &AppState, id: u64) -> Option<(Vec<delune_library::merge::ListedTrack>, u64)> {
     let found = deezer(app, &format!("/album/{id}/tracks"), &[("limit", "500")]).await;
-    let Some(items) = found.as_ref().and_then(|v| v.get("data")?.as_array()) else { return Vec::new() };
-    if items.iter().any(|t| t.get("disk_number").and_then(Value::as_u64).is_some_and(|d| d > 1)) {
-        return Vec::new();
-    }
-    items
+    let items = found.as_ref().and_then(|v| v.get("data")?.as_array())?;
+    let discs = items.iter().filter_map(|t| t.get("disk_number").and_then(Value::as_u64)).max().unwrap_or(1);
+    let tracks = items
         .iter()
         .enumerate()
         .filter_map(|(index, track)| {
@@ -326,7 +330,8 @@ pub async fn tracklist(app: &AppState, artist: Option<&str>, title: &str) -> Vec
                 title: str_at(track, "/title")?.to_owned(),
             })
         })
-        .collect()
+        .collect();
+    Some((tracks, discs))
 }
 
 #[derive(Debug, Deserialize)]

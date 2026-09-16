@@ -126,6 +126,8 @@ fn main() {
         WishlistRequest,
         AutomationSettings,
         Follow,
+        AlbumFollow,
+        FollowAlbumRequest,
         WishlistUpdate,
         ResolvedLink,
         MusicBrainzMatch,

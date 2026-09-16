@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { toApiError } from "@/lib/api"
+import type { AlbumFollow } from "@/lib/api.generated"
 import type { MinQuality } from "@/lib/wishlist"
 
 export type AutomationSettings = {
@@ -56,6 +57,32 @@ export function useUnfollow() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => call<void>("DELETE", `/follows/${id}`),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["follows"] }),
+  })
+}
+
+export type { AlbumFollow }
+
+/** Albums kept complete: what's missing, and anything added later, goes on the wishlist. */
+export function useAlbumFollows() {
+  return useQuery({ queryKey: ["follows", "albums"], queryFn: () => call<AlbumFollow[]>("GET", "/follows/albums") })
+}
+
+export function useFollowAlbum() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (album: { artist: string; album: string }) => call<AlbumFollow>("POST", "/follows/albums", album),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["follows"] })
+      void client.invalidateQueries({ queryKey: ["wishlist"] })
+    },
+  })
+}
+
+export function useUnfollowAlbum() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => call<void>("DELETE", `/follows/albums/${id}`),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["follows"] }),
   })
 }
