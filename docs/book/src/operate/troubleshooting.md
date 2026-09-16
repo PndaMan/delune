@@ -23,7 +23,17 @@ container. Use the bridge address, and let Navidrome listen on it.
 ## Soulseek
 
 **Soulseek keeps going offline.** One account can only be signed in once. Stop the
-other client (slskd, Nicotine+, another delune), or use another name.
+other client (slskd, Nicotine+, another delune), or use another name. When another
+client takes the account, delune signs back in by itself after ten minutes.
+
+**An artist never finds anything.** The Soulseek server gives every client a list of
+phrases (usually at a rights holder's request) that they shouldn't answer searches for,
+so nobody replies. delune tells you when a search is one of them, and doesn't answer
+such searches from its own shares either. Look for the music where the artist sells it.
+
+**Search stops working after the VPN restarts.** With `services.delune.vpn.container`,
+delune restarts along with the VPN container, since it can't use the old container's
+network. Elsewhere, restart delune after recreating its VPN container.
 
 **Few results, downloads that never start.** Other users can't reach you. Forward the
 listening port (or turn on UPnP), and check Settings → Connections says *reachable*.

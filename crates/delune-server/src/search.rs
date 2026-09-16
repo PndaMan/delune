@@ -128,6 +128,15 @@ pub async fn stream(State(app): State<AppState>, user: CurrentUser, Query(params
             },
         };
 
+        // Soulseek asks every client to ignore searches for some phrases (usually at a
+        // rights holder's request), so nobody would answer. Say so instead of "nothing found".
+        if let Some(phrase) = client.excluded_phrase(&query) {
+            let message = format!(
+                "Soulseek doesn't allow searching for “{phrase}”, so nobody will answer. Look for it on Bandcamp, or buy it where the artist sells it."
+            );
+            let _ = tx.send(SearchEvent::Failed { error: ApiError::new("search-excluded", message) }).await;
+            return;
+        }
         let (mut peers, mut total) = (0u32, 0u32);
         for query in std::iter::once(query).chain(fallback) {
             if total > 0 {

@@ -494,9 +494,7 @@ async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
                 StopReason::LoginRejected(r) => {
                     format!("Soulseek refused the login ({r:?}). Check the username and password.")
                 }
-                StopReason::LoggedInElsewhere => {
-                    "This Soulseek account signed in from another client. Restart delune to reconnect.".into()
-                }
+                StopReason::LoggedInElsewhere => "This Soulseek account signed in from another client.".into(),
                 StopReason::Shutdown => "Soulseek client has shut down.".into(),
             }),
         ),

@@ -219,9 +219,9 @@ async fn reconnects_after_the_server_drops_us() {
 }
 
 #[tokio::test]
-async fn logged_in_elsewhere_stops_the_client() {
+async fn logged_in_elsewhere_signs_back_in_later() {
     let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let client = Client::start(config(&server));
+    let client = Client::start(Config { relogin_after: Duration::from_millis(300), ..config(&server) });
     let (socket, _) = server.accept().await.unwrap();
     let mut conn = framed(socket);
     expect_code(&mut conn, code::LOGIN).await;
@@ -229,8 +229,43 @@ async fn logged_in_elsewhere_stops_the_client() {
     wait_for(&client, |s| matches!(s, SessionState::Online { .. })).await;
 
     conn.send(Writer::new().finish(code::RELOGGED)).await.unwrap();
-    let state = wait_for(&client, |s| matches!(s, SessionState::Stopped(_))).await;
-    assert_eq!(state, SessionState::Stopped(StopReason::LoggedInElsewhere));
+    let state = wait_for(&client, |s| matches!(s, SessionState::Reconnecting { .. })).await;
+    assert!(
+        matches!(&state, SessionState::Reconnecting { reason, retry_in } if reason.contains("another client") && *retry_in == Duration::from_millis(300)),
+        "{state:?}"
+    );
+
+    // Not stopped for good: it signs back in by itself.
+    let (socket, _) = timeout(WAIT, server.accept()).await.expect("client should sign back in").unwrap();
+    let mut conn = framed(socket);
+    expect_code(&mut conn, code::LOGIN).await;
+    conn.send(login_ok()).await.unwrap();
+    wait_for(&client, |s| matches!(s, SessionState::Online { .. })).await;
+}
+
+#[tokio::test]
+async fn remembers_what_the_server_excludes_from_search() {
+    let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = Client::start(config(&server));
+    let (socket, _) = server.accept().await.unwrap();
+    let mut conn = framed(socket);
+    expect_code(&mut conn, code::LOGIN).await;
+    conn.send(login_ok()).await.unwrap();
+    wait_for(&client, |s| matches!(s, SessionState::Online { .. })).await;
+    assert_eq!(client.excluded_phrase("some artist"), None);
+
+    let mut w = Writer::new();
+    w.u32(1).string("Some Artist");
+    conn.send(w.finish(code::EXCLUDED_SEARCH_PHRASES)).await.unwrap();
+    timeout(WAIT, async {
+        while client.excluded_phrase("x").is_none() && client.excluded_phrase("SOME ARTIST live").is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the phrase list arrives");
+    assert_eq!(client.excluded_phrase("SOME ARTIST live").as_deref(), Some("some artist"));
+    assert_eq!(client.excluded_phrase("another artist"), None);
 }
 
 #[tokio::test]

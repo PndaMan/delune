@@ -330,7 +330,12 @@ pub(crate) fn answer_search(shared: &Arc<Shared>, username: String, token: u32, 
     if username == shared.own_username {
         return;
     }
-    let files = shared.uploads.index().search(query);
+    // The server asks clients not to answer searches for these, nor share files named so.
+    if shared.excluded_in(query).is_some() {
+        return;
+    }
+    let mut files = shared.uploads.index().search(query);
+    files.retain(|f| shared.excluded_in(&f.path).is_none());
     if files.is_empty() {
         return;
     }

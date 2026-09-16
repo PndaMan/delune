@@ -233,12 +233,23 @@ in
         ];
         # Wait for a music folder on a network share, and keep retrying behind it.
         systemd.services."${config.virtualisation.oci-containers.backend}-delune" = {
-          unitConfig.WantsMountsFor = lib.optional (cfg.libraryDir != null) cfg.libraryDir;
+          unitConfig = {
+            WantsMountsFor = lib.optional (cfg.libraryDir != null) cfg.libraryDir;
+            # delune lives in the VPN container's network. When that container is
+            # recreated, the old network is gone and delune would sit there unable to
+            # reach anything, so it stops and starts along with it.
+            BindsTo = [ "${config.virtualisation.oci-containers.backend}-${cfg.vpn.container}.service" ];
+            PartOf = [ "${config.virtualisation.oci-containers.backend}-${cfg.vpn.container}.service" ];
+          };
           serviceConfig = {
             Restart = lib.mkOverride 90 "always";
             RestartSec = lib.mkOverride 90 "30s";
           };
         };
+        # ...and comes back whenever the VPN container does, however it was restarted.
+        systemd.services."${config.virtualisation.oci-containers.backend}-${cfg.vpn.container}".unitConfig.Upholds = [
+          "${config.virtualisation.oci-containers.backend}-delune.service"
+        ];
       })
 
       (mkIf (cfg.vpn.container == null) {

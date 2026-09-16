@@ -120,6 +120,8 @@ pub(crate) struct Shared {
     pub distributed_reset: watch::Sender<u64>,
     /// Seconds between wishlist searches, as the server says.
     pub wishlist_interval: AtomicU32,
+    /// Phrases the server asks clients not to search for or share, lowercased.
+    pub excluded_phrases: Mutex<Vec<String>>,
     /// Rooms to be in, rejoined after every reconnect.
     pub rooms: Mutex<std::collections::BTreeSet<String>>,
     /// Connections that reached our listening port from the internet, proving it's open.
@@ -128,6 +130,19 @@ pub(crate) struct Shared {
     branch: Mutex<crate::distributed::Branch>,
     /// Distributed children we'll take; 0 means we don't relay.
     pub max_children: AtomicUsize,
+}
+
+impl Shared {
+    /// The first phrase the server excludes that `text` contains, if any.
+    pub fn excluded_in(&self, text: &str) -> Option<String> {
+        let text = text.to_lowercase();
+        lock(&self.excluded_phrases).iter().find(|phrase| !phrase.is_empty() && text.contains(phrase.as_str())).cloned()
+    }
+
+    pub fn set_excluded_phrases(&self, phrases: Vec<String>) {
+        *lock(&self.excluded_phrases) =
+            phrases.into_iter().map(|p| p.trim().to_lowercase()).filter(|p| !p.is_empty()).collect();
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -157,6 +172,7 @@ impl Shared {
             chat: broadcast::channel(512).0,
             rooms: Mutex::default(),
             wishlist_interval: AtomicU32::new(12 * 60),
+            excluded_phrases: Mutex::new(Vec::new()),
             distributed_parent: AtomicBool::new(false),
             distributed_connecting: AtomicBool::new(false),
             distributed_reset: watch::channel(0).0,

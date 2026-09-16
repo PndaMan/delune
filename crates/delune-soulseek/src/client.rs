@@ -71,6 +71,8 @@ pub struct Config {
     pub max_peer_connections: usize,
     /// First reconnect delay; doubles on each failure up to five minutes.
     pub reconnect_base: Duration,
+    /// How long to wait before signing back in after another client took the account.
+    pub relogin_after: Duration,
 }
 
 impl Config {
@@ -86,6 +88,7 @@ impl Config {
             search_window: DEFAULT_WINDOW,
             max_peer_connections: 200,
             reconnect_base: Duration::from_secs(5),
+            relogin_after: Duration::from_secs(600),
         }
     }
 }
@@ -242,6 +245,13 @@ impl Client {
         let server = shared.server().ok_or(Error::Closed)?;
         server.try_send(ServerRequest::WishlistSearch { token, query: query.to_owned() }).map_err(|_| Error::Closed)?;
         Ok(Search { token, rx, deadline: Instant::now() + self.inner.search_timeout, _guard: guard })
+    }
+
+    /// The phrase in `query` that the Soulseek server excludes from search, if any.
+    /// Peers don't answer searches containing one, so such a search finds nothing.
+    #[must_use]
+    pub fn excluded_phrase(&self, query: &str) -> Option<String> {
+        self.inner.shared.excluded_in(query)
     }
 
     /// How often the server lets us run a wishlist search (usually 12 minutes).
@@ -576,18 +586,34 @@ async fn supervise(
                 state.send_replace(SessionState::Stopped(StopReason::Shutdown));
                 break;
             }
-            SessionEnd::Stopped(reason) => {
+            SessionEnd::Stopped(reason) if !recoverable(&reason) => {
                 tracing::warn!(?reason, "Soulseek session stopped");
                 state.send_replace(SessionState::Stopped(reason));
                 // Keep draining so callers get `Closed`-style errors instead of hanging.
                 while commands.recv().await.is_some() {}
                 break;
             }
-            SessionEnd::Lost { reason, was_online } => {
-                if was_online {
-                    attempt = 1;
-                }
-                let retry_in = backoff(config.reconnect_base, attempt);
+            end @ (SessionEnd::Stopped(_) | SessionEnd::Lost { .. }) => {
+                let (reason, retry_in) = match end {
+                    // Another client took the account. Take it back later rather than
+                    // staying offline until someone restarts delune, but not so soon that
+                    // two clients fight over it.
+                    SessionEnd::Stopped(StopReason::LoggedInElsewhere) => {
+                        attempt = 1;
+                        ("This Soulseek account signed in from another client".to_owned(), config.relogin_after)
+                    }
+                    SessionEnd::Stopped(StopReason::LoginRejected(LoginRejection::Other(why))) => (
+                        format!("Soulseek refused the login ({why})"),
+                        backoff(config.reconnect_base, attempt).max(Duration::from_secs(60)),
+                    ),
+                    SessionEnd::Lost { reason, was_online } => {
+                        if was_online {
+                            attempt = 1;
+                        }
+                        (reason, backoff(config.reconnect_base, attempt))
+                    }
+                    SessionEnd::Stopped(_) | SessionEnd::Shutdown => unreachable!("handled above"),
+                };
                 tracing::warn!(%reason, ?retry_in, "lost Soulseek connection");
                 state.send_replace(SessionState::Reconnecting { reason, retry_in });
                 attempt += 1;
@@ -615,6 +641,11 @@ async fn supervise(
     if let Some(task) = listener_task {
         task.abort();
     }
+}
+
+/// Whether a stopped session is worth trying again: not when the credentials are wrong.
+const fn recoverable(reason: &StopReason) -> bool {
+    matches!(reason, StopReason::LoggedInElsewhere | StopReason::LoginRejected(LoginRejection::Other(_)))
 }
 
 fn backoff(base: Duration, attempt: u32) -> Duration {
@@ -784,6 +815,10 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
         }
         ServerEvent::WishlistInterval(seconds) => {
             shared.wishlist_interval.store(seconds, std::sync::atomic::Ordering::Relaxed);
+        }
+        ServerEvent::ExcludedSearchPhrases(phrases) => {
+            tracing::debug!(count = phrases.len(), "server excluded search phrases");
+            shared.set_excluded_phrases(phrases);
         }
         ServerEvent::UserStatus { username, status, .. } => chat(ChatEvent::UserStatus { username, status }),
         other => tracing::trace!(?other, "server message"),
