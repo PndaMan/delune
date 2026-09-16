@@ -39,7 +39,7 @@ Album, artist and song names are links throughout the app.
 - **Album:** cover, tracklist and running time, whether it's in your library, **Find on
   Soulseek**, **Keep looking for it**, the Bandcamp price, and following the artist.
 - **Artist:** what your library has by them, their albums and singles (from Deezer),
-  their SoundCloud, and **Follow**.
+  their SoundCloud, and **Follow artist**.
 - **Song:** where it's from, and its lyrics, verse by verse, with **Copy**.
 
 Each has its own address (`/album/<artist>/<title>`, `/artist/<name>`,

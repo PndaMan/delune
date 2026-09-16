@@ -113,7 +113,7 @@ export function WishlistSheet({ open, onClose }: { open: boolean; onClose: () =>
                     <WishRow key={item.id} item={item} />
                   ))}
                 </Group>
-                <Group title="Following" count={follows.data?.length ?? 0}>
+                <Group title="Artists you follow" count={follows.data?.length ?? 0}>
                   {(follows.data ?? []).map((follow) => (
                     <FollowRow key={follow.deezer_id} follow={follow} onClose={onClose} />
                   ))}

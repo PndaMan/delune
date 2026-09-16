@@ -16,9 +16,17 @@ enough copy. Open it from the search page.
 
 ## Following artists
 
-**Follow** an artist (on their page, an album, or in the wishlist) and their new albums
-and EPs go on your wishlist as they're released. delune checks each followed artist
-once a day, using Deezer's catalogue. Following is per person.
+**Follow artist** (on their page, an album, or in the wishlist) puts their new albums
+and EPs on your wishlist as they're released. delune checks each followed artist
+once a day, using Deezer's catalogue. Following is per person, and artists you follow
+are listed under **Artists you follow** in the wishlist.
+
+An album view has two buttons, and they do different things:
+
+| Button | Watches | Puts on the wishlist |
+|---|---|---|
+| **Follow artist** | the artist | their next albums and EPs |
+| **Keep album complete** | this album only | its missing tracks, and any added later |
 
 SoundCloud artists can be followed too; see [SoundCloud](soundcloud.md).
 
@@ -30,9 +38,9 @@ in your library, on your wishlist or downloading. **Wish for it** adds one; upco
 releases can be wished for before they're out. You're also notified when a followed
 artist's new album or EP goes on your wishlist.
 
-## Following albums
+## Keeping albums complete
 
-**Follow album** (in a release or album view) keeps an album complete. Once a day
+**Keep album complete** (in a release or album view) watches that one album. Once a day
 delune compares the album's current tracklist with your library and puts each missing
 track on the wishlist, once. That covers tracks you skipped, and tracks the artist adds
 after release, as with albums that keep growing. Each is found in a copy of the album and

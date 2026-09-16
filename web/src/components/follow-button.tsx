@@ -1,4 +1,4 @@
-import { Bell, BellRing, LoaderCircle } from "lucide-react"
+import { ListChecks, ListPlus, LoaderCircle, UserRoundCheck, UserRoundPlus } from "lucide-react"
 import { useState } from "react"
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -11,16 +11,18 @@ import {
   useUnfollowAlbum,
 } from "@/lib/automation"
 import { useMe } from "@/lib/session"
+import { toast } from "@/lib/toast"
 import { sameTitle, titleKey } from "@/lib/track-name"
 import { cn } from "@/lib/utils"
 
 /**
- * Follow an artist, from anywhere they're named — or, given `album`, that album.
+ * Follow an artist, from anywhere they're named — or, given `album`, keep that album
+ * complete.
  *
- * Following is the whole switch: new albums and EPs from a followed artist, and
- * tracks missing from a followed album (including ones added after release), land on
- * the wishlist by themselves. So the button carries that meaning — a bell that rings
- * once when it's turned on, and says what it does the moment you hover it.
+ * The two often sit side by side, so they read differently: a person for the artist
+ * (their new releases go on the wishlist) and a checklist for the album (its missing
+ * tracks, and any added later, do). Turning one on says what it does, since a phone
+ * has no hover to explain it.
  */
 export function FollowButton({
   artist,
@@ -55,11 +57,24 @@ export function FollowButton({
       return
     }
     follow.mutate()
+    toast(
+      album
+        ? `Keeping ${album} complete: missing tracks, and any added later, go on your wishlist`
+        : `Following ${artist}: their new albums and EPs go on your wishlist`,
+    )
     setJustFollowed(true)
     window.setTimeout(() => setJustFollowed(false), 900)
   }
 
-  const Icon = busy ? LoaderCircle : following ? BellRing : Bell
+  const Icon = busy
+    ? LoaderCircle
+    : album
+      ? following
+        ? ListChecks
+        : ListPlus
+      : following
+        ? UserRoundCheck
+        : UserRoundPlus
   return (
     <Tooltip>
       <TooltipTrigger
@@ -84,34 +99,38 @@ export function FollowButton({
           className={cn(
             size === "small" ? "size-3.5" : "size-4",
             busy && "animate-spin",
-            // One ring when it's switched on, rather than motion on every hover.
-            justFollowed && "origin-top animate-[wiggle_0.7s_ease-in-out]",
+            // One nudge when it's switched on, rather than motion on every hover.
+            justFollowed && "origin-center animate-[wiggle_0.7s_ease-in-out]",
           )}
           strokeWidth={1.9}
         />
         {following ? (
           confirming ? (
-            "Tap to unfollow"
+            album ? (
+              "Tap to stop"
+            ) : (
+              "Tap to unfollow"
+            )
           ) : (
             <>
-              <span className="group-hover:hidden">{album ? "Following album" : "Following"}</span>
-              <span className="hidden group-hover:inline">Unfollow</span>
+              <span className="group-hover:hidden">{album ? "Keeping complete" : "Following artist"}</span>
+              <span className="hidden group-hover:inline">{album ? "Stop keeping complete" : "Unfollow artist"}</span>
             </>
           )
         ) : album ? (
-          "Follow album"
+          "Keep album complete"
         ) : (
-          "Follow"
+          "Follow artist"
         )}
       </TooltipTrigger>
       <TooltipContent>
         {album
           ? following
-            ? "Missing tracks, and any the artist adds, go on the wishlist"
-            : "Keep this album complete, even when tracks are added later"
+            ? "Missing tracks from this album, and any added later, go on your wishlist"
+            : "Just this album: get the tracks it's missing, and any added later"
           : following
-            ? `New releases from ${artist} go on the wishlist`
-            : "Put their new releases on the wishlist"}
+            ? `New albums and EPs from ${artist} go on your wishlist`
+            : `Everything new from ${artist}: their next albums and EPs go on your wishlist`}
       </TooltipContent>
     </Tooltip>
   )
