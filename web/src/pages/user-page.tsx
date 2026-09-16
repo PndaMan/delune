@@ -10,7 +10,7 @@ import { FavouriteStar } from "@/components/favourite-star"
 import { ReleaseModal } from "@/components/release-modal"
 import { Button } from "@/components/ui/button"
 import { api, type Candidate, type ShareFolder, type SoulseekUser } from "@/lib/api"
-import { useArtwork } from "@/lib/artwork"
+import { SearchContext, useArtwork } from "@/lib/artwork"
 import { useDownloads } from "@/lib/downloads"
 import { formatBytes, formatSpeed, plural } from "@/lib/format"
 import { TIER_TEXT } from "@/lib/quality"
@@ -263,7 +263,9 @@ function Shares({ username }: { username: string }) {
           onOpen={openFolder}
         />
       )}
-      <ReleaseModal candidate={release} onClose={() => setRelease(null)} />
+      <SearchContext.Provider value={release ? release.folder.replaceAll("\\", " ") : null}>
+        <ReleaseModal candidate={release} onClose={() => setRelease(null)} />
+      </SearchContext.Provider>
     </section>
   )
 }
@@ -374,13 +376,18 @@ function AlbumRow({
   onOpen: () => void
 }) {
   const segments = node.path.split("\\").filter(Boolean)
-  const parent = artistFromFolder(segments.at(-2))
-  const artwork = useArtwork(parent, node.name)
-  const library = useLibraryAlbum(parent, node.name)
+  // "Album/CD 2": the album is the folder above, and the artist is above that.
+  const disc = /^(cd|dis[ck]|digital media)\s*\d+$/i.test(node.name.trim())
+  const albumName = disc ? (segments.at(-2) ?? node.name) : node.name
+  const parent = artistFromFolder(segments.at(disc ? -3 : -2))
+  // The whole path can name the artist when the folder above doesn't ("Music/Artist/2014/Album").
+  const artwork = useArtwork(parent, albumName, node.path.replaceAll("\\", " "))
+  const library = useLibraryAlbum(parent, albumName)
   const downloads = useDownloads()
   const job = downloads.data?.find((j) => j.username === username && j.folder === node.path && j.status !== "cancelled")
-  const year = /\b(19|20)\d{2}\b/.exec(node.name)?.[0]
-  const title = artwork.data?.album ?? albumFromFolder(displayName(node.name))
+  const year = /\b(19|20)\d{2}\b/.exec(albumName)?.[0]
+  const albumTitle = artwork.data?.album ?? albumFromFolder(displayName(albumName))
+  const title = disc ? `${albumTitle} · ${node.name.trim()}` : albumTitle
   const artist = artwork.data?.artist ?? parent
   const status: CoverStatus | undefined =
     job && (job.status === "queued" || job.status === "downloading")

@@ -99,18 +99,34 @@ impl ArtworkService {
             return hit.clone();
         }
 
-        let mut result = self.search_deezer(artist.as_deref(), &album, None).await;
+        let mut result = self.search_deezer(artist.as_deref(), &album, None, Phrasing::Fields).await;
+        // Deezer's field search misses some artists entirely; plain words find them.
+        if matches!(result, Ok(None)) && artist.is_some() {
+            result = self.search_deezer(artist.as_deref(), &album, None, Phrasing::Words).await;
+        }
         // "Dark Side of the Moon - 7.1 Multichannel": try without the trailing descriptor.
         if matches!(result, Ok(None))
             && let Some((head, _)) = album.rsplit_once(" - ")
             && head.len() >= 4
         {
-            result = self.search_deezer(artist.as_deref(), head, None).await;
+            result = self.search_deezer(artist.as_deref(), head, None, Phrasing::Fields).await;
         }
         // Parent folders are often categories ("Albums", "failed_imports") rather than
-        // artists. Retry by title alone, accepting only an artist the user searched for.
-        if matches!(result, Ok(None)) && context.is_some() {
-            result = self.search_deezer(None, &album, context.as_deref()).await;
+        // artists. Retry by title alone, accepting only an artist the context names
+        // (what the user searched for, or the folder's whole path).
+        if matches!(result, Ok(None)) && (context.is_some() || artist.is_none()) {
+            let style = if artist.is_none() { Phrasing::Unattributed } else { Phrasing::Words };
+            result = self.search_deezer(None, &album, context.as_deref(), style).await;
+        }
+        // Singles often aren't listed as albums: find the song, and use its release.
+        if matches!(result, Ok(None)) && artist.is_some() {
+            result = self.search_single(artist.as_deref().unwrap_or_default(), &album).await;
+        }
+        // Last, the artist's whole discography, which search sometimes doesn't reach.
+        if matches!(result, Ok(None))
+            && let Some(artist) = artist.as_deref()
+        {
+            result = self.search_discography(artist, &album).await;
         }
         let Ok(result) = result else {
             // Network trouble: don't cache, so it's retried next time.
@@ -132,6 +148,7 @@ impl ArtworkService {
         artist: Option<&str>,
         album: &str,
         context: Option<&str>,
+        style: Phrasing,
     ) -> Result<Option<Artwork>, reqwest::Error> {
         #[derive(Deserialize)]
         struct Response {
@@ -144,6 +161,8 @@ impl ArtworkService {
             artist: ArtistRef,
             cover_medium: Option<String>,
             cover_xl: Option<String>,
+            #[serde(default)]
+            record_type: String,
         }
         #[derive(Deserialize)]
         struct ArtistRef {
@@ -151,9 +170,10 @@ impl ArtworkService {
         }
 
         let _permit = self.deezer.acquire().await;
-        let query = match artist {
-            Some(artist) => format!("artist:\"{artist}\" album:\"{album}\""),
-            None => album.to_owned(),
+        let query = match (artist, style) {
+            (Some(artist), Phrasing::Fields) => format!("artist:\"{artist}\" album:\"{album}\""),
+            (Some(artist), Phrasing::Words | Phrasing::Unattributed) => format!("{artist} {album}"),
+            (None, _) => album.to_owned(),
         };
         let response: Response = self
             .http
@@ -165,19 +185,48 @@ impl ArtworkService {
             .json()
             .await?;
 
-        let wanted_album = normalize(album);
         let wanted_artist = artist.map(normalize);
-        let best = response.data.into_iter().find(|candidate| {
-            let title_ok = names_match(&wanted_album, &normalize(&candidate.title))
-                || names_match(&wanted_album, &normalize(&strip_brackets(&candidate.title)));
-            let found_artist = normalize(&candidate.artist.name);
-            let artist_ok = match (&wanted_artist, context) {
-                (Some(a), _) => names_match(a, &found_artist),
-                (None, Some(context)) => found_artist.len() >= 3 && context.contains(&found_artist),
-                (None, None) => false,
-            };
-            title_ok && artist_ok
-        });
+        // With nothing to confirm the artist, only a distinctive title will do: every
+        // album called exactly that must be by the same artist.
+        let only_one_artist = {
+            let wanted = normalize(&without_edition(album));
+            let exact: Vec<String> = response
+                .data
+                .iter()
+                .filter(|a| a.record_type == "album" && normalize(&without_edition(&a.title)) == wanted)
+                .map(|a| normalize(&a.artist.name))
+                .collect();
+            (wanted.len() >= 8 && !exact.is_empty() && exact.iter().all(|a| *a == exact[0])).then(|| exact[0].clone())
+        };
+        let wanted_exact = normalize(album);
+        let best = response
+            .data
+            .into_iter()
+            .enumerate()
+            .filter(|(_, candidate)| {
+                let title_ok = titles_match(album, &candidate.title);
+                let found_artist = normalize(&candidate.artist.name);
+                let artist_ok = match (&wanted_artist, context) {
+                    (Some(a), _) => names_match(a, &found_artist),
+                    (None, Some(context)) if found_artist.len() >= 3 && context.contains(&found_artist) => true,
+                    (None, _) => {
+                        style == Phrasing::Unattributed
+                            && candidate.record_type == "album"
+                            && only_one_artist.as_deref() == Some(found_artist.as_str())
+                    }
+                };
+                title_ok && artist_ok
+            })
+            // The exact title, and a full album, beat a lookalike edition or a single.
+            .max_by_key(|(index, candidate)| {
+                (
+                    normalize(&candidate.title) == wanted_exact,
+                    normalize(&strip_brackets(&candidate.title)) == wanted_exact,
+                    candidate.record_type == "album",
+                    std::cmp::Reverse(*index),
+                )
+            })
+            .map(|(_, candidate)| candidate);
 
         Ok(best.and_then(|a| {
             Some(Artwork {
@@ -188,6 +237,169 @@ impl ArtworkService {
             })
         }))
     }
+
+    /// A song called `title` by `artist`, and the release it's on.
+    async fn search_single(&self, artist: &str, title: &str) -> Result<Option<Artwork>, reqwest::Error> {
+        #[derive(Deserialize)]
+        struct Response {
+            #[serde(default)]
+            data: Vec<Track>,
+        }
+        #[derive(Deserialize)]
+        struct Track {
+            title: String,
+            artist: ArtistRef,
+            album: AlbumRef,
+        }
+        #[derive(Deserialize)]
+        struct ArtistRef {
+            name: String,
+        }
+        #[derive(Deserialize)]
+        struct AlbumRef {
+            title: String,
+            cover_medium: Option<String>,
+            cover_xl: Option<String>,
+        }
+
+        let _permit = self.deezer.acquire().await;
+        let response: Response = self
+            .http
+            .get(format!("{}/search/track", self.deezer_base))
+            .query(&[("q", format!("{artist} {title}").as_str()), ("limit", "10")])
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let wanted_artist = normalize(artist);
+        // The release should be named for the song, as singles are.
+        let best = response.data.into_iter().find(|t| {
+            names_match(&wanted_artist, &normalize(&t.artist.name))
+                && titles_match(title, &t.title)
+                && titles_match(title, &t.album.title)
+        });
+        Ok(best.and_then(|t| {
+            Some(Artwork {
+                artist: t.artist.name,
+                album: t.album.title,
+                thumb: proxy_url(t.album.cover_medium.as_deref()?),
+                cover: proxy_url(t.album.cover_xl.as_deref()?),
+            })
+        }))
+    }
+}
+
+impl ArtworkService {
+    /// `album` among everything the artist has released.
+    async fn search_discography(&self, artist: &str, album: &str) -> Result<Option<Artwork>, reqwest::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "T: Deserialize<'de>")]
+        struct Page<T> {
+            #[serde(default = "Vec::new")]
+            data: Vec<T>,
+        }
+        #[derive(Deserialize)]
+        struct Artist {
+            id: u64,
+            name: String,
+        }
+        #[derive(Deserialize)]
+        struct Release {
+            title: String,
+            cover_medium: Option<String>,
+            cover_xl: Option<String>,
+        }
+
+        let found: Page<Artist> = {
+            let _permit = self.deezer.acquire().await;
+            self.http
+                .get(format!("{}/search/artist", self.deezer_base))
+                .query(&[("q", artist), ("limit", "5")])
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?
+        };
+        let wanted = normalize(artist);
+        let Some(who) = found.data.into_iter().find(|a| names_match(&wanted, &normalize(&a.name))) else {
+            return Ok(None);
+        };
+        let releases: Page<Release> = {
+            let _permit = self.deezer.acquire().await;
+            self.http
+                .get(format!("{}/artist/{}/albums", self.deezer_base, who.id))
+                .query(&[("limit", "300")])
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?
+        };
+        Ok(releases.data.into_iter().find(|r| titles_match(album, &r.title)).and_then(|r| {
+            Some(Artwork {
+                artist: who.name,
+                album: r.title,
+                thumb: proxy_url(r.cover_medium.as_deref()?),
+                cover: proxy_url(r.cover_xl.as_deref()?),
+            })
+        }))
+    }
+}
+
+/// How to phrase a Deezer search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phrasing {
+    /// `artist:"…" album:"…"`: precise, but misses some artists.
+    Fields,
+    /// Plain words.
+    Words,
+    /// Plain words, for a folder that doesn't say who made it: a distinctive title
+    /// that only one artist has an album of is enough.
+    Unattributed,
+}
+
+/// Words after a dash that name an edition rather than the album: "- EP", "- Single",
+/// "- Deluxe Edition".
+const EDITION_WORDS: &[&str] =
+    &["ep", "single", "deluxe", "edition", "version", "remaster", "expanded", "anniversary", "bonus"];
+
+/// A title without its brackets or a trailing edition: "Selections - EP (2016)" →
+/// "Selections".
+fn without_edition(title: &str) -> String {
+    let stripped = strip_brackets(title);
+    let trimmed = stripped.trim();
+    if let Some((head, tail)) = trimmed.rsplit_once(" - ") {
+        let tail = tail.trim().to_lowercase();
+        if tail.split_whitespace().any(|w| EDITION_WORDS.contains(&w)) && head.trim().len() >= 2 {
+            return head.trim().to_owned();
+        }
+    }
+    for suffix in [" EP", " ep", " Ep"] {
+        if let Some(head) = trimmed.strip_suffix(suffix)
+            && head.len() >= 2
+        {
+            return head.to_owned();
+        }
+    }
+    trimmed.to_owned()
+}
+
+/// Whether a folder's album name and a catalogue title are the same release, allowing
+/// for brackets and edition labels on either.
+fn titles_match(wanted: &str, found: &str) -> bool {
+    // "(Remixes)", "[Live]": another release, not the same one with a label on.
+    let lower = found.to_lowercase();
+    let other_version = ["remix", "live", "acoustic", "instrumental", "demo", "karaoke", "reimagined"]
+        .iter()
+        .any(|w| lower.contains(w) && !wanted.to_lowercase().contains(w));
+    if other_version {
+        return false;
+    }
+    let wanted_forms = [normalize(wanted), normalize(&without_edition(wanted))];
+    let found_forms = [normalize(found), normalize(&strip_brackets(found)), normalize(&without_edition(found))];
+    wanted_forms.iter().any(|w| found_forms.iter().any(|f| names_match(w, f)))
 }
 
 fn proxy_url(src: &str) -> String {
@@ -325,7 +537,9 @@ pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>,
             ]
             .contains(&n.as_str())
     };
-    let mut artist = artist.filter(|a| !generic(a)).map(|a| uninvert(strip_brackets(a).trim()));
+    let is_year = |s: &str| s.trim().len() == 4 && s.trim().chars().all(|c| c.is_ascii_digit());
+    let mut artist =
+        artist.filter(|a| !generic(a) && !is_year(a) && !is_disc_label(a)).map(|a| uninvert(strip_brackets(a).trim()));
     let mut album = strip_brackets(album);
 
     // "CD1 - Kid A" / "Disc 2 - Amnesiac"
@@ -492,6 +706,19 @@ mod tests {
             clean(Some("Radiohead"), "Radiohead - OK Computer"),
             (Some("Radiohead".into()), "OK Computer".into())
         );
+    }
+
+    #[test]
+    fn editions_dont_stop_a_match() {
+        assert!(titles_match("Selections from Love, Lies & Therapy", "Selections From Love, Lies & Therapy - EP"));
+        assert!(titles_match("Rise Up", "Rise Up (Deluxe Edition)"));
+        assert!(titles_match("Kid A", "Kid A - 2000 Remaster"));
+        assert!(titles_match("Crows", "Crows - Single"));
+        assert!(!titles_match("Kid A", "Kid A Mnesia"));
+        assert!(!titles_match("Call It What You Want", "Call It What You Want (Remixes)"));
+        assert!(titles_match("Alive (Live)", "Alive (Live)"));
+        assert!(!titles_match("Rise", "Rise Up"));
+        assert_eq!(clean(Some("2014"), "Rise Up"), (None, "Rise Up".into()), "a year folder isn't an artist");
     }
 
     #[test]

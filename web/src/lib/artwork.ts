@@ -7,8 +7,9 @@ export type Artwork = { artist: string; album: string; thumb: string; cover: str
 export const SearchContext = createContext<string | null>(null)
 
 /** Cover art for a release, or null when there's no confident match. Cached for the session. */
-export function useArtwork(artist: string | null, album: string | null) {
-  const context = useContext(SearchContext)
+export function useArtwork(artist: string | null, album: string | null, where?: string) {
+  const searched = useContext(SearchContext)
+  const context = where ?? searched
   return useQuery({
     queryKey: ["artwork", artist ?? "", album ?? "", context ?? ""],
     enabled: !!album,
