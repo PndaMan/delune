@@ -39,6 +39,14 @@ The Review page shows all of that per track, with the planned paths. Then:
 
 The Review tab shows how many albums are waiting.
 
+### Listening first
+
+Every track in Review has a play button: the file streams from the server, so it starts
+at once and you can skip around. The length and frequency figure beside a track opens
+its **spectrogram**, the track's frequencies over time. A file converted from MP3 shows
+a flat ceiling (often around 16 or 19 kHz) well below the top, and the ceiling delune
+detected is marked.
+
 ### Filling gaps in an album you have
 
 When the library already has part of an album, the release view picks only the missing

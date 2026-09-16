@@ -327,6 +327,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}/prioritise", post(downloads::prioritise))
         .route("/api/v1/downloads/{id}/review", get(review::report))
         .route("/api/v1/downloads/{id}/import", post(review::import))
+        .route("/api/v1/downloads/{id}/files/{name}", get(review::play))
+        .route("/api/v1/downloads/{id}/files/{name}/spectrogram", get(review::spectrogram))
         .route("/api/v1/library/album", get(library::album))
         .route("/api/v1/events", get(events::stream))
         .route("/api/v1/music/search", get(music::search))

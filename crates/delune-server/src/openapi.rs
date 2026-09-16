@@ -96,6 +96,8 @@ use utoipa::OpenApi;
         crate::downloads::prioritise,
         crate::review::report,
         crate::review::import,
+        crate::review::play,
+        crate::review::spectrogram,
         crate::library::album,
         crate::events::stream,
         crate::music::search,

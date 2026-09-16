@@ -354,6 +354,124 @@ pub async fn auto_import(app: &AppState, id: &str) {
     }
 }
 
+/// A downloaded file that `user` may see, by its file name in the job.
+fn staged_file(app: &AppState, user: &CurrentUser, id: &str, name: &str) -> Result<PathBuf, Box<Response>> {
+    let missing = || Box::new(error(StatusCode::NOT_FOUND, "no-such-file", "That file isn't in this download."));
+    let job = app.downloads.list().into_iter().find(|j| j.id == id && user.can_see(j.requested_by.as_deref()));
+    let Some(job) = job else { return Err(missing()) };
+    // Only names the job lists, so nothing outside its folder can be asked for.
+    if job.status == JobStatus::Imported || !job.files.iter().any(|f| f.name == name) {
+        return Err(missing());
+    }
+    let path = crate::downloads::staging_dir(&app.data_dir, id).join(name);
+    if path.is_file() { Ok(path) } else { Err(missing()) }
+}
+
+/// `GET /api/v1/downloads/{id}/files/{name}`: play a downloaded file before importing it.
+#[utoipa::path(
+    get,
+    operation_id = "review_play",
+    path = "/api/v1/downloads/{id}/files/{name}",
+    tag = "review",
+    params(("id" = String, Path), ("name" = String, Path, description = "The file's name in the download")),
+    responses(
+        (status = 200, description = "The file; ranges are supported", content_type = "audio/*"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn play(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    UrlPath((id, name)): UrlPath<(String, String)>,
+    request: axum::extract::Request,
+) -> Response {
+    use tower::ServiceExt as _;
+    let path = match staged_file(&app, &user, &id, &name) {
+        Ok(path) => path,
+        Err(response) => return *response,
+    };
+    let mime = match extension(&path).as_str() {
+        "flac" => "audio/flac",
+        "mp3" => "audio/mpeg",
+        "m4a" | "alac" | "aac" => "audio/mp4",
+        "ogg" | "oga" => "audio/ogg",
+        "opus" => "audio/ogg; codecs=opus",
+        "wav" => "audio/wav",
+        "aif" | "aiff" => "audio/aiff",
+        _ => "application/octet-stream",
+    };
+    match tower_http::services::ServeFile::new(&path).oneshot(request).await {
+        Ok(response) => {
+            let mut response = response.into_response();
+            response.headers_mut().insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static(mime));
+            response
+        }
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, "read-failed", &e.to_string()),
+    }
+}
+
+/// `GET /api/v1/downloads/{id}/files/{name}/spectrogram`: the file's frequencies over time, as a PNG.
+#[utoipa::path(
+    get,
+    operation_id = "review_spectrogram",
+    path = "/api/v1/downloads/{id}/files/{name}/spectrogram",
+    tag = "review",
+    params(("id" = String, Path), ("name" = String, Path, description = "The file's name in the download")),
+    responses(
+        (status = 200, description = "A PNG", content_type = "image/png"),
+        (status = 404, description = "Not found", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn spectrogram(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    UrlPath((id, name)): UrlPath<(String, String)>,
+) -> Response {
+    let path = match staged_file(&app, &user, &id, &name) {
+        Ok(path) => path,
+        Err(response) => return *response,
+    };
+    let cache_dir = app.data_dir.join("cache").join("spectrograms");
+    let key = {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        name.hash(&mut hasher);
+        std::fs::metadata(&path).ok().and_then(|m| m.len().into()).hash(&mut hasher);
+        format!("{id}-{:016x}.png", hasher.finish())
+    };
+    let cached = cache_dir.join(&key);
+    let image = if let Ok(bytes) = tokio::fs::read(&cached).await {
+        bytes
+    } else {
+        let rendered = tokio::task::spawn_blocking(move || delune_library::spectrogram::render(&path, 900, 320)).await;
+        match rendered {
+            Ok(Ok(bytes)) => {
+                let _ = tokio::fs::create_dir_all(&cache_dir).await;
+                let _ = tokio::fs::write(&cached, &bytes).await;
+                bytes
+            }
+            Ok(Err(e)) => {
+                return error(StatusCode::UNPROCESSABLE_ENTITY, "undecodable", &capitalise(&e.to_string()));
+            }
+            Err(_) => {
+                return error(StatusCode::INTERNAL_SERVER_ERROR, "render-failed", "Couldn't draw the spectrogram.");
+            }
+        }
+    };
+    (
+        [(axum::http::header::CONTENT_TYPE, "image/png"), (axum::http::header::CACHE_CONTROL, "private, max-age=3600")],
+        image,
+    )
+        .into_response()
+}
+
+fn capitalise(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+}
+
 fn error(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(ApiError::new(code, message))).into_response()
 }
@@ -433,6 +551,48 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
         let job = app.downloads.list().into_iter().find(|j| j.id == members).unwrap();
         assert_eq!(job.status, JobStatus::Ready, "a member's download waits for review");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn downloads_can_be_played_and_seen_before_importing() {
+        use axum::body::Body;
+        use http_body_util::BodyExt as _;
+        use tower::ServiceExt as _;
+
+        let root = std::env::temp_dir().join(format!("delune-play-{}", std::process::id()));
+        let accounts = Arc::new(crate::accounts::Accounts::in_memory(Some("http://navidrome.invalid".into())));
+        let (sams, _) = accounts.signed_in("sam", false);
+        let (anns, _) = accounts.signed_in("ann", false);
+        let app = AppState { accounts, data_dir: root.join("data"), ..AppState::default() };
+        let id = fetched_album(&app, "sam", "Member Album").await;
+        assert!(status_settles(&app, &id, JobStatus::Ready).await);
+        let router = crate::router(app.clone());
+        let get = |path: String, token: &str, range: Option<&str>| {
+            let mut request = axum::http::Request::get(path).header("authorization", format!("Bearer {token}"));
+            if let Some(range) = range {
+                request = request.header("range", range);
+            }
+            router.clone().oneshot(request.body(Body::empty()).unwrap())
+        };
+
+        let file = format!("/api/v1/downloads/{id}/files/01%20-%20Song.wav");
+        let whole = get(file.clone(), &sams, None).await.unwrap();
+        assert_eq!(whole.status(), StatusCode::OK);
+        assert_eq!(whole.headers()["content-type"], "audio/wav");
+        let part = get(file.clone(), &sams, Some("bytes=0-99")).await.unwrap();
+        assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT, "seeking works");
+        assert_eq!(part.into_body().collect().await.unwrap().to_bytes().len(), 100);
+
+        let picture = get(format!("{file}/spectrogram"), &sams, None).await.unwrap();
+        assert_eq!(picture.status(), StatusCode::OK);
+        assert!(picture.into_body().collect().await.unwrap().to_bytes().starts_with(b"\x89PNG"));
+
+        let strangers = get(file.clone(), &anns, None).await.unwrap();
+        assert_eq!(strangers.status(), StatusCode::NOT_FOUND, "someone else's download stays private");
+        let escape = get(format!("/api/v1/downloads/{id}/files/..%2F..%2Fdelune.db"), &sams, None).await.unwrap();
+        assert_eq!(escape.status(), StatusCode::NOT_FOUND, "only files the download lists");
 
         std::fs::remove_dir_all(root).unwrap();
     }

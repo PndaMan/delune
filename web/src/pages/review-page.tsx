@@ -17,6 +17,7 @@ import {
 import { useState } from "react"
 
 import { Cover } from "@/components/cover"
+import { PlayButton, ReviewPlayerProvider, usePlayer } from "@/components/review-player"
 import { useMusicViews } from "@/components/music-views"
 import { useAlbum } from "@/lib/music"
 import { EmptyState } from "@/components/empty-state"
@@ -37,6 +38,7 @@ export function ReviewPage() {
   const imported = (downloads.data ?? []).filter((job) => job.status === "imported").slice(0, 5)
 
   return (
+    <ReviewPlayerProvider>
     <PageFrame title="Review" wide>
       {waiting.length === 0 ? (
         <EmptyState
@@ -69,7 +71,10 @@ export function ReviewPage() {
           </ul>
         </section>
       )}
+      {/* Room for the player bar. */}
+      <div className="h-24" aria-hidden />
     </PageFrame>
+    </ReviewPlayerProvider>
   )
 }
 
@@ -366,7 +371,7 @@ function ReviewCard({ job }: { job: DownloadJob }) {
           </Button>
         </div>
       )}
-      {report.data && <ReportBody report={report.data} />}
+      {report.data && <ReportBody report={report.data} jobId={job.id} />}
       {job.review !== "ready" && (
         <p className="flex items-center gap-2 border-t px-6 py-5 text-sm text-muted-foreground">
           <AudioWaveform className="size-4 animate-pulse" />
@@ -374,7 +379,7 @@ function ReviewCard({ job }: { job: DownloadJob }) {
         </p>
       )}
       {/* Phones: the decision stays in reach while scrolling a long tracklist. */}
-      <div className="sticky bottom-[var(--chrome-bottom)] z-10 flex items-center gap-2 border-t bg-card/90 px-4 py-3 backdrop-blur-md sm:hidden">
+      <div className="sticky bottom-[calc(var(--chrome-bottom)+var(--player-height,0px))] z-10 flex items-center gap-2 border-t bg-card/90 px-4 py-3 backdrop-blur-md sm:hidden">
         {actions}
       </div>
     </li>
@@ -405,7 +410,7 @@ function Verdict({ job, report }: { job: DownloadJob; report: ReviewReport | nul
   )
 }
 
-function ReportBody({ report }: { report: ReviewReport }) {
+function ReportBody({ report, jobId }: { report: ReviewReport; jobId: string }) {
   const folder = report.tracks[0]?.destination.split("/").slice(0, -1).join("/")
   return (
     <div className="border-t">
@@ -432,22 +437,37 @@ function ReportBody({ report }: { report: ReviewReport }) {
 
       <ol className="grid gap-x-6 px-3 py-3 sm:px-4 lg:grid-cols-2">
         {report.tracks.map((track) => (
-          <TrackRow key={track.file} track={track} />
+          <TrackRow key={track.file} track={track} jobId={jobId} album={report.album} />
         ))}
       </ol>
     </div>
   )
 }
 
-function TrackRow({ track }: { track: ReviewTrack }) {
+function TrackRow({ track, jobId, album }: { track: ReviewTrack; jobId: string; album: string }) {
   const name = track.destination.split("/").at(-1)
   const tier = tierOf(track.quality)
+  const player = usePlayer()
+  const playable = {
+    jobId,
+    file: track.file,
+    title: track.title,
+    subtitle: `${track.artist} · ${album} · ${track.quality_label ?? ""}`,
+    cutoffHz: track.cutoff_hz,
+    sampleRate: track.quality?.sample_rate,
+  }
+  const active = player?.current?.jobId === jobId && player.current.file === track.file
   return (
     <li
-      className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-x-3 rounded-xl px-2 py-2"
+      className={cn(
+        "grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-x-3 rounded-xl px-2 py-2",
+        active && "bg-primary/10",
+      )}
       title={`From ${track.file}`}
     >
-      <span className="pt-0.5 text-right text-[13px] text-muted-foreground/70">{track.track}</span>
+      <span className="flex justify-end">
+        <PlayButton track={playable} label={track.track} />
+      </span>
       <span className="min-w-0">
         <span className="block truncate text-[14.5px]">{track.title}</span>
         <span className="block truncate text-[12px] text-muted-foreground/70">{name}</span>
@@ -461,10 +481,15 @@ function TrackRow({ track }: { track: ReviewTrack }) {
       </span>
       <span className="text-right text-[12.5px]">
         <span className={cn("block", TIER_TEXT[tier])}>{track.quality_label}</span>
-        <span className="block text-muted-foreground/70">
+        <button
+          type="button"
+          onClick={() => player?.showSpectrogram(playable)}
+          title="Show the spectrogram"
+          className="block text-muted-foreground/70 underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        >
           {track.cutoff_hz ? `up to ${Math.round(track.cutoff_hz / 1000)} kHz, ` : ""}
           {formatTrackTime(track.duration_secs)}
-        </span>
+        </button>
       </span>
     </li>
   )
