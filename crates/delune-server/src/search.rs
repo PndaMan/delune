@@ -280,7 +280,7 @@ pub fn candidates(response: &SearchResponse) -> Vec<Candidate> {
 
 /// Pick a human title for a folder. Disc sub-folders (`CD1`, `Disc 2`) take their
 /// name from the album folder above them.
-fn display_names(folder: &str) -> (String, Option<String>) {
+pub(crate) fn display_names(folder: &str) -> (String, Option<String>) {
     let segments: Vec<&str> = folder.split(['\\', '/']).filter(|s| !s.is_empty() && !s.starts_with("@@")).collect();
     let last = segments.last().copied().unwrap_or(folder);
     let parent = segments.len().checked_sub(2).map(|i| segments[i]);

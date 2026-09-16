@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { toApiError } from "@/lib/api"
+import type { TransferHistory } from "@/lib/api.generated"
+
+export type { TransferHistory, TransferHour, UploadAlbum, UploadPerson, UploadRecord } from "@/lib/api.generated"
 
 export type SharingSettings = {
   enabled: boolean
@@ -86,6 +89,19 @@ export const sharingApi = {
   uploads: () => call<Upload[]>("GET", "/soulseek/uploads"),
   cancel: (id: number) => call<void>("DELETE", `/soulseek/uploads/${id}`),
   clear: () => call<void>("POST", "/soulseek/uploads/clear"),
+  history: (period: HistoryPeriod) => call<TransferHistory>("GET", `/soulseek/uploads/history?period=${period}`),
+}
+
+export type HistoryPeriod = "7d" | "30d" | "all"
+
+/** What went out and came in over a period, with who took what. */
+export function useTransferHistory(period: HistoryPeriod) {
+  return useQuery({
+    queryKey: ["uploads", "history", period],
+    queryFn: () => sharingApi.history(period),
+    refetchInterval: 30_000,
+    placeholderData: (previous) => previous,
+  })
 }
 
 export function useSharingStatus() {

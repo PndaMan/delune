@@ -382,6 +382,9 @@ pub(crate) async fn schedule(shared: Arc<Shared>) {
                     let _ = peer.send(message.encode()).await;
                 }
                 shared.uploads.set_state(id, outcome, None);
+                if let Some(done) = shared.uploads.snapshot().into_iter().find(|u| u.id == id) {
+                    let _ = shared.finished_uploads.send(done);
+                }
                 shared.uploads.wake.notify_one();
             });
         }

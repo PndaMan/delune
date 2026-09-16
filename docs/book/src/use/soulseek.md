@@ -22,7 +22,15 @@ rejoins your rooms when it restarts.
 
 ## Uploads
 
-What people are downloading from you, with the option to cancel. Sharing itself is set
+What you give back, for the last 7 or 30 days or all time:
+
+- your **seed ratio** (uploaded ÷ downloaded), with both totals and a day-by-day chart;
+- what's going out right now, and who's waiting, with the option to cancel or block;
+- **who downloads from you** and how much, and the albums people want most;
+- recent uploads, including ones that failed and why.
+
+delune starts keeping this history when you upgrade to a version that has it; the
+totals go back further. Only people who manage delune can see it. Sharing itself is set
 up in [Settings → Sharing](../connect/soulseek.md#sharing).
 
 ## Stats

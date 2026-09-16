@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use delune_core::api::PeerHistory;
+use delune_core::api::{PeerHistory, TransferHour, UploadAlbum, UploadPerson, UploadRecord, UploadStatus};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -56,6 +56,24 @@ CREATE TABLE IF NOT EXISTS peers (
     seconds        INTEGER NOT NULL DEFAULT 0,
     first_seen     INTEGER NOT NULL,
     last_seen      INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS uploads (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    username    TEXT NOT NULL,
+    filename    TEXT NOT NULL,
+    folder      TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    bytes       INTEGER NOT NULL,
+    status      TEXT NOT NULL,
+    reason      TEXT,
+    speed       INTEGER NOT NULL,
+    finished_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS uploads_finished ON uploads (finished_at);
+CREATE TABLE IF NOT EXISTS transfer_hours (
+    hour       INTEGER PRIMARY KEY,
+    uploaded   INTEGER NOT NULL DEFAULT 0,
+    downloaded INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS share_lists (
     username   TEXT PRIMARY KEY,
@@ -288,10 +306,184 @@ impl Database {
             .collect()
     }
 
+    /// Remember an upload that finished, keeping the most recent [`UPLOADS_KEPT`].
+    pub fn record_upload(&self, upload: &UploadRecord) {
+        let status = serde_json::to_value(upload.status).ok().and_then(|v| v.as_str().map(str::to_owned));
+        let folder = upload.filename.rsplit_once('\\').map_or("", |(folder, _)| folder);
+        let conn = self.lock();
+        let result = conn.execute(
+            "INSERT INTO uploads (username, filename, folder, size, bytes, status, reason, speed, finished_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                upload.username,
+                upload.filename,
+                folder,
+                sql_int(upload.size),
+                sql_int(upload.bytes),
+                status.unwrap_or_default(),
+                upload.reason,
+                sql_int(upload.speed),
+                sql_int(upload.finished_at),
+            ],
+        );
+        if let Err(error) = result {
+            tracing::warn!(%error, "couldn't record an upload");
+            return;
+        }
+        let _ = conn.execute(
+            "DELETE FROM uploads WHERE id <= (SELECT MAX(id) FROM uploads) - ?1",
+            params![sql_int(UPLOADS_KEPT)],
+        );
+    }
+
+    /// Add transferred bytes to the hour `at` falls in.
+    pub fn add_transfer(&self, at: u64, uploaded: u64, downloaded: u64) {
+        if uploaded == 0 && downloaded == 0 {
+            return;
+        }
+        let hour = at - at % 3600;
+        let result = self.lock().execute(
+            "INSERT INTO transfer_hours (hour, uploaded, downloaded) VALUES (?1, ?2, ?3)
+             ON CONFLICT(hour) DO UPDATE SET uploaded = uploaded + excluded.uploaded,
+                                             downloaded = downloaded + excluded.downloaded",
+            params![sql_int(hour), sql_int(uploaded), sql_int(downloaded)],
+        );
+        if let Err(error) = result {
+            tracing::warn!(%error, "couldn't record transfer totals");
+        }
+    }
+
+    /// Hourly transfer totals from `since`, oldest first.
+    #[must_use]
+    pub fn transfer_hours(&self, since: u64) -> Vec<TransferHour> {
+        let conn = self.lock();
+        let Ok(mut query) =
+            conn.prepare_cached("SELECT hour, uploaded, downloaded FROM transfer_hours WHERE hour >= ?1 ORDER BY hour")
+        else {
+            return Vec::new();
+        };
+        query
+            .query_map(params![sql_int(since)], |row| {
+                Ok(TransferHour {
+                    hour: from_sql(row.get(0)?),
+                    uploaded_bytes: from_sql(row.get(1)?),
+                    downloaded_bytes: from_sql(row.get(2)?),
+                })
+            })
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
+    /// Files sent in full since `since`, and to how many people.
+    #[must_use]
+    pub fn uploads_sent(&self, since: u64) -> (u32, u32) {
+        self.lock()
+            .query_row(
+                "SELECT COUNT(*), COUNT(DISTINCT username) FROM uploads WHERE status = 'completed' AND finished_at >= ?1",
+                params![sql_int(since)],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or((0, 0))
+    }
+
+    /// Who took the most since `since`.
+    #[must_use]
+    pub fn upload_people(&self, since: u64, limit: u32) -> Vec<UploadPerson> {
+        let conn = self.lock();
+        let Ok(mut query) = conn.prepare_cached(
+            "SELECT username, COUNT(*), SUM(bytes), MAX(finished_at) FROM uploads
+             WHERE status = 'completed' AND finished_at >= ?1
+             GROUP BY username ORDER BY SUM(bytes) DESC LIMIT ?2",
+        ) else {
+            return Vec::new();
+        };
+        query
+            .query_map(params![sql_int(since), limit], |row| {
+                Ok(UploadPerson {
+                    username: row.get(0)?,
+                    files: row.get(1)?,
+                    bytes: from_sql(row.get(2)?),
+                    last_at: from_sql(row.get(3)?),
+                })
+            })
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
+    /// The folders taken most since `since`: (folder, files, bytes, people, last).
+    #[must_use]
+    pub fn upload_folders(&self, since: u64, limit: u32) -> Vec<(String, UploadAlbum)> {
+        let conn = self.lock();
+        let Ok(mut query) = conn.prepare_cached(
+            "SELECT folder, COUNT(*), SUM(bytes), COUNT(DISTINCT username), MAX(finished_at) FROM uploads
+             WHERE status = 'completed' AND finished_at >= ?1
+             GROUP BY folder ORDER BY COUNT(DISTINCT username) DESC, SUM(bytes) DESC LIMIT ?2",
+        ) else {
+            return Vec::new();
+        };
+        query
+            .query_map(params![sql_int(since), limit], |row| {
+                let folder: String = row.get(0)?;
+                Ok((
+                    folder.clone(),
+                    UploadAlbum {
+                        folder,
+                        title: String::new(),
+                        parent: None,
+                        files: row.get(1)?,
+                        bytes: from_sql(row.get(2)?),
+                        people: row.get(3)?,
+                        last_at: from_sql(row.get(4)?),
+                    },
+                ))
+            })
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
+    /// Finished uploads since `since`, newest first.
+    #[must_use]
+    pub fn recent_uploads(&self, since: u64, limit: u32) -> Vec<UploadRecord> {
+        let conn = self.lock();
+        let Ok(mut query) = conn.prepare_cached(
+            "SELECT username, filename, size, bytes, status, reason, speed, finished_at FROM uploads
+             WHERE finished_at >= ?1 ORDER BY id DESC LIMIT ?2",
+        ) else {
+            return Vec::new();
+        };
+        query
+            .query_map(params![sql_int(since), limit], |row| {
+                let status: String = row.get(4)?;
+                Ok(UploadRecord {
+                    username: row.get(0)?,
+                    filename: row.get(1)?,
+                    size: from_sql(row.get(2)?),
+                    bytes: from_sql(row.get(3)?),
+                    status: serde_json::from_value(serde_json::Value::String(status)).unwrap_or(UploadStatus::Failed),
+                    reason: row.get(5)?,
+                    speed: from_sql(row.get(6)?),
+                    finished_at: from_sql(row.get(7)?),
+                })
+            })
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
+}
+
+/// How many finished uploads the history keeps.
+pub const UPLOADS_KEPT: u64 = 50_000;
+
+fn sql_int(n: u64) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
+fn from_sql(n: i64) -> u64 {
+    u64::try_from(n).unwrap_or(0)
 }
 
 /// The database holds session hashes and settings: readable by delune only.
@@ -345,5 +537,43 @@ mod tests {
         let moonty = &history["moonty"];
         assert_eq!((moonty.files_done, moonty.files_failed, moonty.bytes), (11, 2, 330_000_000));
         assert_eq!(moonty.average_speed, 5_000_000);
+    }
+
+    #[test]
+    fn keeps_upload_history_and_hourly_totals() {
+        let db = Database::in_memory();
+        let upload = |who: &str, file: &str, status: UploadStatus, at: u64| UploadRecord {
+            username: who.into(),
+            filename: format!("music\\Talk Talk\\Spirit of Eden\\{file}"),
+            size: 100,
+            bytes: if status == UploadStatus::Completed { 100 } else { 0 },
+            status,
+            reason: None,
+            speed: 10,
+            finished_at: at,
+        };
+        db.record_upload(&upload("ann", "1.flac", UploadStatus::Completed, 1_000));
+        db.record_upload(&upload("ann", "2.flac", UploadStatus::Completed, 2_000));
+        db.record_upload(&upload("bob", "1.flac", UploadStatus::Completed, 3_000));
+        db.record_upload(&upload("cat", "1.flac", UploadStatus::Failed, 3_500));
+
+        assert_eq!(db.uploads_sent(0), (3, 2));
+        assert_eq!(db.uploads_sent(1_500), (2, 2));
+        let people = db.upload_people(0, 10);
+        assert_eq!((people[0].username.as_str(), people[0].files, people[0].bytes), ("ann", 2, 200));
+        let folders = db.upload_folders(0, 10);
+        assert_eq!(folders[0].0, "music\\Talk Talk\\Spirit of Eden");
+        assert_eq!((folders[0].1.files, folders[0].1.people), (3, 2));
+        let recent = db.recent_uploads(0, 10);
+        assert_eq!(recent.len(), 4);
+        assert_eq!(recent[0].status, UploadStatus::Failed, "newest first, failures included");
+
+        db.add_transfer(7_300, 10, 5);
+        db.add_transfer(7_400, 1, 0);
+        db.add_transfer(10_900, 0, 3);
+        let hours = db.transfer_hours(0);
+        assert_eq!(hours.len(), 2);
+        assert_eq!((hours[0].hour, hours[0].uploaded_bytes, hours[0].downloaded_bytes), (7_200, 11, 5));
+        assert_eq!(db.transfer_hours(8_000).len(), 1);
     }
 }

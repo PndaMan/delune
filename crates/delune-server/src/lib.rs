@@ -300,6 +300,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/stats", get(sharing::stats))
         .route("/api/v1/soulseek/uploads", get(sharing::uploads))
         .route("/api/v1/soulseek/uploads/clear", post(sharing::clear_uploads))
+        .route("/api/v1/soulseek/uploads/history", get(sharing::history))
         .route("/api/v1/soulseek/uploads/{id}", delete(sharing::cancel_upload))
         .route("/api/v1/sharing", get(sharing::status).put(sharing::update))
         .route("/api/v1/wishlist", get(wishlist::list).post(wishlist::add))

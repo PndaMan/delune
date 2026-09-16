@@ -28,3 +28,13 @@ export function formatTrackTime(secs: number | null): string {
 export function plural(n: number, one: string, many = `${one}s`) {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`
 }
+
+/** Unix seconds → "just now", "12 min ago", "3 h ago", or a short date. */
+export function formatAgo(at: number, now = Date.now()): string {
+  const minutes = Math.round((now / 1000 - at) / 60)
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  return new Date(at * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+}

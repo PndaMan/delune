@@ -1180,6 +1180,87 @@ pub struct Upload {
     pub speed: u64,
 }
 
+/// `GET /api/v1/soulseek/uploads/history`: what went out, to whom, and the balance
+/// with what came in, over a period.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TransferHistory {
+    /// Start of the period, Unix seconds; none for all time.
+    pub since: Option<u64>,
+    /// Over the period.
+    pub uploaded_bytes: u64,
+    pub downloaded_bytes: u64,
+    /// Since delune started keeping count.
+    pub all_time_uploaded_bytes: u64,
+    pub all_time_downloaded_bytes: u64,
+    /// Files sent in full over the period, and how many people got them.
+    pub files_sent: u32,
+    pub people: u32,
+    /// Bytes per hour, oldest first, for charts (at most the last 90 days).
+    pub hours: Vec<TransferHour>,
+    /// Who took the most, most first.
+    pub top_people: Vec<UploadPerson>,
+    /// The folders taken most, most first.
+    pub top_albums: Vec<UploadAlbum>,
+    /// Finished uploads, newest first.
+    pub recent: Vec<UploadRecord>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TransferHour {
+    /// Unix seconds at the start of the hour.
+    pub hour: u64,
+    pub uploaded_bytes: u64,
+    pub downloaded_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UploadPerson {
+    pub username: String,
+    pub files: u32,
+    pub bytes: u64,
+    /// Unix seconds.
+    pub last_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UploadAlbum {
+    /// The shared folder, as peers see it.
+    pub folder: String,
+    /// The folder's name, and the one above it (usually the artist).
+    pub title: String,
+    pub parent: Option<String>,
+    pub files: u32,
+    pub bytes: u64,
+    pub people: u32,
+    /// Unix seconds.
+    pub last_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UploadRecord {
+    pub username: String,
+    /// The shared path they asked for.
+    pub filename: String,
+    pub size: u64,
+    pub bytes: u64,
+    pub status: UploadStatus,
+    pub reason: Option<String>,
+    /// Bytes per second.
+    pub speed: u64,
+    /// Unix seconds.
+    pub finished_at: u64,
+}
+
 /// The least a wishlist match must be.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

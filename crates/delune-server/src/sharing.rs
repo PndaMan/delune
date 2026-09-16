@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use axum::extract::Query;
 use axum::{
     Json,
     extract::{Path as UrlPath, State},
@@ -21,7 +22,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use delune_core::Codec;
-use delune_core::api::{ApiError, SharingSettings, SharingStatus, Upload, UploadStatus};
+use delune_core::api::{ApiError, SharingSettings, SharingStatus, TransferHistory, Upload, UploadRecord, UploadStatus};
 use delune_soulseek::peer::SharedFile;
 use delune_soulseek::{IndexedFile, ShareIndex, UploadLimits, UploadState};
 use serde::{Deserialize, Serialize};
@@ -465,14 +466,7 @@ pub async fn uploads(State(app): State<AppState>, user: CurrentUser) -> Response
         .uploads()
         .into_iter()
         .map(|u| {
-            let (status, bytes, reason) = match u.state {
-                UploadState::Queued => (UploadStatus::Queued, 0, None),
-                UploadState::Connecting => (UploadStatus::Connecting, 0, None),
-                UploadState::Transferring { bytes } => (UploadStatus::Transferring, bytes, None),
-                UploadState::Completed { bytes } => (UploadStatus::Completed, bytes, None),
-                UploadState::Failed { reason } => (UploadStatus::Failed, 0, Some(reason)),
-                UploadState::Cancelled => (UploadStatus::Cancelled, 0, None),
-            };
+            let (status, bytes, reason) = status_of(u.state);
             Upload {
                 id: u.id,
                 username: u.username,
@@ -517,14 +511,33 @@ impl Totals {
     }
 
     /// Save periodically; the saved base plus the live counters is always the total.
+    /// Also keeps the hourly history and the record of finished uploads.
     pub fn start(app: &AppState) {
+        if let Some(client) = app.soulseek.clone() {
+            let db = app.db.clone();
+            tokio::spawn(async move {
+                let mut finished = client.finished_uploads();
+                loop {
+                    match finished.recv().await {
+                        Ok(upload) => db.record_upload(&record(upload)),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                            tracing::warn!(missed, "upload history fell behind");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            });
+        }
         let app = app.clone();
         tokio::spawn(async move {
             let base = *app.totals.saved.lock().unwrap_or_else(PoisonError::into_inner);
             let mut every = tokio::time::interval(Duration::from_secs(60));
+            let mut last = (0, 0);
             loop {
                 every.tick().await;
                 let (down, up) = app.soulseek.as_ref().map_or((0, 0), delune_soulseek::Client::transferred);
+                app.db.add_transfer(unix_now(), up.saturating_sub(last.1), down.saturating_sub(last.0));
+                last = (down, up);
                 let totals = SavedTotals {
                     downloaded_bytes: base.downloaded_bytes + down,
                     uploaded_bytes: base.uploaded_bytes + up,
@@ -534,6 +547,108 @@ impl Totals {
                 }
             }
         });
+    }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+fn status_of(state: UploadState) -> (UploadStatus, u64, Option<String>) {
+    match state {
+        UploadState::Queued => (UploadStatus::Queued, 0, None),
+        UploadState::Connecting => (UploadStatus::Connecting, 0, None),
+        UploadState::Transferring { bytes } => (UploadStatus::Transferring, bytes, None),
+        UploadState::Completed { bytes } => (UploadStatus::Completed, bytes, None),
+        UploadState::Failed { reason } => (UploadStatus::Failed, 0, Some(reason)),
+        UploadState::Cancelled => (UploadStatus::Cancelled, 0, None),
+    }
+}
+
+fn record(upload: delune_soulseek::UploadInfo) -> UploadRecord {
+    let (status, bytes, reason) = status_of(upload.state);
+    UploadRecord {
+        username: upload.username,
+        filename: upload.filename,
+        size: upload.size,
+        bytes,
+        status,
+        reason,
+        speed: upload.speed,
+        finished_at: unix_now(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryParams {
+    /// `7d`, `30d` (the default) or `all`.
+    #[serde(default)]
+    period: Option<String>,
+}
+
+/// `GET /api/v1/soulseek/uploads/history`
+#[utoipa::path(
+    get,
+    operation_id = "sharing_history",
+    path = "/api/v1/soulseek/uploads/history",
+    tag = "uploads",
+    params(("period" = Option<String>, Query, description = "`7d`, `30d` (the default) or `all`")),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::TransferHistory),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn history(State(app): State<AppState>, user: CurrentUser, Query(params): Query<HistoryParams>) -> Response {
+    const DAY: u64 = 86_400;
+    if let Some(denied) = user.refuse_unless(|p| p.manage, "see who downloads from you") {
+        return denied;
+    }
+    let now = unix_now();
+    let since = match params.period.as_deref() {
+        Some("7d") => Some(now - 7 * DAY),
+        Some("all") => None,
+        _ => Some(now - 30 * DAY),
+    };
+    let from = since.unwrap_or(0);
+    let db = app.db.clone();
+    let (all_down, all_up) = app.totals.current(app.soulseek.as_ref());
+    let history = tokio::task::spawn_blocking(move || {
+        let hours = db.transfer_hours(since.unwrap_or(now - 90 * DAY));
+        let (uploaded_bytes, downloaded_bytes) = if since.is_some() {
+            hours.iter().fold((0, 0), |(u, d), h| (u + h.uploaded_bytes, d + h.downloaded_bytes))
+        } else {
+            (all_up, all_down)
+        };
+        let (files_sent, people) = db.uploads_sent(from);
+        let top_albums = db
+            .upload_folders(from, 12)
+            .into_iter()
+            .map(|(folder, mut album)| {
+                let (title, parent) = crate::search::display_names(&folder);
+                album.title = title;
+                album.parent = parent;
+                album
+            })
+            .collect();
+        TransferHistory {
+            since,
+            uploaded_bytes,
+            downloaded_bytes,
+            all_time_uploaded_bytes: all_up,
+            all_time_downloaded_bytes: all_down,
+            files_sent,
+            people,
+            hours,
+            top_people: db.upload_people(from, 12),
+            top_albums,
+            recent: db.recent_uploads(from, 80),
+        }
+    })
+    .await;
+    match history {
+        Ok(history) => Json(history).into_response(),
+        Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "history-failed", "Couldn't read the upload history."),
     }
 }
 

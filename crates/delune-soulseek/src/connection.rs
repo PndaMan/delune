@@ -112,6 +112,8 @@ pub(crate) struct Shared {
     pub download_cap: Arc<crate::pacing::SpeedCap>,
     /// Private messages and room activity, for whoever is listening.
     pub chat: broadcast::Sender<ChatEvent>,
+    /// Uploads that ran and finished, for the app's history.
+    pub finished_uploads: broadcast::Sender<crate::upload::UploadInfo>,
     /// Whether we have a parent in the distributed search network.
     pub distributed_parent: AtomicBool,
     /// Whether we're trying possible parents right now.
@@ -170,6 +172,7 @@ impl Shared {
             upload_cap: Arc::default(),
             download_cap: Arc::default(),
             chat: broadcast::channel(512).0,
+            finished_uploads: broadcast::channel(256).0,
             rooms: Mutex::default(),
             wishlist_interval: AtomicU32::new(12 * 60),
             excluded_phrases: Mutex::new(Vec::new()),

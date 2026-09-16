@@ -459,6 +459,12 @@ impl Client {
         self.inner.shared.uploads.snapshot()
     }
 
+    /// Each upload that ran, once it has finished (sent, failed or stopped).
+    #[must_use]
+    pub fn finished_uploads(&self) -> broadcast::Receiver<UploadInfo> {
+        self.inner.shared.finished_uploads.subscribe()
+    }
+
     /// Changes whenever an upload does.
     #[must_use]
     pub fn uploads_changed(&self) -> watch::Receiver<u64> {

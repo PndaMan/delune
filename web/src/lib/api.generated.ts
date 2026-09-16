@@ -938,6 +938,53 @@ export type SpeedSchedule = {
 
 export type Theme = "system" | "night" | "blue-hour" | "midnight" | "forest"
 
+export type TransferHistory = {
+  /**
+   * Start of the period, Unix seconds; none for all time.
+   */
+  since: number | null
+  /**
+   * Over the period.
+   */
+  uploaded_bytes: number
+  downloaded_bytes: number
+  /**
+   * Since delune started keeping count.
+   */
+  all_time_uploaded_bytes: number
+  all_time_downloaded_bytes: number
+  /**
+   * Files sent in full over the period, and how many people got them.
+   */
+  files_sent: number
+  people: number
+  /**
+   * Bytes per hour, oldest first, for charts (at most the last 90 days).
+   */
+  hours: Array<TransferHour>
+  /**
+   * Who took the most, most first.
+   */
+  top_people: Array<UploadPerson>
+  /**
+   * The folders taken most, most first.
+   */
+  top_albums: Array<UploadAlbum>
+  /**
+   * Finished uploads, newest first.
+   */
+  recent: Array<UploadRecord>
+}
+
+export type TransferHour = {
+  /**
+   * Unix seconds at the start of the hour.
+   */
+  hour: number
+  uploaded_bytes: number
+  downloaded_bytes: number
+}
+
 export type Upload = {
   id: number
   username: string
@@ -957,6 +1004,55 @@ export type Upload = {
    * Bytes per second.
    */
   speed: number
+}
+
+export type UploadAlbum = {
+  /**
+   * The shared folder, as peers see it.
+   */
+  folder: string
+  /**
+   * The folder's name, and the one above it (usually the artist).
+   */
+  title: string
+  parent: string | null
+  files: number
+  bytes: number
+  people: number
+  /**
+   * Unix seconds.
+   */
+  last_at: number
+}
+
+export type UploadPerson = {
+  username: string
+  files: number
+  bytes: number
+  /**
+   * Unix seconds.
+   */
+  last_at: number
+}
+
+export type UploadRecord = {
+  username: string
+  /**
+   * The shared path they asked for.
+   */
+  filename: string
+  size: number
+  bytes: number
+  status: UploadStatus
+  reason: string | null
+  /**
+   * Bytes per second.
+   */
+  speed: number
+  /**
+   * Unix seconds.
+   */
+  finished_at: number
 }
 
 export type UploadStatus = "queued" | "connecting" | "transferring" | "completed" | "failed" | "cancelled"
