@@ -92,7 +92,7 @@ impl Sharing {
         self.lock().settings.clone()
     }
 
-    fn status(&self, library_dir: Option<&Path>) -> SharingStatus {
+    pub(crate) fn status(&self, library_dir: Option<&Path>) -> SharingStatus {
         let inner = self.lock();
         SharingStatus {
             settings: inner.settings.clone(),

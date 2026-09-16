@@ -211,9 +211,39 @@ export type ChatUpdate =
   | { type: "room"; room: string; message: ChatMessage | null }
   | { type: "rooms" }
 
+export type CheckState = "problem" | "warning" | "ok" | "info"
+
 export type Codec = "flac" | "alac" | "wav" | "aiff" | "mp3" | "aac" | "opus" | "vorbis"
 
 export type ConversationSummary = { username: string; last: ChatMessage | null; unread: number }
+
+export type DiagnosticCheck = {
+  id: string
+  /**
+   * The part of delune it's about: `soulseek`, `sharing`, `library`, `downloads`, `services`.
+   */
+  area: string
+  title: string
+  state: CheckState
+  summary: string
+  /**
+   * What to do about it, when something's wrong.
+   */
+  fix: string | null
+  /**
+   * Where in the app to do it.
+   */
+  link: string | null
+}
+
+export type Diagnostics = {
+  /**
+   * Unix seconds.
+   */
+  checked_at: number
+  version: string
+  checks: Array<DiagnosticCheck>
+}
 
 export type DownloadJob = {
   id: string

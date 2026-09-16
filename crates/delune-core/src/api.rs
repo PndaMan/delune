@@ -1261,6 +1261,44 @@ pub struct UploadRecord {
     pub finished_at: u64,
 }
 
+/// `GET /api/v1/diagnostics`: how each part of delune is doing, and what to do about it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Diagnostics {
+    /// Unix seconds.
+    pub checked_at: u64,
+    pub version: String,
+    pub checks: Vec<DiagnosticCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DiagnosticCheck {
+    pub id: String,
+    /// The part of delune it's about: `soulseek`, `sharing`, `library`, `downloads`, `services`.
+    pub area: String,
+    pub title: String,
+    pub state: CheckState,
+    pub summary: String,
+    /// What to do about it, when something's wrong.
+    pub fix: Option<String>,
+    /// Where in the app to do it.
+    pub link: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "kebab-case")]
+pub enum CheckState {
+    Problem,
+    Warning,
+    Ok,
+    Info,
+}
+
 /// The least a wishlist match must be.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

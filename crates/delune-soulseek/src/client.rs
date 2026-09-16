@@ -344,6 +344,13 @@ impl Client {
         crate::distributed::set_max_children(&self.inner.shared, max);
     }
 
+    /// Whether we're part of the distributed search network, receiving other people's
+    /// searches (and so able to answer them from our shares).
+    #[must_use]
+    pub fn has_search_parent(&self) -> bool {
+        self.inner.shared.distributed_parent.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Clients below us in the distributed search tree right now.
     #[must_use]
     pub fn distributed_children(&self) -> usize {

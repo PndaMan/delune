@@ -43,6 +43,9 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2
 delune-bandcamp = { version = "0.1.0-dev", path = "../delune-bandcamp" }
 delune-soundcloud = { version = "0.1.0-dev", path = "../delune-soundcloud" }
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs"] }
+
 [dev-dependencies]
 bytes = "1.12.1"
 http-body-util = "0.1.5"

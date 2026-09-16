@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Globe,
+  HeartPulse,
   Library,
   LoaderCircle,
   Lock,
@@ -20,6 +21,7 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import { Choice } from "@/components/choice"
+import { DiagnosticsPanel } from "@/components/diagnostics-panel"
 import { BandcampGlyph, BandcampGroup } from "@/components/bandcamp"
 import { ConnectionsForm } from "@/components/connections-form"
 import { ExternalSourcePanel } from "@/components/external-source"
@@ -60,6 +62,14 @@ const GROUPS = [
     icon: UserRound,
     manage: false,
     panel: () => <Account />,
+  },
+  {
+    id: "health",
+    title: "Health",
+    blurb: "Whether everything delune depends on is working, and what to do if not.",
+    icon: HeartPulse,
+    manage: true,
+    panel: () => <DiagnosticsPanel />,
   },
   {
     id: "appearance",

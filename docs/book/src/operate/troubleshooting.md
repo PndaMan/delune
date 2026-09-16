@@ -1,5 +1,10 @@
 # Troubleshooting
 
+**Start with Settings → Health.** It checks the Soulseek login, whether your port is
+reachable, the search network, sharing, Navidrome, the library folder, free disk space,
+recent failed downloads and the music catalogue, and says what to do about anything
+that's wrong. (`GET /api/v1/diagnostics` returns the same for scripts.)
+
 ## Signing in
 
 **"Wrong username or password", but Navidrome accepts it.** delune signs you in against

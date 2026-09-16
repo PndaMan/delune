@@ -57,6 +57,7 @@ use utoipa::OpenApi;
         crate::sharing::stats,
         crate::sharing::uploads,
         crate::sharing::history,
+        crate::diagnostics::diagnostics,
         crate::sharing::clear_uploads,
         crate::sharing::cancel_upload,
         crate::sharing::status,

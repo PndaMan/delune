@@ -12,6 +12,7 @@ pub mod artwork;
 pub mod automation;
 pub mod bandcamp;
 pub mod chat;
+pub mod diagnostics;
 pub mod downloads;
 pub mod events;
 pub mod external;
@@ -175,6 +176,7 @@ impl AppState {
     ///
     /// When delune's database can't be opened.
     pub fn start(config: ServerConfig) -> std::io::Result<Self> {
+        diagnostics::mark_start();
         let db = Arc::new(store::Database::open(&config.data_dir).map_err(|e| {
             std::io::Error::other(format!("couldn't open the database in {}: {e}", config.data_dir.display()))
         })?);
@@ -344,6 +346,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/notifications/read", post(notifications::read))
         .route("/api/v1/external", get(external::settings).put(external::update))
         .route("/api/v1/external/fetch", post(external::fetch))
+        .route("/api/v1/diagnostics", get(diagnostics::diagnostics))
         .route("/api/v1/setup", get(setup::status).put(setup::update))
         .route("/api/v1/setup/check", post(setup::check))
         .route("/api/v1/naming", get(naming::get).put(naming::update))
@@ -472,8 +475,13 @@ async fn sources() -> Json<Vec<SourceInfo>> {
     ),
 )]
 async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
+    Json(soulseek_status_of(&app))
+}
+
+/// The Soulseek connection as clients show it.
+pub(crate) fn soulseek_status_of(app: &AppState) -> SoulseekStatus {
     let Some(client) = &app.soulseek else {
-        return Json(SoulseekStatus {
+        return SoulseekStatus {
             state: SoulseekState::NotConfigured,
             username: None,
             message: Some("No Soulseek account is configured.".into()),
@@ -481,7 +489,7 @@ async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
             listen_port: None,
             reachable: false,
             port_mapping: app.nat.status(),
-        });
+        };
     };
     let session = client.state().borrow().clone();
     let (state, message) = match session.clone() {
@@ -508,7 +516,7 @@ async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
         SessionState::Online { public_ip, .. } => Some(public_ip.to_string()),
         _ => None,
     };
-    Json(SoulseekStatus {
+    SoulseekStatus {
         state,
         username: app.soulseek_username.clone(),
         message,
@@ -519,7 +527,7 @@ async fn soulseek_status(State(app): State<AppState>) -> Json<SoulseekStatus> {
         },
         reachable: client.incoming_connections() > 0,
         port_mapping: app.nat.status(),
-    })
+    }
 }
 
 /// Bind and serve until the process receives Ctrl+C / SIGTERM.
