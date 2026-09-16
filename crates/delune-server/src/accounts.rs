@@ -830,6 +830,7 @@ pub async fn set_permissions(
     }
     record.permissions = update.permissions;
     tracing::info!(by = %user.username, %username, permissions = ?update.permissions, "permissions changed");
+    crate::events::changed(&app, crate::events::Topic::People);
     accounts.save(&mut state);
     drop(state);
     Json(accounts.people()).into_response()

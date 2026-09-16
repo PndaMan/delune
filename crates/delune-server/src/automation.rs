@@ -382,6 +382,7 @@ pub async fn follow(State(app): State<AppState>, user: CurrentUser, Json(request
     };
     state.follows.push(follow.clone());
     app.automation.save(&state);
+    crate::events::changed(&app, crate::events::Topic::Follows);
     (StatusCode::CREATED, Json(follow)).into_response()
 }
 
@@ -404,6 +405,8 @@ pub async fn unfollow(State(app): State<AppState>, user: CurrentUser, UrlPath(id
     let mut state = app.automation.lock();
     state.follows.retain(|f| !(f.deezer_id == id && user.can_see(Some(&f.added_by))));
     app.automation.save(&state);
+    drop(state);
+    crate::events::changed(&app, crate::events::Topic::Follows);
     StatusCode::NO_CONTENT
 }
 

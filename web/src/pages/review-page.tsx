@@ -1,7 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { Dialog } from "@base-ui/react/dialog"
-import { AudioWaveform, Check, ChevronRight, CircleAlert, FolderInput, LoaderCircle, Search, Trash2, TriangleAlert, X } from "lucide-react"
+import {
+  AudioWaveform,
+  Check,
+  ChevronRight,
+  CircleAlert,
+  FolderInput,
+  LoaderCircle,
+  Search,
+  Trash2,
+  TriangleAlert,
+  X,
+} from "lucide-react"
 import { useState } from "react"
 
 import { Cover } from "@/components/cover"
@@ -28,10 +39,14 @@ export function ReviewPage() {
         <EmptyState
           illumination={0.5}
           title="Nothing waiting for review"
-          action={<Button nativeButton={false} render={<Link to="/" search={{}} />}>Find an album</Button>}
+          action={
+            <Button nativeButton={false} render={<Link to="/" search={{}} />}>
+              Find an album
+            </Button>
+          }
         >
-          Every download stops here before it reaches your library. You'll see how each file checks out and exactly where
-          it will be saved, then approve it or throw it away.
+          Every download stops here before it reaches your library. You'll see how each file checks out and exactly
+          where it will be saved, then approve it or throw it away.
         </EmptyState>
       ) : (
         <ul className="mt-6 space-y-6">
@@ -106,7 +121,9 @@ function ImportedDialog({ job, open, onClose }: { job: DownloadJob; open: boolea
               </Dialog.Description>
               <p className="mt-3 flex items-center gap-1.5 text-[14px] text-q-lossless">
                 <Check className="size-4" /> In your library
-                {library.data?.quality_label && <span className="text-muted-foreground">as {library.data.quality_label}</span>}
+                {library.data?.quality_label && (
+                  <span className="text-muted-foreground">as {library.data.quality_label}</span>
+                )}
               </p>
             </div>
             <Dialog.Close className="rounded-full p-2 text-muted-foreground hover:text-foreground" aria-label="Close">
@@ -149,7 +166,10 @@ function ImportedDialog({ job, open, onClose }: { job: DownloadJob; open: boolea
             ) : tracks.length ? (
               <ol>
                 {tracks.map((t, i) => (
-                  <li key={`${t.disc}-${t.track}-${i}`} className="flex items-center gap-3 rounded-lg px-3 py-1.5 text-[14.5px]">
+                  <li
+                    key={`${t.disc}-${t.track}-${i}`}
+                    className="flex items-center gap-3 rounded-lg px-3 py-1.5 text-[14.5px]"
+                  >
                     <span className="w-8 text-right text-[13px] text-muted-foreground/70">
                       {t.disc && t.disc > 1 ? `${t.disc}-` : ""}
                       {t.track ?? i + 1}
@@ -166,7 +186,11 @@ function ImportedDialog({ job, open, onClose }: { job: DownloadJob; open: boolea
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <Button variant="outline" nativeButton={false} render={<Link to="/" search={{ q: [job.parent, job.title].filter(Boolean).join(" ") }} />}>
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={<Link to="/" search={{ q: [job.parent, job.title].filter(Boolean).join(" ") }} />}
+            >
               <Search /> Search again
             </Button>
             <Button
@@ -206,34 +230,53 @@ function ReviewCard({ job }: { job: DownloadJob }) {
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const actions = (
     <>
-          <Button
-            variant="ghost"
-            onClick={() => setConfirmDiscard(true)}
-            disabled={discard.isPending || importRelease.isPending}
-            className="text-muted-foreground"
-          >
-            <Trash2 /> Discard
-          </Button>
-          <Button
-            size="lg"
-            className="h-11 flex-1 rounded-xl px-5 font-semibold sm:flex-none"
-            disabled={!canImport || !report.data || !!report.data.blocked_reason || importRelease.isPending}
-            onClick={() => importRelease.mutate()}
-          >
-            {importRelease.isPending ? <LoaderCircle className="animate-spin" /> : <FolderInput />}
-            {!canImport ? "Waiting for an admin" : requester ? "Approve and import" : "Import into library"}
-          </Button>
+      <Button
+        variant="ghost"
+        onClick={() => setConfirmDiscard(true)}
+        disabled={discard.isPending || importRelease.isPending}
+        className="text-muted-foreground"
+      >
+        <Trash2 /> Discard
+      </Button>
+      <Button
+        size="lg"
+        className="h-11 flex-1 rounded-xl px-5 font-semibold sm:flex-none"
+        disabled={!canImport || !report.data || !!report.data.blocked_reason || importRelease.isPending}
+        onClick={() => importRelease.mutate()}
+      >
+        {importRelease.isPending ? <LoaderCircle className="animate-spin" /> : <FolderInput />}
+        {!canImport ? "Waiting for an admin" : requester ? "Approve and import" : "Import into library"}
+      </Button>
     </>
   )
+
+  const artistName = report.data?.album_artist ?? artwork.data?.artist ?? job.parent ?? null
 
   return (
     <li className="overflow-clip rounded-3xl border bg-card/60">
       <header className="flex flex-wrap items-center gap-5 p-5 sm:p-6">
-        <Cover src={artwork.data?.cover} pending={artwork.isPending} alt="" className="size-24 rounded-2xl shadow-lg sm:size-28" />
+        <Cover
+          src={artwork.data?.cover}
+          pending={artwork.isPending}
+          alt=""
+          className="size-24 rounded-2xl shadow-lg sm:size-28"
+        />
         <div className="min-w-0 flex-1">
-          <h2 className="type-title line-clamp-2 text-[22px] sm:truncate sm:text-[24px]">{report.data?.album ?? artwork.data?.album ?? job.title}</h2>
+          <h2 className="type-title line-clamp-2 text-[22px] sm:truncate sm:text-[24px]">
+            {report.data?.album ?? artwork.data?.album ?? job.title}
+          </h2>
           <p className="truncate text-muted-foreground">
-            {report.data?.album_artist ?? artwork.data?.artist ?? job.parent}
+            {artistName ? (
+              <Link
+                to="/artist/$name"
+                params={{ name: artistName }}
+                className="underline-offset-4 hover:text-foreground hover:underline"
+              >
+                {artistName}
+              </Link>
+            ) : (
+              "Unknown artist"
+            )}
             {report.data?.year ? `, ${report.data.year}` : ""}
           </p>
           {requester && <p className="mt-0.5 text-[13.5px] text-muted-foreground">Requested by {requester}</p>}
@@ -337,13 +380,18 @@ function TrackRow({ track }: { track: ReviewTrack }) {
   const name = track.destination.split("/").at(-1)
   const tier = tierOf(track.quality)
   return (
-    <li className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-x-3 rounded-xl px-2 py-2" title={`From ${track.file}`}>
+    <li
+      className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-x-3 rounded-xl px-2 py-2"
+      title={`From ${track.file}`}
+    >
       <span className="pt-0.5 text-right text-[13px] text-muted-foreground/70">{track.track}</span>
       <span className="min-w-0">
         <span className="block truncate text-[14.5px]">{track.title}</span>
         <span className="block truncate text-[12px] text-muted-foreground/70">{name}</span>
         {track.problem && (
-          <span className={cn("mt-0.5 block text-[12.5px]", track.suspect_transcode ? "text-q-hires" : "text-destructive")}>
+          <span
+            className={cn("mt-0.5 block text-[12.5px]", track.suspect_transcode ? "text-q-hires" : "text-destructive")}
+          >
             {track.problem}
           </span>
         )}

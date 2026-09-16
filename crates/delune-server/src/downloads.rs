@@ -427,6 +427,7 @@ pub fn begin(
     app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None, slot: Slot::None });
     app.downloads.changed();
     tracing::info!(%id, username = %request.username, folder = %request.folder, files = job.files.len(), "download job created");
+    crate::events::changed(app, crate::events::Topic::Downloads);
     start(app, client, &job, cancel_rx);
     Ok(job)
 }
@@ -732,6 +733,7 @@ pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
     };
     app.downloads.changed();
     app.downloads.wake_waiting();
+    crate::events::changed(&app, crate::events::Topic::Downloads);
     let _ = entry.cancel.send(true);
     // Job ids are generated here, so this path can't escape the staging folder.
     let staging = app.data_dir.join("staging").join(&entry.job.id);

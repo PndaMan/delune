@@ -6,10 +6,18 @@ import { applyAppearance } from "@/lib/appearance"
 
 const KEY = ["session"]
 
+/** When someone last signed in, so a stale 401 can't sign them straight back out. */
+let signedInAt = 0
+
 /** Who is signed in: `null` when nobody is, `undefined` while finding out. */
 export function useSession() {
   const client = useQueryClient()
-  const query = useQuery({ queryKey: KEY, queryFn: ({ signal }) => api.session(signal), staleTime: 5 * 60_000, retry: 1 })
+  const query = useQuery({
+    queryKey: KEY,
+    queryFn: ({ signal }) => api.session(signal),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
 
   // The account's look wins over whatever this browser last used.
   const appearance = query.data?.appearance
@@ -20,6 +28,7 @@ export function useSession() {
   // Any request answered with 401 means the session ended (expired, or signed out elsewhere).
   useEffect(() => {
     const onSignedOut = () => {
+      if (Date.now() - signedInAt < 3_000) return
       if (client.getQueryData(KEY)) client.setQueryData(KEY, null)
     }
     sessionEvents.addEventListener("signed-out", onSignedOut)
@@ -41,9 +50,12 @@ export function useSignIn() {
   return useMutation({
     mutationFn: ({ username, password }: { username: string; password: string }) => api.signIn(username, password),
     onSuccess: (me) => {
-      // Start fresh: nothing cached for someone else should linger.
-      client.clear()
+      // Start fresh: nothing cached for someone else should linger, but keep the
+      // session itself, and ignore 401s from requests that were already in flight.
+      signedInAt = Date.now()
+      client.removeQueries({ predicate: (query) => query.queryKey[0] !== "session" })
       client.setQueryData(KEY, me)
+      void client.invalidateQueries()
     },
   })
 }

@@ -5,6 +5,7 @@ import {
   Bell,
   BellRing,
   Check,
+  Info,
   MessageSquarePlus,
   CircleCheck,
   FileImage,
@@ -16,6 +17,7 @@ import {
 import { useLayoutEffect, useRef, useState } from "react"
 
 import { Cover } from "@/components/cover"
+import { useMusicViews } from "@/components/music-views"
 import { Button } from "@/components/ui/button"
 import type { Candidate, CandidateFile, PeerHistory } from "@/lib/api"
 import { useAccentColour, useArtwork } from "@/lib/artwork"
@@ -127,8 +129,18 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
             <Dialog.Title className="type-display mt-2 line-clamp-2 text-[26px] text-balance break-words sm:text-[32px] lg:text-[clamp(26px,3.6vh,38px)]">
               {artwork.data?.album ?? c.title}
             </Dialog.Title>
-            <Dialog.Description className="mt-1 truncate text-[17px] text-muted-foreground">
-              {artwork.data?.artist ?? c.parent ?? "Unknown artist"}
+            <Dialog.Description className="mt-1 truncate text-[17px] text-muted-foreground" render={<div />}>
+              {(artwork.data?.artist ?? c.parent) ? (
+                <Link
+                  to="/artist/$name"
+                  params={{ name: artwork.data?.artist ?? c.parent ?? "" }}
+                  className="underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  {artwork.data?.artist ?? c.parent}
+                </Link>
+              ) : (
+                "Unknown artist"
+              )}
             </Dialog.Description>
           </div>
         </div>
@@ -179,7 +191,15 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
       </aside>
 
       <section className="relative flex shrink-0 flex-col px-3 lg:min-h-0 lg:shrink pt-2 pb-5 sm:px-6 lg:pt-[72px]">
-        <Tracklist files={audio} owned={owned} highlight={linkedTrack?.path} excluded={excluded} onToggle={toggle} />
+        <Tracklist
+          files={audio}
+          owned={owned}
+          highlight={linkedTrack?.path}
+          excluded={excluded}
+          onToggle={toggle}
+          artist={artwork.data?.artist ?? c.parent ?? null}
+          album={artwork.data?.album ?? c.title}
+        />
         {other.length > 0 && (
           <ul className="mx-3 mt-3 flex flex-wrap gap-2 border-t pt-4">
             {other.map((f) => (
@@ -223,13 +243,18 @@ function Tracklist({
   highlight,
   excluded,
   onToggle,
+  artist,
+  album,
 }: {
   files: CandidateFile[]
   owned: Ownership | null
   highlight?: string
   excluded: Set<string>
   onToggle: (path: string) => void
+  artist: string | null
+  album: string
 }) {
+  const views = useMusicViews()
   const box = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState({ columns: 1, rows: files.length, overflow: false })
 
@@ -322,6 +347,18 @@ function Tracklist({
                 )}
                 <span className="w-9 text-right">{formatTrackTime(file.duration_secs)}</span>
                 {!compact && <span className="hidden w-14 text-right sm:inline">{formatBytes(file.size)}</span>}
+                <button
+                  type="button"
+                  aria-label={`About ${title}`}
+                  title="Words and details"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    views.openTrack({ artist, title, album, durationSecs: file.duration_secs })
+                  }}
+                  className="rounded-md p-1 text-muted-foreground/60 opacity-0 outline-none transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Info className="size-3.5" />
+                </button>
               </span>
             </li>
           )

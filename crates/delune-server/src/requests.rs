@@ -232,6 +232,8 @@ pub async fn create(State(app): State<AppState>, user: CurrentUser, Json(new): J
             );
         }
     }
+    crate::events::changed(&app, crate::events::Topic::Requests);
+    crate::events::changed(&app, crate::events::Topic::Notifications);
     (StatusCode::CREATED, Json(request)).into_response()
 }
 
@@ -327,6 +329,10 @@ pub async fn decide(
         };
         app.notifications.notify(&request.requested_by, kind, title, detail, "/downloads");
     }
+    crate::events::changed(&app, crate::events::Topic::Requests);
+    crate::events::changed(&app, crate::events::Topic::Downloads);
+    crate::events::changed(&app, crate::events::Topic::Wishlist);
+    crate::events::changed(&app, crate::events::Topic::Notifications);
     Json(request).into_response()
 }
 
@@ -351,7 +357,10 @@ pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         Some(items.remove(index))
     });
     match removed {
-        Some(_) => StatusCode::NO_CONTENT.into_response(),
+        Some(_) => {
+            crate::events::changed(&app, crate::events::Topic::Requests);
+            StatusCode::NO_CONTENT.into_response()
+        }
         None => error(StatusCode::NOT_FOUND, "no-such-request", "That request doesn't exist."),
     }
 }

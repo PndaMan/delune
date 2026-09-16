@@ -213,7 +213,7 @@ export function NamingEditor({ editable }: { editable: boolean }) {
           ]}
         />
         <div>
-          <label htmlFor="naming-replacement" className="text-sm text-muted-foreground">
+          <label htmlFor="naming-replacement" className="block text-sm text-muted-foreground">
             Replace characters like / : ? with
           </label>
           <Input

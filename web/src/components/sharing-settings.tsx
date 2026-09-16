@@ -5,11 +5,31 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { plural } from "@/lib/format"
-import { type SharingSettings, type SpeedSchedule, sharingApi, useSharingStatus } from "@/lib/sharing"
+import {
+  type SharingSettings,
+  type SharingStatus,
+  type SpeedSchedule,
+  sharingApi,
+  useSharingStatus,
+} from "@/lib/sharing"
 import { cn } from "@/lib/utils"
 
-/** Turn sharing on, choose how generous to be, and see what's shared. */
-export function SharingSettingsPanel() {
+type Draft = {
+  status: SharingStatus
+  settings: SharingSettings
+  edit: (patch: Partial<SharingSettings>) => void
+  dirty: boolean
+  save: () => void
+  discard: () => void
+  saving: boolean
+  error: string | null
+}
+
+/**
+ * One draft of the sharing settings, shared by the panels that show parts of them.
+ * Everything saves together, so a half-edited page can be discarded in one go.
+ */
+function useSharingDraft(): Draft | null {
   const client = useQueryClient()
   const status = useSharingStatus()
   const [draft, setDraft] = useState<SharingSettings | null>(null)
@@ -20,19 +40,104 @@ export function SharingSettingsPanel() {
       setDraft(null)
     },
   })
-  const rescan = useMutation({
-    mutationFn: sharingApi.rescan,
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["sharing"] }),
-  })
   useEffect(() => {
     if (save.isSuccess) save.reset()
   }, [status.data, save])
 
-  if (!status.data) return <div className="h-40 animate-pulse rounded-xl bg-muted/50" />
-  const s = status.data
-  const settings = draft ?? s.settings
-  const edit = (patch: Partial<SharingSettings>) => setDraft({ ...settings, ...patch })
-  const dirty = draft !== null
+  if (!status.data) return null
+  const settings = draft ?? status.data.settings
+  return {
+    status: status.data,
+    settings,
+    edit: (patch) => setDraft({ ...settings, ...patch }),
+    dirty: draft !== null,
+    save: () => draft && save.mutate(draft),
+    discard: () => setDraft(null),
+    saving: save.isPending,
+    error: save.isError ? save.error.message : null,
+  }
+}
+
+function SaveBar({ draft }: { draft: Draft }) {
+  if (!draft.dirty && !draft.error) return null
+  return (
+    <div className="sticky bottom-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-card/95 px-5 py-3 shadow-lg backdrop-blur">
+      <p className="min-w-0 flex-1 text-sm text-destructive">{draft.error}</p>
+      <Button variant="ghost" onClick={draft.discard} disabled={draft.saving}>
+        Discard
+      </Button>
+      <Button onClick={draft.save} disabled={draft.saving}>
+        {draft.saving && <LoaderCircle className="animate-spin" />} Save
+      </Button>
+    </div>
+  )
+}
+
+function loading() {
+  return <div className="h-40 animate-pulse rounded-xl bg-muted/50" />
+}
+
+/** Speed limits and how many albums come down at once. */
+export function TransfersPanel() {
+  const draft = useSharingDraft()
+  if (!draft) return loading()
+  const { settings, edit } = draft
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 rounded-2xl border bg-card/50 px-5 py-5 sm:grid-cols-2">
+        <Field label="Albums downloading at once" hint="The rest wait their turn. Leave empty for no limit.">
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={settings.downloads_at_once ?? ""}
+            placeholder="No limit"
+            onChange={(e) => edit({ downloads_at_once: e.target.value ? Number(e.target.value) : null })}
+            className={input}
+          />
+        </Field>
+        <Field label="Download speed limit (KiB/s)" hint="Shared by all downloads. Leave empty for no limit.">
+          <input
+            type="number"
+            min={0}
+            value={settings.download_limit_kib ?? ""}
+            placeholder="No limit"
+            onChange={(e) => edit({ download_limit_kib: e.target.value ? Number(e.target.value) : null })}
+            className={input}
+          />
+        </Field>
+        <Field label="Upload speed limit (KiB/s)" hint="What other Soulseek users get. Leave empty for no limit.">
+          <input
+            type="number"
+            min={0}
+            value={settings.speed_limit_kib ?? ""}
+            placeholder="No limit"
+            onChange={(e) => edit({ speed_limit_kib: e.target.value ? Number(e.target.value) : null })}
+            className={input}
+          />
+        </Field>
+        <ScheduleFields
+          schedule={settings.schedule ?? null}
+          active={draft.status.scheduled && !draft.dirty}
+          onChange={(schedule) => edit({ schedule })}
+        />
+      </div>
+      <SaveBar draft={draft} />
+    </div>
+  )
+}
+
+/** Turn sharing on, choose how generous to be, and see what's shared. */
+export function SharingSettingsPanel() {
+  const client = useQueryClient()
+  const draft = useSharingDraft()
+  const rescan = useMutation({
+    mutationFn: sharingApi.rescan,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["sharing"] }),
+  })
+  if (!draft) return loading()
+  const { status: s, settings, edit } = draft
 
   return (
     <div className="space-y-4">
@@ -47,13 +152,13 @@ export function SharingSettingsPanel() {
           <p className="mt-1 text-sm text-muted-foreground">
             {s.library_dir
               ? `Other Soulseek users can browse and download what's in ${s.library_dir}. They see it as “${settings.share_name}”, never the real path. Many people only share with those who share back.`
-              : "Set a library folder when starting the server to share it."}
+              : "Set a library folder under Connections to share it."}
           </p>
         </div>
         <Switch
           checked={settings.enabled}
-          disabled={!s.library_dir || save.isPending}
-          onCheckedChange={(enabled) => save.mutate({ ...settings, enabled })}
+          disabled={!s.library_dir || draft.saving}
+          onCheckedChange={(enabled) => edit({ enabled })}
           className="mt-1"
         />
       </label>
@@ -100,23 +205,13 @@ export function SharingSettingsPanel() {
             className={input}
           />
         </Field>
-        <Field label="Speed limit (KiB/s)" hint="Leave empty for no limit.">
+        <Field label="Files per person" hint="How many files one person can have waiting.">
           <input
             type="number"
-            min={0}
-            value={settings.speed_limit_kib ?? ""}
-            placeholder="No limit"
-            onChange={(e) => edit({ speed_limit_kib: e.target.value ? Number(e.target.value) : null })}
-            className={input}
-          />
-        </Field>
-        <Field label="Download speed limit (KiB/s)" hint="Shared by all downloads. Leave empty for no limit.">
-          <input
-            type="number"
-            min={0}
-            value={settings.download_limit_kib ?? ""}
-            placeholder="No limit"
-            onChange={(e) => edit({ download_limit_kib: e.target.value ? Number(e.target.value) : null })}
+            min={1}
+            max={10000}
+            value={settings.queue_per_user}
+            onChange={(e) => edit({ queue_per_user: Number(e.target.value) })}
             className={input}
           />
         </Field>
@@ -133,26 +228,6 @@ export function SharingSettingsPanel() {
             className={input}
           />
         </Field>
-        <Field label="Albums downloading at once" hint="The rest wait their turn. Leave empty for no limit.">
-          <input
-            type="number"
-            min={1}
-            max={100}
-            value={settings.downloads_at_once ?? ""}
-            placeholder="No limit"
-            onChange={(e) => edit({ downloads_at_once: e.target.value ? Number(e.target.value) : null })}
-            className={input}
-          />
-        </Field>
-        <label className="flex cursor-pointer items-start gap-3 self-end pb-2">
-          <Switch checked={settings.upnp} onCheckedChange={(upnp) => edit({ upnp })} className="mt-0.5" />
-          <span>
-            <span className="block text-[14px]">Forward the Soulseek port automatically</span>
-            <span className="mt-0.5 block text-[12.5px] text-muted-foreground">
-              Asks your router (UPnP) so other users can connect in. Changes the router's settings.
-            </span>
-          </span>
-        </label>
         <label className="flex cursor-pointer items-start gap-3 self-end pb-2">
           <Switch
             checked={settings.refuse_leechers}
@@ -166,16 +241,15 @@ export function SharingSettingsPanel() {
             </span>
           </span>
         </label>
-        <Field label="Files per person" hint="How many files one person can have waiting.">
-          <input
-            type="number"
-            min={1}
-            max={10000}
-            value={settings.queue_per_user}
-            onChange={(e) => edit({ queue_per_user: Number(e.target.value) })}
-            className={input}
-          />
-        </Field>
+        <label className="flex cursor-pointer items-start gap-3 self-end pb-2">
+          <Switch checked={settings.upnp} onCheckedChange={(upnp) => edit({ upnp })} className="mt-0.5" />
+          <span>
+            <span className="block text-[14px]">Forward the Soulseek port automatically</span>
+            <span className="mt-0.5 block text-[12.5px] text-muted-foreground">
+              Asks your router (UPnP) so other users can connect in. Changes the router's settings.
+            </span>
+          </span>
+        </label>
         <Field label="Blocked people" hint="One Soulseek username per line. They can't download from you." wide>
           <textarea
             rows={3}
@@ -184,23 +258,8 @@ export function SharingSettingsPanel() {
             className={cn(input, "h-auto py-2")}
           />
         </Field>
-        <ScheduleFields
-          schedule={settings.schedule ?? null}
-          active={s.scheduled && !dirty}
-          onChange={(schedule) => edit({ schedule })}
-        />
-        {(dirty || save.isError) && (
-          <div className="flex items-center gap-3 sm:col-span-2">
-            {save.isError && <p className="text-sm text-destructive">{save.error.message}</p>}
-            <Button variant="ghost" className="ml-auto" onClick={() => setDraft(null)} disabled={!dirty}>
-              Discard
-            </Button>
-            <Button onClick={() => draft && save.mutate(draft)} disabled={!dirty || save.isPending}>
-              {save.isPending && <LoaderCircle className="animate-spin" />} Save
-            </Button>
-          </div>
-        )}
       </div>
+      <SaveBar draft={draft} />
     </div>
   )
 }

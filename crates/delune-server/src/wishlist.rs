@@ -260,6 +260,7 @@ pub async fn add(State(app): State<AppState>, user: CurrentUser, Json(request): 
     let mut items = app.wishlist.lock();
     let result = insert(&mut items, &user.username, request);
     app.wishlist.save(&items);
+    crate::events::changed(&app, crate::events::Topic::Wishlist);
     match result {
         Ok((true, item)) => (StatusCode::CREATED, Json(item)).into_response(),
         Ok((false, item)) => Json(item).into_response(),
@@ -301,6 +302,7 @@ pub async fn add_many(
         }
     }
     app.wishlist.save(&items);
+    crate::events::changed(&app, crate::events::Topic::Wishlist);
     Json(serde_json::json!({ "added": added })).into_response()
 }
 

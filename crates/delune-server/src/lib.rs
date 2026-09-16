@@ -12,9 +12,11 @@ pub mod artwork;
 pub mod automation;
 pub mod chat;
 pub mod downloads;
+pub mod events;
 pub mod external;
 pub mod finishing;
 pub mod library;
+pub mod music;
 pub mod naming;
 pub mod nat;
 pub mod notifications;
@@ -108,6 +110,10 @@ pub struct AppState {
     pub db: Arc<store::Database>,
     /// A program people who manage delune may point it at for other sources.
     pub external: Arc<external::External>,
+    /// For looking things up about artists, albums and songs.
+    pub music_http: reqwest::Client,
+    /// What changed, for clients watching `/api/v1/events`.
+    pub changes: Arc<events::Changes>,
     pub nat: Arc<nat::Nat>,
     /// Nudged when the port-mapping setting changes.
     pub nat_wake: Arc<tokio::sync::watch::Sender<u64>>,
@@ -142,6 +148,11 @@ impl Default for AppState {
             requests: Arc::default(),
             db: Arc::default(),
             external: Arc::default(),
+            changes: Arc::default(),
+            music_http: reqwest::Client::builder()
+                .user_agent(concat!("delune/", env!("CARGO_PKG_VERSION"), " (+https://github.com/PndaMan/delune)"))
+                .build()
+                .unwrap_or_default(),
             nat: Arc::default(),
             nat_wake: Arc::new(tokio::sync::watch::channel(0).0),
         }
@@ -277,6 +288,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}/review", get(review::report))
         .route("/api/v1/downloads/{id}/import", post(review::import))
         .route("/api/v1/library/album", get(library::album))
+        .route("/api/v1/events", get(events::stream))
+        .route("/api/v1/music/artist", get(music::artist))
+        .route("/api/v1/music/album", get(music::album))
+        .route("/api/v1/music/lyrics", get(music::lyrics))
         .route("/api/v1/artwork", get(artwork::lookup))
         .route("/api/v1/artwork/image", get(artwork::image))
         .route("/api/v1/requests", get(requests::list).post(requests::create))

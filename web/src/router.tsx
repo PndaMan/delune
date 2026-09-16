@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router"
 
 import { AppShell } from "@/components/app-shell"
+import { ArtistPage } from "@/pages/artist-page"
 import { DownloadsPage } from "@/pages/downloads-page"
 import { HistoryPage } from "@/pages/history-page"
 import { ReviewPage } from "@/pages/review-page"
@@ -27,8 +28,33 @@ const searchRoute = createRoute({
 
 const downloadsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/downloads", component: DownloadsPage })
 const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage })
+const artistRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/artist/$name",
+  component: Artist,
+})
+
+function Artist() {
+  const { name } = artistRoute.useParams()
+  return <ArtistPage name={name} />
+}
+
 const historyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/history", component: HistoryPage })
-const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage })
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: () => <SettingsPage />,
+})
+const settingsSectionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/$section",
+  component: SettingsSection,
+})
+
+function SettingsSection() {
+  const { section } = settingsSectionRoute.useParams()
+  return <SettingsPage section={section} />
+}
 
 const soulseekRoute = createRoute({ getParentRoute: () => rootRoute, path: "/soulseek", component: SoulseekLayout })
 const peopleRoute = createRoute({ getParentRoute: () => soulseekRoute, path: "/", component: PeopleTab })
@@ -56,8 +82,10 @@ const routeTree = rootRoute.addChildren([
     roomRoute,
     uploadsRoute,
   ]),
+  artistRoute,
   historyRoute,
   settingsRoute,
+  settingsSectionRoute,
 ])
 
 export const router = createRouter({ routeTree, defaultPreload: "intent", scrollRestoration: true })

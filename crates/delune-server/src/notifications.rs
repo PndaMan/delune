@@ -102,6 +102,8 @@ pub fn start(app: &AppState) {
                 Ok((job, before)) => {
                     job_changed(&app, &job, before);
                     crate::requests::job_changed(&app, &job);
+                    crate::events::changed(&app, crate::events::Topic::Downloads);
+                    crate::events::changed(&app, crate::events::Topic::Notifications);
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
                     tracing::warn!(missed, "missed some download status changes");
@@ -174,6 +176,7 @@ pub struct MarkRead {
 )]
 pub async fn read(State(app): State<AppState>, user: CurrentUser, Json(body): Json<MarkRead>) -> Json<Notifications> {
     app.notifications.mark_read(&user.username, body.ids.as_deref());
+    crate::events::changed(&app, crate::events::Topic::Notifications);
     Json(app.notifications.inbox(&user.username))
 }
 

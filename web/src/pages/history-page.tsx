@@ -3,6 +3,7 @@ import { useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
+import { useMusicViews } from "@/components/music-views"
 import { Button } from "@/components/ui/button"
 import type { DownloadJob } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
@@ -155,6 +156,7 @@ export function HistoryPage() {
 
 function HistoryRow({ entry, showWho }: { entry: Entry; showWho: boolean }) {
   const artwork = useArtwork(entry.artist, entry.title)
+  const views = useMusicViews()
   const when = new Date(entry.at * 1000).toLocaleDateString(undefined, {
     day: "numeric",
     month: "short",
@@ -162,34 +164,43 @@ function HistoryRow({ entry, showWho }: { entry: Entry; showWho: boolean }) {
   })
   return (
     <li>
-      <Link
-        to={entry.link}
-        className="flex items-center gap-4 rounded-2xl px-3 py-2.5 outline-none transition-colors hover:bg-card/60 focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-12 rounded-lg" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-medium">
-            {artwork.data?.album ?? entry.title}
-            <span className="font-normal text-muted-foreground">
-              , {artwork.data?.artist ?? entry.artist ?? "Unknown artist"}
-            </span>
-          </p>
-          <p
-            className={cn(
-              "truncate text-[13.5px]",
-              entry.tone === "good"
-                ? "text-q-lossless"
-                : entry.tone === "bad"
-                  ? "text-destructive"
-                  : "text-muted-foreground",
-            )}
-          >
-            {entry.what}
-            {showWho && entry.who && <span className="text-muted-foreground">, for {entry.who}</span>}
-          </p>
-        </div>
-        <span className="hidden shrink-0 text-[13px] text-muted-foreground sm:block">{when}</span>
-      </Link>
+      <div className="flex items-center gap-4 rounded-2xl px-3 py-2.5 transition-colors hover:bg-card/60">
+        <button
+          type="button"
+          onClick={() => views.openAlbum({ artist: artwork.data?.artist ?? entry.artist, title: entry.title })}
+          aria-label={`About ${entry.title}`}
+          className="flex min-w-0 flex-1 items-center gap-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Cover src={artwork.data?.thumb} pending={artwork.isPending} alt="" className="size-12 rounded-lg" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-medium">
+              {artwork.data?.album ?? entry.title}
+              <span className="font-normal text-muted-foreground">
+                , {artwork.data?.artist ?? entry.artist ?? "Unknown artist"}
+              </span>
+            </p>
+            <p
+              className={cn(
+                "truncate text-[13.5px]",
+                entry.tone === "good"
+                  ? "text-q-lossless"
+                  : entry.tone === "bad"
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+              )}
+            >
+              {entry.what}
+              {showWho && entry.who && <span className="text-muted-foreground">, for {entry.who}</span>}
+            </p>
+          </div>
+        </button>
+        <Link
+          to={entry.link}
+          className="hidden shrink-0 text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline sm:block"
+        >
+          {when}
+        </Link>
+      </div>
     </li>
   )
 }

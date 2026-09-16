@@ -1226,6 +1226,67 @@ pub struct ResolvedTrack {
     pub duration_secs: Option<u32>,
 }
 
+/// `GET /api/v1/music/artist`: an artist, their releases and what the library has.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ArtistInfo {
+    pub name: String,
+    pub picture: Option<String>,
+    /// How many people follow them on Deezer, as a rough sense of scale.
+    pub listeners: Option<u64>,
+    /// Their releases, newest first.
+    pub albums: Vec<ArtistAlbum>,
+    /// What Navidrome already has by them.
+    pub in_library: Vec<LibraryAlbum>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ArtistAlbum {
+    pub title: String,
+    pub year: Option<u16>,
+    pub cover: Option<String>,
+    /// `album`, `ep` or `single`.
+    pub kind: String,
+    pub in_library: bool,
+}
+
+/// An album Navidrome has.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LibraryAlbum {
+    pub id: String,
+    pub title: String,
+    pub year: Option<u16>,
+    pub track_count: u32,
+}
+
+/// `GET /api/v1/music/album`: one album, whether you have it or not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlbumInfo {
+    pub title: String,
+    pub artist: Option<String>,
+    pub year: Option<u16>,
+    pub cover: Option<String>,
+    pub tracks: Vec<AlbumTrack>,
+    pub in_library: LibraryMatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlbumTrack {
+    pub position: u32,
+    pub title: String,
+    pub artist: Option<String>,
+    pub duration_secs: Option<u32>,
+}
+
 /// `GET /api/v1/library/album`: whether an album is already in Navidrome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

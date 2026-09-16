@@ -1,11 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Camera, LoaderCircle, LogOut, Lock } from "lucide-react"
-import { useEffect, useRef } from "react"
+import { Link, useNavigate } from "@tanstack/react-router"
+import {
+  ArrowDownToLine,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Globe,
+  Library,
+  LoaderCircle,
+  Lock,
+  LogOut,
+  Palette,
+  Plug,
+  Share2,
+  Sparkles,
+  UserRound,
+  Users,
+} from "lucide-react"
+import { useRef, useState } from "react"
 
 import { ConnectionsForm } from "@/components/connections-form"
 import { ExternalSourcePanel } from "@/components/external-source"
 import { NamingEditor } from "@/components/naming-editor"
-import { SharingSettingsPanel } from "@/components/sharing-settings"
+import { SharingSettingsPanel, TransfersPanel } from "@/components/sharing-settings"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
 import { Moon } from "@/components/moon"
 import { Avatar } from "@/components/profile-menu"
@@ -13,181 +30,244 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { ACCENTS, avatarUrl, THEMES, useSetAppearance, useSetAvatar } from "@/lib/appearance"
 import { type AutomationSettings, useAutomation } from "@/lib/automation"
+import { plural } from "@/lib/format"
 import { useMe, useSignOut } from "@/lib/session"
 import { useSetupStatus } from "@/lib/setup"
 import { PageFrame } from "@/pages/placeholder-pages"
 import { api, type People, type Permissions, type Person, type SessionInfo, type SoulseekStatus } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-export function SettingsPage() {
+const GROUPS = [
+  {
+    id: "account",
+    title: "Your account",
+    blurb: "Who you're signed in as, and your devices.",
+    icon: UserRound,
+    manage: false,
+    panel: () => <Account />,
+  },
+  {
+    id: "appearance",
+    title: "Appearance",
+    blurb: "Theme and accent, saved to your account.",
+    icon: Palette,
+    manage: false,
+    panel: () => <AppearancePicker />,
+  },
+  {
+    id: "library",
+    title: "Library and imports",
+    blurb: "How imported music is named, and what's added to it.",
+    icon: Library,
+    manage: false,
+    panel: () => <LibraryGroup />,
+  },
+  {
+    id: "transfers",
+    title: "Downloads",
+    blurb: "How much delune downloads at once, and how fast.",
+    icon: ArrowDownToLine,
+    manage: true,
+    panel: () => <TransfersPanel />,
+  },
+  {
+    id: "automation",
+    title: "Automation",
+    blurb: "What delune does on its own. Everything still waits for review.",
+    icon: Sparkles,
+    manage: true,
+    panel: () => <AutomationSettingsPanel />,
+  },
+  {
+    id: "people",
+    title: "People",
+    blurb: "Who can sign in, and what they may do.",
+    icon: Users,
+    manage: true,
+    panel: () => <PeopleSettings />,
+  },
+  {
+    id: "sharing",
+    title: "Sharing",
+    blurb: "Share your library back with Soulseek. Off until you turn it on.",
+    icon: Share2,
+    manage: true,
+    panel: () => <SharingSettingsPanel />,
+  },
+  {
+    id: "connections",
+    title: "Connections",
+    blurb: "Music folder, Navidrome and the Soulseek account.",
+    icon: Plug,
+    manage: true,
+    panel: () => <ConnectionsGroup />,
+  },
+  {
+    id: "sources",
+    title: "Other sources",
+    blurb: "Where delune looks, and a downloader of your own.",
+    icon: Globe,
+    manage: true,
+    panel: () => <OtherSourcesGroup />,
+  },
+] as const
+
+function visibleGroups(manage: boolean) {
+  return GROUPS.filter((group) => manage || !group.manage)
+}
+
+/**
+ * Settings, grouped: a list to pick from on phones, a sidebar beside the group on
+ * wider screens. The groups are ordered by how often people need them.
+ */
+export function SettingsPage({ section }: { section?: string }) {
   const me = useMe()
-  useEffect(() => {
-    const target = window.location.hash.slice(1)
-    if (target) document.getElementById(target)?.scrollIntoView({ block: "start" })
-  }, [])
+  const navigate = useNavigate()
+  const groups = visibleGroups(me.permissions.manage)
+  const active = groups.find((group) => group.id === section)
+
+  // Phones: the list is its own screen, so a group can be opened and closed.
+  if (!active) {
+    return (
+      <PageFrame title="Settings" wide>
+        <div className="mt-2 md:hidden">
+          <ul className="overflow-hidden rounded-2xl border bg-card/50">
+            {groups.map((group) => (
+              <li key={group.id}>
+                <Link
+                  to="/settings/$section"
+                  params={{ section: group.id }}
+                  className="flex items-center gap-4 border-b px-4 py-3.5 outline-none last:border-b-0 hover:bg-accent/60 focus-visible:bg-accent/60"
+                >
+                  <group.icon className="size-5 shrink-0 text-muted-foreground" strokeWidth={1.8} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15.5px]">{group.title}</span>
+                    <span className="mt-0.5 block text-[13px] text-muted-foreground">{group.blurb}</span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="hidden md:block">
+          <SettingsPane groups={groups} active={groups[0]} heading />
+        </div>
+      </PageFrame>
+    )
+  }
+
   return (
-    <PageFrame title="Settings" wide>
-      <p className="max-w-[60ch] text-[15px] text-muted-foreground">
-        People, permissions and sharing save as you change them. The other sections show what delune uses today, and the
-        file naming editor previews exactly how your library will be named.
-      </p>
-      <SectionNav manage={me.permissions.manage} />
-      <div className="mt-10 divide-y border-t pb-24 md:mt-10">
-        <Section
-          id="account"
-          title="Your account"
-          description="delune uses your Navidrome account. Admins in Navidrome are admins here."
-        >
-          <Account />
-        </Section>
-        <Section
-          id="appearance"
-          title="Appearance"
-          description="How delune looks for you, on every device you sign in on."
-        >
-          <AppearancePicker />
-        </Section>
-        {me.permissions.manage && (
-          <Section
-            id="people"
-            title="People"
-            description="Everyone who has signed in. Admins can do everything; choose what everyone else can do."
-          >
-            <PeopleSettings />
-          </Section>
-        )}
-        <Section
-          id="sources"
-          title="Sources"
-          description="Where delune looks for music, in order. Soulseek always comes first."
-        >
-          <Sources />
-        </Section>
-        {me.permissions.manage && (
-          <Section
-            id="automation"
-            title="Automation"
-            description="Things delune can do on its own. Everything it finds still waits for review."
-          >
-            <AutomationSettingsPanel />
-          </Section>
-        )}
-        {me.permissions.manage && (
-          <Section
-            id="sharing"
-            title="Sharing"
-            description="Let other Soulseek users browse and download your library. Off until you turn it on."
-          >
-            <SharingSettingsPanel />
-          </Section>
-        )}
-        {me.permissions.manage && (
-          <Section
-            id="connections"
-            title="Connections"
-            description="Your music folder, Navidrome and the Soulseek account delune signs in with."
-          >
-            <Connections />
-          </Section>
-        )}
-        <Section
-          id="soulseek"
-          title="Soulseek account"
-          description="delune connects to Soulseek itself; no separate client needed."
-        >
-          <SoulseekAccount />
-        </Section>
-        {me.permissions.manage && (
-          <Section
-            id="fetching"
-            title="Other sources"
-            description="A downloader of your own, for links delune can't fetch itself. Off by default."
-          >
-            <ExternalSourcePanel />
-          </Section>
-        )}
-        <Section
-          id="lyrics"
-          title="Lyrics and artwork"
-          description="Added to every import. Lyrics come from LRCLIB, an open lyrics database, with timings where it has them."
-        >
-          <ImportOptionsPanel editable={me.permissions.manage} />
-        </Section>
-        <Section
-          id="naming"
-          title="File naming"
-          description="How folders and files are named when a release is imported. Click a token to insert it."
-        >
-          <NamingEditor editable={me.permissions.manage} />
-        </Section>
+    <PageFrame title={active.title} wide>
+      <button
+        type="button"
+        onClick={() => void navigate({ to: "/settings" })}
+        className="-mt-1 mb-2 flex items-center gap-1 text-[14px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+      >
+        <ChevronLeft className="size-4" /> All settings
+      </button>
+      <p className="max-w-[60ch] text-[15px] text-muted-foreground md:hidden">{active.blurb}</p>
+      <div className="mt-4 md:hidden">
+        <active.panel />
+      </div>
+      <div className="hidden md:block">
+        <SettingsPane groups={groups} active={active} />
       </div>
     </PageFrame>
   )
 }
 
-/** Phones: jump between sections instead of scrolling past all of them. */
-function SectionNav({ manage }: { manage: boolean }) {
-  const sections = [
-    ["account", "Account"],
-    ["appearance", "Appearance"],
-    ...(manage ? [["people", "People"]] : []),
-    ["sources", "Sources"],
-    ...(manage
-      ? [
-          ["automation", "Automation"],
-          ["sharing", "Sharing"],
-          ["connections", "Connections"],
-          ["fetching", "Other sources"],
-        ]
-      : []),
-    ["soulseek", "Soulseek"],
-    ["lyrics", "Lyrics"],
-    ["naming", "File naming"],
-  ]
+/** Wide screens: the groups down the side, the chosen one beside them. */
+function SettingsPane({
+  groups,
+  active,
+  heading,
+}: {
+  groups: readonly (typeof GROUPS)[number][]
+  active: (typeof GROUPS)[number]
+  /** The page title already names the group when one is open. */
+  heading?: boolean
+}) {
   return (
-    <nav
-      aria-label="Settings sections"
-      className="sticky top-0 z-20 -mx-5 mt-6 flex gap-2 overflow-x-auto px-5 py-2.5 backdrop-blur-xl [scrollbar-width:none] supports-[backdrop-filter]:bg-background/60 md:hidden"
-    >
-      {sections.map(([id, label]) => (
-        <a
-          key={id}
-          href={`#${id}`}
-          onClick={(e) => {
-            e.preventDefault()
-            document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
-            history.replaceState(null, "", `#${id}`)
-          }}
-          className="flex h-9 shrink-0 items-center rounded-full border bg-card/60 px-3.5 text-[14px] whitespace-nowrap text-muted-foreground"
-        >
-          {label}
-        </a>
-      ))}
-    </nav>
+    <div className="mt-6 grid gap-10 pb-24 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <nav aria-label="Settings" className="lg:sticky lg:top-6 lg:self-start">
+        <ul className="flex gap-1 overflow-x-auto [scrollbar-width:none] lg:block lg:space-y-0.5 lg:overflow-visible">
+          {groups.map((group) => (
+            <li key={group.id}>
+              <Link
+                to="/settings/$section"
+                params={{ section: group.id }}
+                aria-current={group.id === active.id ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl px-3 py-2 text-[14.5px] whitespace-nowrap text-muted-foreground outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                  group.id === active.id && "bg-accent text-foreground",
+                )}
+              >
+                <group.icon className="size-[18px] shrink-0" strokeWidth={1.8} />
+                {group.title}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <div className="min-w-0">
+        {heading && <h2 className="type-title text-[21px]">{active.title}</h2>}
+        <p className={cn("mb-6 max-w-[62ch] text-[15px] text-muted-foreground", heading && "mt-1")}>{active.blurb}</p>
+        <active.panel />
+      </div>
+    </div>
   )
 }
 
-function Section({
-  id,
-  title,
-  description,
-  children,
-}: {
-  id?: string
-  title: string
-  description: string
-  children: React.ReactNode
-}) {
+/** Naming, then what's added to each import. */
+function LibraryGroup() {
+  const me = useMe()
   return (
-    <section
-      id={id}
-      className="grid scroll-mt-16 gap-6 md:scroll-mt-6 py-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12"
-    >
-      <div>
-        <h2 className="type-title text-[21px]">{title}</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
-      </div>
-      <div className="min-w-0">{children}</div>
+    <div className="space-y-10">
+      <Part title="File naming" hint="How folders and files are named when a release is imported.">
+        <NamingEditor editable={me.permissions.manage} />
+      </Part>
+      <Part
+        title="Lyrics and artwork"
+        hint="Added to every import. Lyrics come from LRCLIB, with timings where it has them."
+      >
+        <ImportOptionsPanel editable={me.permissions.manage} />
+      </Part>
+    </div>
+  )
+}
+
+/** The connections themselves, then what Soulseek says about this delune. */
+function ConnectionsGroup() {
+  return (
+    <div className="space-y-10">
+      <Connections />
+      <Part title="Soulseek" hint="delune connects to Soulseek itself; no separate client needed.">
+        <SoulseekAccount />
+      </Part>
+    </div>
+  )
+}
+
+function OtherSourcesGroup() {
+  return (
+    <div className="space-y-10">
+      <Part title="Where delune looks" hint="In order. Soulseek always comes first.">
+        <Sources />
+      </Part>
+      <Part title="Fetch with your own downloader" hint="For links delune can't fetch itself. Off by default.">
+        <ExternalSourcePanel />
+      </Part>
+    </div>
+  )
+}
+
+function Part({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="text-[16px] font-semibold">{title}</h3>
+      <p className="mt-0.5 mb-4 max-w-[62ch] text-[14px] text-muted-foreground">{hint}</p>
+      {children}
     </section>
   )
 }
@@ -534,8 +614,9 @@ function Account() {
   )
 }
 
-/** Where you're signed in, with a way to sign any of them out. */
+/** Where you're signed in. Folded away: most people never need it. */
 function Devices() {
+  const [open, setOpen] = useState(false)
   const client = useQueryClient()
   const devices = useQuery({ queryKey: ["devices"], queryFn: ({ signal }) => api.devices(signal) })
   const onDone = (next: SessionInfo[]) => client.setQueryData(["devices"], next)
@@ -544,16 +625,25 @@ function Devices() {
   if (!devices.data) return null
   const elsewhere = devices.data.filter((d) => !d.current).length
   return (
-    <div className="w-full border-t pt-4">
+    <div className="w-full border-t pt-3">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="min-w-0 flex-1 text-[14px] text-muted-foreground">Signed in on</p>
-        {elsewhere > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[14px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />
+          Signed in on {plural(devices.data.length, "device")}
+          {elsewhere > 0 && !open && <span className="text-muted-foreground/70">, {elsewhere} elsewhere</span>}
+        </button>
+        {open && elsewhere > 0 && (
           <Button variant="ghost" size="sm" disabled={others.isPending} onClick={() => others.mutate()}>
             Sign out everywhere else
           </Button>
         )}
       </div>
-      <ul className="mt-2 space-y-1">
+      <ul className={cn("mt-2 space-y-1", !open && "hidden")}>
         {devices.data.map((device) => (
           <li key={device.id} className="flex items-center gap-3 rounded-lg py-1.5 text-[14px]">
             <span className="min-w-0 flex-1 truncate">

@@ -281,6 +281,7 @@ pub async fn import(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         .and_then(|t| t.destination.rsplit_once('/').map(|(dir, _)| dir.to_owned()))
         .unwrap_or_default();
     app.downloads.mark_imported(&id, &folder);
+    crate::events::changed(&app, crate::events::Topic::Downloads);
     // Requests tell their requester themselves; otherwise say who approved it.
     if let Some(owner) = owner.as_deref().filter(|o| *o != user.username && !crate::requests::asked_for(&app, &id)) {
         app.notifications.notify(

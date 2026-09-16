@@ -111,6 +111,16 @@ pub fn finish(app: &AppState, tracks: Vec<Imported>, cover: Option<PathBuf>) {
     });
 }
 
+/// Words for one song from LRCLIB, or `None` when it doesn't have it.
+pub(crate) async fn lyrics_for(
+    http: &reqwest::Client,
+    title: &str,
+    artist: &str,
+    duration: Option<u32>,
+) -> Option<Lyrics> {
+    lookup(http, title, artist, duration).await
+}
+
 async fn lookup(http: &reqwest::Client, title: &str, artist: &str, duration: Option<u32>) -> Option<Lyrics> {
     let response = http
         .get(LRCLIB)

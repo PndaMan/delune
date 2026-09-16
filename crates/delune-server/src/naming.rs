@@ -132,6 +132,7 @@ pub async fn update(State(app): State<AppState>, user: CurrentUser, Json(setting
         db.save("naming", &saved);
     }
     tracing::info!(by = %user.username, template = %saved.template, "naming settings changed");
+    crate::events::changed(&app, crate::events::Topic::Naming);
     crate::downloads::recheck_reviews(&app);
     Json(saved).into_response()
 }

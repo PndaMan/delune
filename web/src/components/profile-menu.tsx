@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils"
 const TONE_DOT = { good: "bg-q-lossless", wait: "bg-q-hires", bad: "bg-destructive" } as const
 
 /** The signed-in person at the foot of the rail, with Soulseek's status on their avatar. */
-export function ProfileMenu() {
+export function ProfileMenu({ side = "right" }: { side?: "right" | "bottom" }) {
   const me = useMe()
   const navigate = useNavigate()
   const signOut = useSignOut()
@@ -40,7 +40,7 @@ export function ProfileMenu() {
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        side="right"
+        side={side}
         align="end"
         sideOffset={12}
         className="w-72 p-1.5 [&_[role=menuitem]]:gap-3 [&_[role=menuitem]]:px-2.5 [&_[role=menuitem]]:py-2 [&_[role=menuitem]]:text-[14px]"
