@@ -402,6 +402,11 @@ fn titles_match(wanted: &str, found: &str) -> bool {
     wanted_forms.iter().any(|w| found_forms.iter().any(|f| names_match(w, f)))
 }
 
+/// The same-origin address delune serves `src` from.
+pub(crate) fn proxy(src: &str) -> String {
+    proxy_url(src)
+}
+
 fn proxy_url(src: &str) -> String {
     let mut url = Url::parse("http://x/api/v1/artwork/image").expect("static URL");
     url.query_pairs_mut().append_pair("src", src);

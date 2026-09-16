@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
   ArrowDownToLine,
+  Bell,
   Camera,
   ChevronLeft,
   ChevronRight,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { AlertsPanel } from "@/components/alerts-panel"
 import { Choice } from "@/components/choice"
 import { DiagnosticsPanel } from "@/components/diagnostics-panel"
 import { BandcampGlyph, BandcampGroup } from "@/components/bandcamp"
@@ -62,6 +64,14 @@ const GROUPS = [
     icon: UserRound,
     manage: false,
     panel: () => <Account />,
+  },
+  {
+    id: "notifications",
+    title: "Notifications",
+    blurb: "Get told on your phone, in ntfy or on Discord when something needs you.",
+    icon: Bell,
+    manage: false,
+    panel: () => <AlertsPanel />,
   },
   {
     id: "health",

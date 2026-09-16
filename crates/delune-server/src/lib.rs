@@ -8,6 +8,7 @@
 //! scans) streams progress over Server-Sent Events rather than being polled.
 
 pub mod accounts;
+pub mod alerts;
 pub mod artwork;
 pub mod automation;
 pub mod bandcamp;
@@ -34,6 +35,7 @@ pub mod stats;
 pub mod store;
 pub mod users;
 mod web;
+pub mod webpush;
 pub mod wishlist;
 
 use std::net::SocketAddr;
@@ -116,6 +118,8 @@ pub struct AppState {
     pub soulseek_port: Option<u16>,
     pub locked: setup::Locked,
     pub notifications: Arc<notifications::Notifier>,
+    /// Where notifications go besides delune: push, ntfy, Discord.
+    pub alerts: Arc<alerts::Alerts>,
     pub requests: Arc<requests::Requests>,
     /// Where everything above is saved.
     pub db: Arc<store::Database>,
@@ -159,6 +163,7 @@ impl Default for AppState {
             soulseek_port: None,
             locked: setup::Locked::default(),
             notifications: Arc::default(),
+            alerts: Arc::default(),
             requests: Arc::default(),
             db: Arc::default(),
             external: Arc::default(),
@@ -192,6 +197,7 @@ impl AppState {
         let finishing = Arc::new(finishing::Finishing::open(&db));
         let naming = Arc::new(naming::Naming::open(&db, &config.library));
         let notifications = Arc::new(notifications::Notifier::open(&db));
+        let alerts = Arc::new(alerts::Alerts::open(&db));
         let requests = Arc::new(requests::Requests::open(&db));
         let external = Arc::new(external::External::open(&db));
         let favourites = Arc::new(favourites::Favourites::open(&db));
@@ -223,6 +229,7 @@ impl AppState {
             navidrome_account,
             locked: config.locked,
             notifications,
+            alerts,
             requests,
             external,
             favourites,
@@ -251,6 +258,7 @@ impl AppState {
                 }
             });
         }
+        alerts::start(&state);
         notifications::start(&state);
         accounts::start(&state);
         downloads::resume(&state);
@@ -311,6 +319,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/automation", get(automation::settings).put(automation::update))
         .route("/api/v1/import-options", get(finishing::get_options).put(finishing::set_options))
         .route("/api/v1/follows", get(automation::follows).post(automation::follow))
+        .route("/api/v1/radar", get(automation::radar))
         .route("/api/v1/follows/albums", get(automation::album_follows).post(automation::follow_album))
         .route("/api/v1/follows/albums/{id}", delete(automation::unfollow_album))
         .route("/api/v1/follows/{id}", delete(automation::unfollow))
@@ -348,6 +357,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/requests/{id}/decision", post(requests::decide))
         .route("/api/v1/notifications", get(notifications::list).delete(notifications::clear))
         .route("/api/v1/notifications/read", post(notifications::read))
+        .route("/api/v1/notifications/settings", get(alerts::settings).put(alerts::update))
+        .route("/api/v1/notifications/devices", post(alerts::add_device))
+        .route("/api/v1/notifications/devices/{id}", delete(alerts::remove_device))
+        .route("/api/v1/notifications/test", post(alerts::test))
         .route("/api/v1/external", get(external::settings).put(external::update))
         .route("/api/v1/external/fetch", post(external::fetch))
         .route("/api/v1/diagnostics", get(diagnostics::diagnostics))

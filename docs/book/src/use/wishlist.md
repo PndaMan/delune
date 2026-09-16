@@ -22,6 +22,14 @@ once a day, using Deezer's catalogue. Following is per person.
 
 SoundCloud artists can be followed too; see [SoundCloud](soundcloud.md).
 
+## New releases
+
+**New releases** (from the home screen, or `/radar`) lists what the artists you follow
+released in the last four months, and what's announced, with whether each is already
+in your library, on your wishlist or downloading. **Wish for it** adds one; upcoming
+releases can be wished for before they're out. You're also notified when a followed
+artist's new album or EP goes on your wishlist.
+
 ## Following albums
 
 **Follow album** (in a release or album view) keeps an album complete. Once a day

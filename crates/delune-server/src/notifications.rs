@@ -29,6 +29,8 @@ pub struct Notifier {
     store: Option<Arc<Database>>,
     inboxes: Mutex<BTreeMap<String, Vec<Notification>>>,
     counter: Mutex<u64>,
+    /// Sends each notification on to push, ntfy and Discord.
+    forward: std::sync::OnceLock<Arc<crate::alerts::Alerts>>,
 }
 
 fn now() -> u64 {
@@ -39,7 +41,12 @@ impl Notifier {
     #[must_use]
     pub fn open(db: &Arc<Database>) -> Self {
         let inboxes = db.load("notifications").unwrap_or_default();
-        Self { store: Some(db.clone()), inboxes: Mutex::new(inboxes), counter: Mutex::default() }
+        Self {
+            store: Some(db.clone()),
+            inboxes: Mutex::new(inboxes),
+            counter: Mutex::default(),
+            forward: std::sync::OnceLock::new(),
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Vec<Notification>>> {
@@ -59,9 +66,14 @@ impl Notifier {
             *counter += 1;
             format!("n{:x}{:04x}", now(), *counter & 0xffff)
         };
+        let notification =
+            Notification { id, kind, at: now(), title, detail, link: Some(link.to_owned()), read: false };
+        if let Some(alerts) = self.forward.get() {
+            alerts.send(username, &notification);
+        }
         let mut inboxes = self.lock();
         let inbox = inboxes.entry(username.to_owned()).or_default();
-        inbox.insert(0, Notification { id, kind, at: now(), title, detail, link: Some(link.to_owned()), read: false });
+        inbox.insert(0, notification);
         inbox.truncate(KEEP);
         self.save(&inboxes);
     }
@@ -94,6 +106,7 @@ impl Notifier {
 /// Follow download status changes for as long as the server runs. Call once at startup,
 /// before jobs resume.
 pub fn start(app: &AppState) {
+    let _ = app.notifications.forward.set(app.alerts.clone());
     let mut changes = app.downloads.status_changes();
     let app = app.clone();
     tokio::spawn(async move {

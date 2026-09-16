@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { Bell, CheckCheck, CircleAlert, CircleCheck, Inbox, MessageSquarePlus, X } from "lucide-react"
+import { Bell, CheckCheck, CircleAlert, CircleCheck, Inbox, MessageSquarePlus, Sparkles, X } from "lucide-react"
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { type NotificationKind, useClearNotifications, useMarkRead, useNotifications } from "@/lib/notifications"
@@ -12,6 +12,7 @@ const ICONS: Record<NotificationKind, typeof Bell> = {
   "review-ready": Inbox,
   "download-failed": CircleAlert,
   imported: CircleCheck,
+  "new-release": Sparkles,
 }
 
 function ago(at: number) {

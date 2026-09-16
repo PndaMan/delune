@@ -3,7 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toApiError } from "@/lib/api"
 
 export type NotificationKind =
-  "request-new" | "request-approved" | "request-declined" | "review-ready" | "download-failed" | "imported"
+  | "request-new"
+  | "request-approved"
+  | "request-declined"
+  | "review-ready"
+  | "download-failed"
+  | "imported"
+  | "new-release"
 
 export type Notification = {
   id: string

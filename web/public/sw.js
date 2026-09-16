@@ -55,3 +55,35 @@ self.addEventListener("fetch", (event) => {
     )
   }
 })
+
+// Push notifications: downloads ready for review, requests decided, new releases.
+self.addEventListener("push", (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch {
+    data = { title: event.data ? event.data.text() : "delune" }
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "delune", {
+      body: data.body || undefined,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: data.tag || undefined,
+      data: { url: data.url || "/" },
+    }),
+  )
+})
+
+// Tapping one opens delune where it points, reusing a tab that's already open.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const url = new URL(event.notification.data?.url || "/", self.location.origin).href
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => w.url.startsWith(self.location.origin))
+      if (open) return open.focus().then((w) => w.navigate(url))
+      return self.clients.openWindow(url)
+    }),
+  )
+})

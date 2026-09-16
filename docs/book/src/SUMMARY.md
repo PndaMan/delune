@@ -30,6 +30,7 @@
 - [Downloads and review](use/review.md)
 - [Naming and the library](use/library.md)
 - [Wishlist, following and automation](use/wishlist.md)
+- [Notifications](use/notifications.md)
 - [People, permissions and requests](use/people.md)
 - [Soulseek: people, favourites, chat, sharing](use/soulseek.md)
 - [Bandcamp](use/bandcamp.md)

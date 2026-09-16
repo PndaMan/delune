@@ -27,6 +27,42 @@ export type AlbumFollow = {
   queued: Array<string>
 }
 
+export type AlertDevice = {
+  id: string
+  label: string
+  /**
+   * Unix seconds.
+   */
+  added_at: number
+}
+
+export type AlertSettings = {
+  /**
+   * An ntfy topic address, like `https://ntfy.sh/my-delune`.
+   */
+  ntfy: string | null
+  /**
+   * A Discord webhook address.
+   */
+  discord: string | null
+  /**
+   * Kinds of notification that stay in delune only.
+   */
+  muted: Array<NotificationKind>
+  /**
+   * Browsers and phones that get push notifications.
+   */
+  devices: Array<AlertDevice>
+  /**
+   * The key browsers subscribe to push with.
+   */
+  push_key: string | null
+}
+
+export type AlertSettingsUpdate = { ntfy: string | null; discord: string | null; muted: Array<NotificationKind> }
+
+export type AlertTestResult = { channel: string; ok: boolean; message: string }
+
 export type ApiError = {
   /**
    * Stable machine-readable code, e.g. `soulseek-not-configured`.
@@ -527,7 +563,13 @@ export type Notification = {
 }
 
 export type NotificationKind =
-  "request-new" | "request-approved" | "request-declined" | "review-ready" | "download-failed" | "imported"
+  | "request-new"
+  | "request-approved"
+  | "request-declined"
+  | "review-ready"
+  | "download-failed"
+  | "imported"
+  | "new-release"
 
 export type Notifications = { unread: number; items: Array<Notification> }
 
@@ -620,6 +662,16 @@ export type Provider =
   | "apple-music"
   | "music-brainz"
 
+export type PushDevice = {
+  endpoint: string
+  p256dh: string
+  auth: string
+  /**
+   * What to call this device, like "Firefox on Linux".
+   */
+  label: string
+}
+
 export type Quality = {
   codec: Codec
   /**
@@ -641,6 +693,37 @@ export type Quality = {
 }
 
 export type QualityTier = "unknown" | "lossy" | "lossless" | "hi-res"
+
+export type RadarRelease = {
+  /**
+   * Deezer's album id.
+   */
+  id: number
+  artist: string
+  title: string
+  /**
+   * `album`, `ep` or `single`.
+   */
+  kind: string
+  /**
+   * `YYYY-MM-DD`.
+   */
+  release_date: string
+  /**
+   * Not out yet.
+   */
+  upcoming: boolean
+  cover: string | null
+  in_library: boolean
+  /**
+   * On the wishlist.
+   */
+  wished: boolean
+  /**
+   * A copy is downloading or waiting for review.
+   */
+  downloading: boolean
+}
 
 export type RecentAlbum = {
   id: string

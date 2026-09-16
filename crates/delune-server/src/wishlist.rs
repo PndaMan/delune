@@ -67,6 +67,11 @@ impl Wishlist {
             .cloned()
     }
 
+    /// Everything on the list right now.
+    pub(crate) fn snapshot(&self) -> Vec<WishlistItem> {
+        self.lock().clone()
+    }
+
     /// Change the list directly, saving afterwards.
     pub(crate) fn with_items<R>(&self, change: impl FnOnce(&mut Vec<WishlistItem>) -> R) -> R {
         let mut items = self.lock();

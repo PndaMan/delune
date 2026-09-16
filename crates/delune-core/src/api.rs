@@ -574,6 +574,8 @@ pub enum NotificationKind {
     ReviewReady,
     DownloadFailed,
     Imported,
+    /// A followed artist released something.
+    NewRelease,
 }
 
 /// Something that happened that someone should know about.
@@ -1316,6 +1318,68 @@ pub struct RecentAlbum {
     pub added_at: Option<u64>,
 }
 
+/// `GET /api/v1/notifications/settings`: where someone's notifications go besides delune.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlertSettings {
+    /// An ntfy topic address, like `https://ntfy.sh/my-delune`.
+    pub ntfy: Option<String>,
+    /// A Discord webhook address.
+    pub discord: Option<String>,
+    /// Kinds of notification that stay in delune only.
+    pub muted: Vec<NotificationKind>,
+    /// Browsers and phones that get push notifications.
+    pub devices: Vec<AlertDevice>,
+    /// The key browsers subscribe to push with.
+    pub push_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlertDevice {
+    pub id: String,
+    pub label: String,
+    /// Unix seconds.
+    pub added_at: u64,
+}
+
+/// `PUT /api/v1/notifications/settings`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlertSettingsUpdate {
+    #[serde(default)]
+    pub ntfy: Option<String>,
+    #[serde(default)]
+    pub discord: Option<String>,
+    #[serde(default)]
+    pub muted: Vec<NotificationKind>,
+}
+
+/// `POST /api/v1/notifications/devices`: what `PushManager.subscribe` returned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PushDevice {
+    pub endpoint: String,
+    pub p256dh: String,
+    pub auth: String,
+    /// What to call this device, like "Firefox on Linux".
+    pub label: String,
+}
+
+/// `POST /api/v1/notifications/test`: how a test message fared on each channel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlertTestResult {
+    pub channel: String,
+    pub ok: bool,
+    pub message: String,
+}
+
 /// `GET /api/v1/diagnostics`: how each part of delune is doing, and what to do about it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -1509,6 +1573,30 @@ pub struct AlbumFollow {
 pub struct FollowAlbumRequest {
     pub artist: String,
     pub album: String,
+}
+
+/// A release from an artist someone follows, for the radar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools, reason = "independent facts shown as badges")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RadarRelease {
+    /// Deezer's album id.
+    pub id: u64,
+    pub artist: String,
+    pub title: String,
+    /// `album`, `ep` or `single`.
+    pub kind: String,
+    /// `YYYY-MM-DD`.
+    pub release_date: String,
+    /// Not out yet.
+    pub upcoming: bool,
+    pub cover: Option<String>,
+    pub in_library: bool,
+    /// On the wishlist.
+    pub wished: bool,
+    /// A copy is downloading or waiting for review.
+    pub downloading: bool,
 }
 
 /// `PATCH /api/v1/wishlist/{id}`

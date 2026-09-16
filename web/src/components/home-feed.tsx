@@ -11,6 +11,7 @@ import { formatListeningTime, useLibraryStats, useRecentAlbums } from "@/lib/lib
 import { useMe } from "@/lib/session"
 import { albumFromFolder, artistFromFolder } from "@/lib/track-name"
 import { cn } from "@/lib/utils"
+import { RadarStrip } from "@/pages/radar-page"
 
 /**
  * The home screen below the search box: what's on its way, what's waiting for you,
@@ -60,6 +61,7 @@ export function HomeFeed() {
         </section>
       )}
 
+      <RadarStrip />
       <RecentlyAdded />
       {me.permissions.search && <LibraryGlance />}
     </div>

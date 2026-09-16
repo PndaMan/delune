@@ -10,7 +10,7 @@
 //!
 //! Nothing here imports anything: everything still stops at review.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -20,8 +20,11 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use delune_core::api::{AlbumFollow, ApiError, AutomationSettings, Follow, LibraryState, MinQuality, WishlistItem};
+use delune_core::api::{
+    AlbumFollow, ApiError, AutomationSettings, Follow, LibraryState, MinQuality, RadarRelease, WishlistItem,
+};
 use delune_core::{Codec, Quality};
+use futures_util::StreamExt as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -195,6 +198,18 @@ async fn check_follows(app: &AppState) {
                 MinQuality::Lossless,
                 settings.auto_download,
                 &format!("{} (followed)", follow.artist),
+            );
+            let kind_name = if kind == "ep" { "EP" } else { "album" };
+            app.notifications.notify(
+                &follow.added_by,
+                delune_core::api::NotificationKind::NewRelease,
+                format!("New {kind_name} from {}: {title}", follow.artist),
+                Some(if settings.auto_download {
+                    "It's on your wishlist, and will download for review when a good copy turns up.".into()
+                } else {
+                    "It's on your wishlist.".into()
+                }),
+                "/radar",
             );
             seen.push(id);
         }
@@ -525,6 +540,130 @@ pub async fn unfollow(State(app): State<AppState>, user: CurrentUser, UrlPath(id
     drop(state);
     crate::events::changed(&app, crate::events::Topic::Follows);
     StatusCode::NO_CONTENT
+}
+
+/// Releases per followed artist, kept for a few hours.
+/// An artist's releases, and when they were fetched.
+type Releases = HashMap<u64, (u64, Vec<Value>)>;
+static RADAR: std::sync::LazyLock<Mutex<Releases>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+const RADAR_KEEP: u64 = 6 * 60 * 60;
+/// How far back the radar looks.
+const RADAR_DAYS: u64 = 120;
+
+async fn artist_releases(app: &AppState, id: u64) -> Vec<Value> {
+    if let Some((at, albums)) = RADAR.lock().unwrap_or_else(PoisonError::into_inner).get(&id)
+        && now().saturating_sub(*at) < RADAR_KEEP
+    {
+        return albums.clone();
+    }
+    let albums = app
+        .automation
+        .deezer(&format!("/artist/{id}/albums?limit=100"))
+        .await
+        .and_then(|v| v.get("data").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
+    RADAR.lock().unwrap_or_else(PoisonError::into_inner).insert(id, (now(), albums.clone()));
+    albums
+}
+
+/// `GET /api/v1/radar`: new and upcoming releases from the artists you follow.
+#[utoipa::path(
+    get,
+    operation_id = "automation_radar",
+    path = "/api/v1/radar",
+    tag = "automation",
+    responses(
+        (status = 200, description = "Newest first; upcoming ones first of all", body = Vec<delune_core::api::RadarRelease>),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn radar(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<RadarRelease>> {
+    let follows: Vec<Follow> = {
+        let state = app.automation.lock();
+        let mut seen = HashSet::new();
+        state
+            .follows
+            .iter()
+            .filter(|f| f.added_by == user.username || user.permissions.manage)
+            .filter(|f| seen.insert(f.deezer_id))
+            .cloned()
+            .collect()
+    };
+    let cutoff = now().saturating_sub(RADAR_DAYS * 86_400);
+    let today = now();
+    let wished: Vec<String> = app
+        .wishlist
+        .snapshot()
+        .into_iter()
+        .filter(|i| i.track.is_none())
+        .map(|i| crate::artwork::normalize(&i.query))
+        .collect();
+    let jobs = app.downloads.list();
+
+    let mut found = Vec::new();
+    for follow in follows.iter().take(200) {
+        for album in artist_releases(&app, follow.deezer_id).await {
+            let (Some(id), Some(title), Some(date)) = (
+                album.get("id").and_then(Value::as_u64),
+                album.get("title").and_then(Value::as_str),
+                album.get("release_date").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            let Some(released) = release_timestamp(date.get(..10).unwrap_or(date)) else { continue };
+            if released < cutoff {
+                continue;
+            }
+            let key = crate::artwork::normalize(&format!("{} {title}", follow.artist));
+            let title_key = crate::artwork::normalize(title);
+            let downloading = jobs.iter().any(|j| {
+                crate::artwork::normalize(&j.title).contains(&title_key)
+                    && matches!(
+                        j.status,
+                        delune_core::api::JobStatus::Queued
+                            | delune_core::api::JobStatus::Downloading
+                            | delune_core::api::JobStatus::Ready
+                    )
+            });
+            found.push(RadarRelease {
+                id,
+                artist: follow.artist.clone(),
+                title: title.to_owned(),
+                kind: album.get("record_type").and_then(Value::as_str).unwrap_or("album").to_owned(),
+                release_date: date.get(..10).unwrap_or(date).to_owned(),
+                upcoming: released > today,
+                cover: album
+                    .get("cover_xl")
+                    .or_else(|| album.get("cover_medium"))
+                    .and_then(Value::as_str)
+                    .map(crate::artwork::proxy),
+                wished: wished.contains(&key),
+                downloading,
+                in_library: false,
+            });
+        }
+    }
+    let mut releases = found;
+    releases.sort_by(|a, b| b.upcoming.cmp(&a.upcoming).then(b.release_date.cmp(&a.release_date)));
+    releases.truncate(120);
+
+    // Whether each is already in the library, a few at a time.
+    let wanted: Vec<(String, String, bool)> =
+        releases.iter().map(|r| (r.artist.clone(), r.title.clone(), r.upcoming)).collect();
+    let checks = wanted.into_iter().map(|(artist, title, upcoming)| {
+        let app = app.clone();
+        async move {
+            if upcoming {
+                return false;
+            }
+            crate::library::lookup(&app, Some(&artist), &title, None).await.state == LibraryState::InLibrary
+        }
+    });
+    let owned: Vec<bool> = futures_util::stream::iter(checks).buffered(6).collect().await;
+    for (release, owned) in releases.iter_mut().zip(owned) {
+        release.in_library = owned;
+    }
+    Json(releases)
 }
 
 /// `GET /api/v1/follows/albums`
