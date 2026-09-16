@@ -27,6 +27,9 @@ self:
 
 let
   cfg = config.services.delune;
+  imageTag = "${cfg.package.version}-${
+    builtins.substring 0 12 (builtins.hashString "sha256" (builtins.unsafeDiscardStringContext cfg.package.outPath))
+  }";
   environment = {
     DELUNE_BIND = cfg.listen;
     DELUNE_DATA_DIR = cfg.dataDir;
@@ -203,10 +206,12 @@ in
 
       (mkIf (cfg.vpn.container != null) {
         virtualisation.oci-containers.containers.delune = {
-          image = "delune:${cfg.package.version}";
+          # A tag per build: with one fixed tag, podman could keep starting the image it
+          # already had, and an upgrade never reached the container.
+          image = "delune:${imageTag}";
           imageStream = pkgs.dockerTools.streamLayeredImage {
             name = "delune";
-            tag = cfg.package.version;
+            tag = imageTag;
             contents = [ pkgs.cacert ];
             config = {
               Cmd = [
