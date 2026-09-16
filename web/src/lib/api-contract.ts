@@ -12,6 +12,7 @@ import type * as Web6 from "@/lib/requests"
 import type * as Web7 from "@/lib/sharing"
 import type * as Web9 from "@/lib/favourites"
 import type * as Web10 from "@/lib/bandcamp"
+import type * as Web11 from "@/lib/soundcloud"
 import type * as Web8 from "@/lib/wishlist"
 
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -51,6 +52,10 @@ export type Contract = [
   Expect<Same<Web10.BandcampPurchase, Server.BandcampPurchase>>,
   Expect<Same<Web10.LinkBandcamp, Server.LinkBandcamp>>,
   Expect<Same<Web10.BandcampDownload, Server.BandcampDownload>>,
+  Expect<Same<Web11.SoundcloudArtist, Server.SoundcloudArtist>>,
+  Expect<Same<Web11.SoundcloudTrack, Server.SoundcloudTrack>>,
+  Expect<Same<Web11.SoundcloudTrackDetail, Server.SoundcloudTrackDetail>>,
+  Expect<Same<Web11.SoundcloudFollow, Server.SoundcloudFollow>>,
   Expect<Same<Web.SoulseekState, Server.SoulseekState>>,
   Expect<Same<Web.SoulseekStatus, Server.SoulseekStatus>>,
   Expect<Same<Web.SoulseekUser, Server.SoulseekUser>>,

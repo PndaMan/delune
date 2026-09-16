@@ -28,6 +28,7 @@ pub mod review;
 pub mod search;
 pub mod setup;
 pub mod sharing;
+pub mod soundcloud;
 pub mod store;
 pub mod users;
 mod web;
@@ -98,6 +99,8 @@ pub struct AppState {
     pub favourites: Arc<favourites::Favourites>,
     /// Bandcamp: albums to buy, and each person's linked account.
     pub bandcamp: Arc<bandcamp::Bandcamp>,
+    /// SoundCloud artists, and the ones people follow.
+    pub soundcloud: Arc<soundcloud::SoundCloud>,
     pub chat: Arc<chat::Chat>,
     pub sharing: Arc<sharing::Sharing>,
     pub wishlist: Arc<wishlist::Wishlist>,
@@ -142,6 +145,7 @@ impl Default for AppState {
             browse: Arc::default(),
             favourites: Arc::default(),
             bandcamp: Arc::default(),
+            soundcloud: Arc::default(),
             chat: Arc::default(),
             sharing: Arc::default(),
             wishlist: Arc::default(),
@@ -192,6 +196,7 @@ impl AppState {
         let external = Arc::new(external::External::open(&db));
         let favourites = Arc::new(favourites::Favourites::open(&db));
         let bandcamp = Arc::new(bandcamp::Bandcamp::open(&db));
+        let soundcloud = Arc::new(soundcloud::SoundCloud::open(&db));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -222,6 +227,7 @@ impl AppState {
             external,
             favourites,
             bandcamp,
+            soundcloud,
             db,
             ..Self::default()
         };
@@ -248,6 +254,7 @@ impl AppState {
         automation::start(&state);
         favourites::start(&state);
         bandcamp::start(&state);
+        soundcloud::start(&state);
         Ok(state)
     }
 }
@@ -279,6 +286,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/bandcamp/purchases", get(bandcamp::purchases))
         .route("/api/v1/bandcamp/purchases/sync", post(bandcamp::sync))
         .route("/api/v1/bandcamp/purchases/{id}/download", post(bandcamp::download))
+        .route("/api/v1/soundcloud/artist", get(soundcloud::artist))
+        .route("/api/v1/soundcloud/track", get(soundcloud::track_detail))
+        .route("/api/v1/soundcloud/follows", get(soundcloud::follows))
+        .route("/api/v1/soundcloud/follows/{artist}", put(soundcloud::follow).delete(soundcloud::unfollow))
         .route("/api/v1/soulseek/favourites", get(favourites::list))
         .route("/api/v1/soulseek/favourites/{username}", put(favourites::add).delete(favourites::remove))
         .route("/api/v1/soulseek/stats", get(sharing::stats))

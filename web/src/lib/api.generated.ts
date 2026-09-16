@@ -860,6 +860,59 @@ export type SoulseekUser = {
   profile: SoulseekProfile | null
 }
 
+export type SoundcloudArtist = {
+  id: number
+  name: string
+  permalink: string
+  url: string
+  avatar: string | null
+  followers: number
+  tracks: number
+  verified: boolean
+  /**
+   * New tracks from them go onto the wishlist.
+   */
+  following: boolean
+  recent: Array<SoundcloudTrack>
+}
+
+export type SoundcloudFollow = {
+  id: number
+  name: string
+  permalink: string
+  avatar: string | null
+  added_by: string
+  since: number
+  last_checked: number | null
+  /**
+   * Tracks already seen, so only newer ones are wished for.
+   */
+  seen: Array<number>
+}
+
+export type SoundcloudTrack = {
+  id: number
+  title: string
+  url: string
+  published_at: number | null
+  duration_secs: number | null
+  artwork: string | null
+}
+
+export type SoundcloudTrackDetail = {
+  title: string
+  artist: string
+  url: string
+  artwork: string | null
+  duration_secs: number | null
+  album: string | null
+  /**
+   * Where the artist offers it for free: their own link, or the track page when
+   * SoundCloud's download button is on. None when it isn't given away.
+   */
+  free_download: string | null
+}
+
 export type SpeedSchedule = {
   /**
    * Minutes after midnight the window opens, in `time_zone`.

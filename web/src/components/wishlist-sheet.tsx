@@ -5,10 +5,12 @@ import { useDeferredValue, useState } from "react"
 
 import { Cover } from "@/components/cover"
 import { useMusicViews } from "@/components/music-views"
+import { SoundcloudGlyph } from "@/components/soundcloud"
 import { Button } from "@/components/ui/button"
 import { useFollow, useFollows, useUnfollow } from "@/lib/automation"
 import { plural } from "@/lib/format"
 import { type AlbumHit, type ArtistHit, useMusicSearch } from "@/lib/music"
+import { type SoundcloudFollow, useSetSoundcloudFollow, useSoundcloudFollows } from "@/lib/soundcloud"
 import {
   MIN_QUALITY_LABELS,
   type MinQuality,
@@ -29,6 +31,7 @@ export function WishlistSheet({ open, onClose }: { open: boolean; onClose: () =>
   const search = useMusicSearch(useDeferredValue(query))
   const wishlist = useWishlist()
   const follows = useFollows()
+  const soundcloud = useSoundcloudFollows()
   const items = wishlist.data ?? []
   const waiting = items.filter((item) => !item.download_id && !item.paused)
   const found = items.filter((item) => item.download_id)
@@ -107,7 +110,12 @@ export function WishlistSheet({ open, onClose }: { open: boolean; onClose: () =>
                     <FollowRow key={follow.deezer_id} follow={follow} onClose={onClose} />
                   ))}
                 </Group>
-                {!items.length && !follows.data?.length && (
+                <Group title="Following on SoundCloud" count={soundcloud.data?.length ?? 0}>
+                  {(soundcloud.data ?? []).map((follow) => (
+                    <SoundcloudFollowRow key={follow.id} follow={follow} onClose={onClose} />
+                  ))}
+                </Group>
+                {!items.length && !follows.data?.length && !soundcloud.data?.length && (
                   <p className="px-4 py-10 text-center text-[15px] text-muted-foreground">
                     Nothing on the list yet. Search above for an album to watch for, or an artist to follow.
                   </p>
@@ -389,6 +397,35 @@ function FollowRow({
         variant="ghost"
         size="sm"
         onClick={() => unfollow.mutate(follow.deezer_id)}
+        disabled={unfollow.isPending}
+        className="text-muted-foreground"
+      >
+        <CircleCheck /> Following
+      </Button>
+    </li>
+  )
+}
+
+function SoundcloudFollowRow({ follow, onClose }: { follow: SoundcloudFollow; onClose: () => void }) {
+  const unfollow = useSetSoundcloudFollow()
+  return (
+    <li className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-accent/40">
+      <Cover src={follow.avatar ?? undefined} alt="" className="size-11 rounded-full" />
+      <Link
+        to="/artist/$name"
+        params={{ name: follow.name }}
+        onClick={onClose}
+        className="min-w-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <p className="flex items-center gap-1.5 truncate text-[15px] underline-offset-4 hover:underline">
+          {follow.name} <SoundcloudGlyph className="size-3.5 shrink-0 text-[#ff5500]" />
+        </p>
+        <p className="text-[13px] text-muted-foreground">New tracks go on the wishlist</p>
+      </Link>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => unfollow.mutate({ artist: String(follow.id), on: false })}
         disabled={unfollow.isPending}
         className="text-muted-foreground"
       >

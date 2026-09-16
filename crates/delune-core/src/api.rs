@@ -867,6 +867,70 @@ pub struct BandcampDownload {
     pub format: Option<String>,
 }
 
+/// `GET /api/v1/soundcloud/artist`: an artist's SoundCloud, with what they put out lately.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SoundcloudArtist {
+    pub id: u64,
+    pub name: String,
+    pub permalink: String,
+    pub url: String,
+    pub avatar: Option<String>,
+    pub followers: u64,
+    pub tracks: u64,
+    pub verified: bool,
+    /// New tracks from them go onto the wishlist.
+    pub following: bool,
+    pub recent: Vec<SoundcloudTrack>,
+}
+
+/// A track from an artist's SoundCloud feed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SoundcloudTrack {
+    pub id: u64,
+    pub title: String,
+    pub url: String,
+    pub published_at: Option<u64>,
+    pub duration_secs: Option<u32>,
+    pub artwork: Option<String>,
+}
+
+/// `GET /api/v1/soundcloud/track`: one track, and whether its artist gives it away.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SoundcloudTrackDetail {
+    pub title: String,
+    pub artist: String,
+    pub url: String,
+    pub artwork: Option<String>,
+    pub duration_secs: Option<u32>,
+    pub album: Option<String>,
+    /// Where the artist offers it for free: their own link, or the track page when
+    /// SoundCloud's download button is on. None when it isn't given away.
+    pub free_download: Option<String>,
+}
+
+/// `GET /api/v1/soundcloud/follows`: a SoundCloud artist whose new tracks are wished for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SoundcloudFollow {
+    pub id: u64,
+    pub name: String,
+    pub permalink: String,
+    pub avatar: Option<String>,
+    pub added_by: String,
+    pub since: u64,
+    pub last_checked: Option<u64>,
+    /// Tracks already seen, so only newer ones are wished for.
+    #[serde(default)]
+    pub seen: Vec<u64>,
+}
+
 /// `GET /api/v1/soulseek/favourites`: a Soulseek user someone starred, so their
 /// shares are kept to hand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

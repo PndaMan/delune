@@ -76,6 +76,11 @@ impl Automation {
         }
     }
 
+    /// Whether automation-made wishlist items download on their own.
+    pub(crate) fn auto_download(&self) -> bool {
+        self.lock().settings.auto_download
+    }
+
     async fn deezer(&self, path: &str) -> Option<Value> {
         let response = self.http.get(format!("{DEEZER}{path}")).timeout(Duration::from_secs(15)).send().await.ok()?;
         let value: Value = response.json().await.ok()?;
@@ -84,7 +89,14 @@ impl Automation {
 }
 
 /// Add an automation-made item to the wishlist unless the same search is there.
-fn queue(app: &AppState, query: String, added_by: &str, min_quality: MinQuality, auto_download: bool, source: &str) {
+pub(crate) fn queue(
+    app: &AppState,
+    query: String,
+    added_by: &str,
+    min_quality: MinQuality,
+    auto_download: bool,
+    source: &str,
+) {
     app.wishlist.with_items(|items| {
         if items.iter().any(|i| i.query.eq_ignore_ascii_case(&query)) {
             return;

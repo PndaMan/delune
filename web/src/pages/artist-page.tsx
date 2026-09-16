@@ -5,6 +5,7 @@ import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
 import { FollowButton } from "@/components/follow-button"
 import { useMusicViews } from "@/components/music-views"
+import { SoundcloudSection } from "@/components/soundcloud"
 import { Button } from "@/components/ui/button"
 import { plural } from "@/lib/format"
 import { type ArtistAlbum, useArtist } from "@/lib/music"
@@ -103,6 +104,7 @@ export function ArtistPage({ name }: { name: string }) {
           )}
         </>
       )}
+      <SoundcloudSection artist={info?.name ?? name} />
     </PageFrame>
   )
 }
