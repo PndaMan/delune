@@ -79,6 +79,7 @@ use utoipa::OpenApi;
         crate::review::import,
         crate::library::album,
         crate::events::stream,
+        crate::music::search,
         crate::music::artist,
         crate::music::album,
         crate::music::lyrics,

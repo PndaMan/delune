@@ -13,7 +13,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use delune_core::api::{AlbumInfo, AlbumTrack, ApiError, ArtistAlbum, ArtistInfo, LibraryAlbum};
+use delune_core::api::{
+    AlbumHit, AlbumInfo, AlbumTrack, ApiError, ArtistAlbum, ArtistHit, ArtistInfo, LibraryAlbum, MusicSearch,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -270,6 +272,78 @@ pub async fn album(State(app): State<AppState>, _user: CurrentUser, Query(params
         in_library,
     })
     .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchParams {
+    q: String,
+}
+
+/// `GET /api/v1/music/search?q=…`: artists and albums for a wishlist type-ahead.
+#[utoipa::path(
+    get,
+    operation_id = "music_search",
+    path = "/api/v1/music/search",
+    tag = "library",
+    params(("q" = String, Query, description = "What someone has typed so far")),
+    responses(
+        (status = 200, description = "OK", body = delune_core::api::MusicSearch),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn search(State(app): State<AppState>, _user: CurrentUser, Query(params): Query<SearchParams>) -> Response {
+    let query = params.q.trim();
+    if query.chars().count() < 2 {
+        return Json(MusicSearch::default()).into_response();
+    }
+    // Both lists at once: people type an artist as often as an album.
+    let (artist_query, album_query) = ([("q", query), ("limit", "6")], [("q", query), ("limit", "12")]);
+    let (artists, albums) =
+        tokio::join!(deezer(&app, "/search/artist", &artist_query), deezer(&app, "/search/album", &album_query),);
+    let artists = artists
+        .as_ref()
+        .and_then(|v| v.get("data")?.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|a| {
+                    Some(ArtistHit {
+                        name: str_at(a, "/name")?.to_owned(),
+                        picture: str_at(a, "/picture_medium").map(str::to_owned),
+                        listeners: a.get("nb_fan").and_then(Value::as_u64),
+                    })
+                })
+                .take(5)
+                .collect()
+        })
+        .unwrap_or_default();
+    let albums = albums
+        .as_ref()
+        .and_then(|v| v.get("data")?.as_array())
+        .map(|items| {
+            let mut seen = std::collections::HashSet::new();
+            items
+                .iter()
+                .filter_map(|album| {
+                    let title = str_at(album, "/title")?.to_owned();
+                    let artist = str_at(album, "/artist/name")?.to_owned();
+                    // Deezer lists the same album once per market; one of each will do.
+                    if !seen.insert((normalize(&artist), normalize(&title))) {
+                        return None;
+                    }
+                    Some(AlbumHit {
+                        title,
+                        artist,
+                        year: None,
+                        cover: str_at(album, "/cover_medium").map(str::to_owned),
+                        track_count: album.get("nb_tracks").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()),
+                    })
+                })
+                .take(8)
+                .collect()
+        })
+        .unwrap_or_default();
+    Json(MusicSearch { artists, albums }).into_response()
 }
 
 /// `GET /api/v1/music/lyrics?artist=…&title=…`: words for a song, from LRCLIB.

@@ -289,6 +289,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}/import", post(review::import))
         .route("/api/v1/library/album", get(library::album))
         .route("/api/v1/events", get(events::stream))
+        .route("/api/v1/music/search", get(music::search))
         .route("/api/v1/music/artist", get(music::artist))
         .route("/api/v1/music/album", get(music::album))
         .route("/api/v1/music/lyrics", get(music::lyrics))

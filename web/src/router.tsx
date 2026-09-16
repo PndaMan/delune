@@ -19,9 +19,11 @@ const searchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   // `?q=` makes every search a link you can share, bookmark or reload.
-  validateSearch: (search: Record<string, unknown>): { q?: string } => {
+  // `?q=` makes a search shareable; `?wishlist` opens the wishlist over it.
+  validateSearch: (search: Record<string, unknown>): { q?: string; wishlist?: boolean } => {
     const q = typeof search.q === "string" ? search.q.trim() : ""
-    return q ? { q } : {}
+    const wishlist = search.wishlist === true || search.wishlist === "true"
+    return { ...(q ? { q } : {}), ...(wishlist ? { wishlist: true } : {}) }
   },
   component: SearchPage,
 })

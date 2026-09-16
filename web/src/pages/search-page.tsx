@@ -1,5 +1,5 @@
-import { getRouteApi, Link } from "@tanstack/react-router"
-import { ArrowDownToLine, LoaderCircle, RotateCw, Sparkles, X } from "lucide-react"
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router"
+import { ArrowDownToLine, Bookmark, LoaderCircle, RotateCw, Sparkles, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { EmptyState } from "@/components/empty-state"
@@ -10,6 +10,7 @@ import { Cover } from "@/components/cover"
 import { ResultFilters, type TierFilter } from "@/components/results/result-filters"
 import { ResultHeader, ResultList } from "@/components/results/result-list"
 import { SearchField, type SearchFieldHandle } from "@/components/search-field"
+import { WishlistSheet } from "@/components/wishlist-sheet"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
 import { Button } from "@/components/ui/button"
 import { type Candidate, type Codec, PROVIDER_NAMES, type ResolvedLink } from "@/lib/api"
@@ -21,7 +22,7 @@ import { plural } from "@/lib/format"
 import { moonPhase } from "@/lib/moon-phase"
 import { SORTS, type SortKey, tierOf, typicalTracks } from "@/lib/quality"
 import { recentLabel, rememberLabel, useRecentSearches } from "@/lib/recent"
-import { useAddToWishlist } from "@/lib/wishlist"
+import { useAddToWishlist, useWishlist } from "@/lib/wishlist"
 import { matchLink, relevance, ResolvedContext } from "@/lib/tracklist"
 import { type SearchState, useSearch } from "@/lib/use-search"
 import { cn } from "@/lib/utils"
@@ -29,7 +30,7 @@ import { cn } from "@/lib/utils"
 const route = getRouteApi("/")
 
 export function SearchPage() {
-  const { q } = route.useSearch()
+  const { q, wishlist } = route.useSearch()
   const navigate = route.useNavigate()
   const search = useSearch(q ?? null)
   const { recent, remember, forget } = useRecentSearches()
@@ -48,7 +49,15 @@ export function SearchPage() {
     if (q && link) rememberLabel(q, [link.title, link.artist].filter(Boolean).join(", "))
   }, [q, search.resolved])
 
-  if (!q) return <Idle onSubmit={submit} recent={recent} onForget={forget} />
+  const closeWishlist = () => void navigate({ search: (old) => ({ ...old, wishlist: undefined }) })
+  if (!q) {
+    return (
+      <>
+        <Idle onSubmit={submit} recent={recent} onForget={forget} />
+        <WishlistSheet open={!!wishlist} onClose={closeWishlist} />
+      </>
+    )
+  }
   // For links, artwork and library matching go by what the link points at, not the URL.
   const context = search.resolved
     ? [search.resolved.artist, search.resolved.album ?? search.resolved.title].filter(Boolean).join(" ")
@@ -57,8 +66,39 @@ export function SearchPage() {
     <SearchContext.Provider value={context}>
       <ResolvedContext.Provider value={search.resolved}>
         <Results key={q} query={q} search={search} onSubmit={submit} />
+        <WishlistSheet open={!!wishlist} onClose={closeWishlist} />
       </ResolvedContext.Provider>
     </SearchContext.Provider>
+  )
+}
+
+/** Opens the wishlist, with however many things are on it. */
+function WishlistButton({ withLabel }: { withLabel?: boolean }) {
+  const navigate = useNavigate()
+  const wishlist = useWishlist()
+  const waiting = (wishlist.data ?? []).filter((item) => !item.download_id && !item.paused).length
+  return (
+    <Button
+      variant={withLabel ? "outline" : "ghost"}
+      size={withLabel ? "default" : "icon"}
+      aria-label={waiting ? `Wishlist, ${waiting} waiting` : "Wishlist"}
+      title="Wishlist"
+      className="relative shrink-0"
+      onClick={() => void navigate({ to: "/", search: (old: { q?: string }) => ({ ...old, wishlist: true }) })}
+    >
+      <Bookmark />
+      {withLabel && "Wishlist"}
+      {waiting > 0 && (
+        <span
+          className={cn(
+            "flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-primary-foreground",
+            !withLabel && "absolute top-1 right-1",
+          )}
+        >
+          {waiting > 99 ? "99+" : waiting}
+        </span>
+      )}
+    </Button>
   )
 }
 
@@ -95,6 +135,10 @@ function Idle({
 
       <div className="mt-10 w-full">
         <SearchField size="lg" onSubmit={onSubmit} />
+      </div>
+
+      <div className="mt-4">
+        <WishlistButton withLabel />
       </div>
 
       {soulseek.tone === "bad" && (
@@ -230,20 +274,23 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
       />
 
       <div className="sticky top-0 z-20 border-b border-transparent bg-background/75 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
-        <div className="mx-auto w-full max-w-[1200px] px-4 pt-4 pb-3 sm:px-8">
-          <SearchField
-            ref={field}
-            initialValue={query}
-            onSubmit={onSubmit}
-            hideHint
-            progress={search.status === "running" || search.status === "done" ? progress : null}
-            onArrowDown={() => {
-              if (!visible.length) return
-              ;(document.activeElement as HTMLElement | null)?.blur()
-              setKeyboard(true)
-              setSelected(0)
-            }}
-          />
+        <div className="mx-auto flex w-full max-w-[1200px] items-center gap-2 px-4 pt-4 pb-3 sm:px-8">
+          <div className="min-w-0 flex-1">
+            <SearchField
+              ref={field}
+              initialValue={query}
+              onSubmit={onSubmit}
+              hideHint
+              progress={search.status === "running" || search.status === "done" ? progress : null}
+              onArrowDown={() => {
+                if (!visible.length) return
+                ;(document.activeElement as HTMLElement | null)?.blur()
+                setKeyboard(true)
+                setSelected(0)
+              }}
+            />
+          </div>
+          <WishlistButton />
         </div>
       </div>
 

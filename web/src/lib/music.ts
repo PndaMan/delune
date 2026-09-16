@@ -85,3 +85,26 @@ export function plainFrom(words: Words): string[] {
     .map((line) => line.replace(/^\[\d+:\d+(\.\d+)?\]\s*/, ""))
     .map((line) => line.trimEnd())
 }
+
+export type ArtistHit = { name: string; picture: string | null; listeners: number | null }
+export type AlbumHit = {
+  title: string
+  artist: string
+  year: number | null
+  cover: string | null
+  track_count: number | null
+}
+export type MusicSearch = { artists: ArtistHit[]; albums: AlbumHit[] }
+
+/** Type-ahead over artists and albums. Empty until there's something to go on. */
+export function useMusicSearch(query: string) {
+  const text = query.trim()
+  return useQuery({
+    queryKey: ["music", "search", text],
+    enabled: text.length >= 2,
+    queryFn: ({ signal }) => get<MusicSearch>(`/music/search?q=${encodeURIComponent(text)}`, signal),
+    staleTime: 5 * 60 * 1000,
+    placeholderData: (previous) => previous,
+    retry: false,
+  })
+}

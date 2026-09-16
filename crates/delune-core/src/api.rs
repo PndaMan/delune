@@ -1264,6 +1264,36 @@ pub struct LibraryAlbum {
     pub track_count: u32,
 }
 
+/// `GET /api/v1/music/search`: artists and albums matching what someone is typing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct MusicSearch {
+    pub artists: Vec<ArtistHit>,
+    pub albums: Vec<AlbumHit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ArtistHit {
+    pub name: String,
+    pub picture: Option<String>,
+    /// Followers on Deezer, as a rough sense of scale.
+    pub listeners: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlbumHit {
+    pub title: String,
+    pub artist: String,
+    pub year: Option<u16>,
+    pub cover: Option<String>,
+    pub track_count: Option<u32>,
+}
+
 /// `GET /api/v1/music/album`: one album, whether you have it or not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
