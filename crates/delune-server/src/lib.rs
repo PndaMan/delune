@@ -14,6 +14,7 @@ pub mod chat;
 pub mod downloads;
 pub mod events;
 pub mod external;
+pub mod favourites;
 pub mod finishing;
 pub mod library;
 pub mod music;
@@ -92,6 +93,8 @@ pub struct AppState {
     pub resolver: Arc<delune_resolve::Resolver>,
     pub accounts: Arc<accounts::Accounts>,
     pub browse: Arc<users::BrowseCache>,
+    /// Soulseek users people starred, whose shares are kept.
+    pub favourites: Arc<favourites::Favourites>,
     pub chat: Arc<chat::Chat>,
     pub sharing: Arc<sharing::Sharing>,
     pub wishlist: Arc<wishlist::Wishlist>,
@@ -134,6 +137,7 @@ impl Default for AppState {
             resolver: Arc::default(),
             accounts: Arc::new(accounts::Accounts::in_memory(None)),
             browse: Arc::default(),
+            favourites: Arc::default(),
             chat: Arc::default(),
             sharing: Arc::default(),
             wishlist: Arc::default(),
@@ -182,6 +186,7 @@ impl AppState {
         let notifications = Arc::new(notifications::Notifier::open(&db));
         let requests = Arc::new(requests::Requests::open(&db));
         let external = Arc::new(external::External::open(&db));
+        let favourites = Arc::new(favourites::Favourites::open(&db));
         let navidrome =
             config.navidrome.and_then(|(url, credentials)| match delune_navidrome::Client::new(&url, credentials) {
                 Ok(client) => Some(client),
@@ -210,6 +215,7 @@ impl AppState {
             notifications,
             requests,
             external,
+            favourites,
             db,
             ..Self::default()
         };
@@ -234,6 +240,7 @@ impl AppState {
         wishlist::start(&state);
         sharing::Totals::start(&state);
         automation::start(&state);
+        favourites::start(&state);
         Ok(state)
     }
 }
@@ -260,6 +267,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/soulseek/users/{username}/picture", get(users::picture))
         .route("/api/v1/soulseek/users/{username}/shares", get(users::share_tree))
         .route("/api/v1/soulseek/users/{username}/folder", get(users::folder))
+        .route("/api/v1/soulseek/favourites", get(favourites::list))
+        .route("/api/v1/soulseek/favourites/{username}", put(favourites::add).delete(favourites::remove))
         .route("/api/v1/soulseek/stats", get(sharing::stats))
         .route("/api/v1/soulseek/uploads", get(sharing::uploads))
         .route("/api/v1/soulseek/uploads/clear", post(sharing::clear_uploads))

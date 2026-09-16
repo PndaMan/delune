@@ -176,6 +176,23 @@ export type DownloadJobRequest = {
 
 export type EntityKind = "track" | "album" | "artist" | "playlist"
 
+export type FavouriteUser = {
+  username: string
+  /**
+   * When they were starred (Unix seconds).
+   */
+  since: number
+  /**
+   * When their share list was last saved, if it has been.
+   */
+  saved_at: number | null
+  /**
+   * Folders and files in that saved list.
+   */
+  folders: number
+  files: number
+}
+
 export type FileStatus =
   "waiting" | "connecting" | "queued" | "starting" | "transferring" | "done" | "failed" | "cancelled"
 
@@ -624,6 +641,11 @@ export type ShareTree = {
    * Folders only their buddies can download from.
    */
   private_folders: number
+  /**
+   * Set when this is delune's saved copy of a favourite's shares (Unix seconds it
+   * was fetched); a fresh list is on its way.
+   */
+  saved_at: number | null
 }
 
 export type SharingSettings = {

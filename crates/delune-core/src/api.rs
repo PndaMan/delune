@@ -791,6 +791,25 @@ pub struct ShareTree {
     pub folders: Vec<ShareFolder>,
     /// Folders only their buddies can download from.
     pub private_folders: u32,
+    /// Set when this is delune's saved copy of a favourite's shares (Unix seconds it
+    /// was fetched); a fresh list is on its way.
+    pub saved_at: Option<u64>,
+}
+
+/// `GET /api/v1/soulseek/favourites`: a Soulseek user someone starred, so their
+/// shares are kept to hand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FavouriteUser {
+    pub username: String,
+    /// When they were starred (Unix seconds).
+    pub since: u64,
+    /// When their share list was last saved, if it has been.
+    pub saved_at: Option<u64>,
+    /// Folders and files in that saved list.
+    pub folders: u32,
+    pub files: u32,
 }
 
 /// One line of chat, private or in a room.

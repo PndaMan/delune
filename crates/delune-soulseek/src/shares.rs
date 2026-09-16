@@ -135,6 +135,14 @@ impl SharedFileList {
         deflate_framed(&w.into_body(), code::SHARED_FILE_LIST_RESPONSE)
     }
 
+    /// The list compressed as Soulseek sends it, without the message header: compact
+    /// enough to keep, and read back with [`SharedFileList::decode`].
+    #[must_use]
+    pub fn compressed(&self) -> Vec<u8> {
+        // `encode` frames the body with a length and a message code, four bytes each.
+        self.encode().split_off(8).to_vec()
+    }
+
     /// Number of files, public and private.
     #[must_use]
     pub fn file_count(&self) -> usize {
@@ -241,6 +249,7 @@ mod tests {
         assert_eq!(decoded, list);
         assert_eq!(decoded.file_count(), 2);
         assert_eq!(decoded.directories[0].files[0].file_name(), "01 Sixtyniner.flac");
+        assert_eq!(SharedFileList::decode(&list.compressed()).unwrap(), list, "kept copies read back");
     }
 
     #[test]

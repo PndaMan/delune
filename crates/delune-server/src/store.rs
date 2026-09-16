@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS peers (
     first_seen     INTEGER NOT NULL,
     last_seen      INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS share_lists (
+    username   TEXT PRIMARY KEY,
+    list       BLOB NOT NULL,
+    fetched_at INTEGER NOT NULL
+);
 ";
 
 #[derive(Debug)]
@@ -167,6 +172,53 @@ impl Database {
                 tracing::info!(file = %file.display(), "imported into the database");
             }
             let _ = std::fs::rename(&file, file.with_extension("json.imported"));
+        }
+    }
+
+    /// Keep `username`'s share list (compressed, as Soulseek sends it) for next time.
+    pub fn save_share_list(&self, username: &str, list: &[u8]) {
+        let result = self.lock().execute(
+            "INSERT INTO share_lists (username, list, fetched_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(username) DO UPDATE SET list = excluded.list, fetched_at = excluded.fetched_at",
+            params![username, list, now()],
+        );
+        if let Err(error) = result {
+            tracing::warn!(%username, %error, "couldn't save a share list");
+        }
+    }
+
+    /// The saved share list for `username` and when it was fetched (Unix seconds).
+    #[must_use]
+    pub fn share_list(&self, username: &str) -> Option<(Vec<u8>, u64)> {
+        self.lock()
+            .query_row("SELECT list, fetched_at FROM share_lists WHERE username = ?1", params![username], |row| {
+                Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
+            })
+            .optional()
+            .unwrap_or_else(|error| {
+                tracing::warn!(%username, %error, "couldn't read a saved share list");
+                None
+            })
+            .map(|(list, at)| (list, u64::try_from(at).unwrap_or(0)))
+    }
+
+    /// When `username`'s share list was saved, without reading the list itself.
+    #[must_use]
+    pub fn share_list_saved_at(&self, username: &str) -> Option<u64> {
+        self.lock()
+            .query_row("SELECT fetched_at FROM share_lists WHERE username = ?1", params![username], |row| {
+                row.get::<_, i64>(0)
+            })
+            .optional()
+            .ok()
+            .flatten()
+            .map(|at| u64::try_from(at).unwrap_or(0))
+    }
+
+    /// Stop keeping `username`'s share list.
+    pub fn forget_share_list(&self, username: &str) {
+        if let Err(error) = self.lock().execute("DELETE FROM share_lists WHERE username = ?1", params![username]) {
+            tracing::warn!(%username, %error, "couldn't forget a share list");
         }
     }
 

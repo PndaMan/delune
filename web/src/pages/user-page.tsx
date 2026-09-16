@@ -5,6 +5,7 @@ import { ChevronRight, Folder, FolderOpen, LoaderCircle, Lock, Search } from "lu
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { EmptyState } from "@/components/empty-state"
+import { FavouriteStar } from "@/components/favourite-star"
 import { ReleaseModal } from "@/components/release-modal"
 import { Button } from "@/components/ui/button"
 import { api, type Candidate, type SoulseekUser } from "@/lib/api"
@@ -76,7 +77,10 @@ function Profile({ username, user, pending, error }: { username: string; user?: 
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <h1 className="type-display truncate text-[clamp(2.2rem,6vw,3.2rem)]">{username}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="type-display min-w-0 truncate text-[clamp(2.2rem,6vw,3.2rem)]">{username}</h1>
+          {user?.exists && <FavouriteStar username={user.username} />}
+        </div>
         {pending ? (
           <p className="mt-2 flex items-center gap-2 text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" /> Asking the Soulseek server about them
@@ -121,6 +125,14 @@ function Fact({ label, value, good }: { label: string; value: string; good?: boo
   )
 }
 
+function savedWhen(at: number) {
+  const minutes = Math.round((Date.now() / 1000 - at) / 60)
+  if (minutes < 60) return `${Math.max(minutes, 1)} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `${hours} h ago`
+  return `${Math.round(hours / 24)} days ago`
+}
+
 function countryName(code: string) {
   try {
     return new Intl.DisplayNames(undefined, { type: "region" }).of(code) ?? code
@@ -143,7 +155,13 @@ function Shares({ username }: { username: string }) {
   const [release, setRelease] = useState<Candidate | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
 
-  useEffect(() => setOpen(initiallyOpen(nodes)), [nodes])
+  // Open the top folders once; a fresh list replacing a saved copy keeps what's open.
+  const opened = useRef(false)
+  useEffect(() => {
+    if (opened.current || !nodes.length) return
+    opened.current = true
+    setOpen(initiallyOpen(nodes))
+  }, [nodes])
   const rows = useMemo(() => visibleRows(nodes, open, filter), [nodes, open, filter])
 
   const toggle = (path: string) =>
@@ -218,6 +236,12 @@ function Shares({ username }: { username: string }) {
           </span>
         )}
       </div>
+      {tree.data.saved_at && (
+        <p className="mt-1 flex items-center gap-2 text-[13px] text-muted-foreground">
+          <LoaderCircle className="size-3.5 animate-spin" />
+          Saved {savedWhen(tree.data.saved_at)}, checking for anything new
+        </p>
+      )}
       {openError && <p className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm">{openError}</p>}
       {rows.length === 0 ? (
         <p className="px-2 py-10 text-muted-foreground">No folders match “{filter}”.</p>

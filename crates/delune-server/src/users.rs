@@ -33,6 +33,8 @@ pub struct BrowseCache {
     profiles: Mutex<HashMap<String, (Instant, UserInfo)>>,
     /// Upload speeds from the server, for folders opened from someone's shares.
     speeds: Mutex<HashMap<String, (Instant, u32)>>,
+    /// Lists above that came from a favourite's saved copy, and when it was fetched.
+    saved_at: Mutex<HashMap<String, u64>>,
 }
 
 fn fresh<V: Clone>(map: &Mutex<HashMap<String, (Instant, V)>>, key: &str) -> Option<V> {
@@ -180,6 +182,23 @@ pub async fn picture(State(app): State<AppState>, user: CurrentUser, UrlPath(use
         .into_response()
 }
 
+/// Keep a freshly fetched share list for the next ten minutes.
+pub fn remember_shares(app: &AppState, username: &str, list: Arc<SharedFileList>) {
+    app.browse.saved_at.lock().unwrap_or_else(PoisonError::into_inner).remove(username);
+    remember(&app.browse.shares, username, list);
+}
+
+/// The share list browsed in the last ten minutes, if there is one.
+#[must_use]
+pub fn remembered_shares(app: &AppState, username: &str) -> Option<Arc<SharedFileList>> {
+    fresh(&app.browse.shares, username)
+}
+
+/// When the list [`shares`] would give for `username` is a favourite's saved copy.
+fn saved_at(app: &AppState, username: &str) -> Option<u64> {
+    app.browse.saved_at.lock().unwrap_or_else(PoisonError::into_inner).get(username).copied()
+}
+
 async fn shares(
     app: &AppState,
     client: &delune_soulseek::Client,
@@ -188,8 +207,23 @@ async fn shares(
     if let Some(list) = fresh(&app.browse.shares, username) {
         return Ok(list);
     }
+    // A favourite: answer from the saved copy at once, and fetch a fresh one behind it.
+    if let Some((list, at)) = app.favourites.saved(&app.db, username) {
+        let list = Arc::new(list);
+        remember(&app.browse.shares, username, list.clone());
+        let age = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
+            .saturating_sub(at);
+        if age >= crate::favourites::STALE_AFTER.as_secs() {
+            app.browse.saved_at.lock().unwrap_or_else(PoisonError::into_inner).insert(username.to_owned(), at);
+            crate::favourites::refresh(app, username);
+        }
+        return Ok(list);
+    }
     let list = client.browse(username).await?;
-    remember(&app.browse.shares, username, list.clone());
+    remember_shares(app, username, list.clone());
+    app.favourites.fetched(&app.db, username, &list);
     Ok(list)
 }
 
@@ -238,10 +272,12 @@ pub async fn share_tree(
             }
         })
         .collect();
+    let saved_at = saved_at(&app, &username);
     Json(ShareTree {
         username,
         folders,
         private_folders: u32::try_from(list.private_directories.len()).unwrap_or(u32::MAX),
+        saved_at,
     })
     .into_response()
 }

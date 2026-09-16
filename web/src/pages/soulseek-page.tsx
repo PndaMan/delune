@@ -1,9 +1,11 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
-import { ArrowRight, X } from "lucide-react"
+import { ArrowRight, Star, X } from "lucide-react"
 import { useState } from "react"
 
+import { FavouriteStar } from "@/components/favourite-star"
 import { Button } from "@/components/ui/button"
 import { useChatEvents, useChatOverview } from "@/lib/chat"
+import { useFavourites } from "@/lib/favourites"
 import { formatBytes, plural } from "@/lib/format"
 import { useRecentList } from "@/lib/recent"
 import { useSoulseekStats } from "@/lib/sharing"
@@ -134,6 +136,47 @@ function Stats() {
   )
 }
 
+/** People starred from their profile: their shares are kept, so these open straight away. */
+function Favourites({ onOpen }: { onOpen: (username: string) => void }) {
+  const favourites = useFavourites()
+  const list = favourites.data ?? []
+  if (!list.length) return null
+  return (
+    <section className="mt-12">
+      <h2 className="flex items-center gap-2 type-title text-[19px]">
+        <Star className="size-[18px] fill-yellow-400 text-yellow-400" strokeWidth={1.8} /> Favourites
+      </h2>
+      <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {list.map((f) => (
+          <li
+            key={f.username}
+            className="flex items-center rounded-xl border bg-card/50 transition-colors hover:bg-accent/60"
+          >
+            <button
+              type="button"
+              onClick={() => onOpen(f.username)}
+              className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left outline-none"
+            >
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-yellow-400/15 font-semibold text-yellow-400">
+                {initial(f.username)}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[15px]">{f.username}</span>
+                <span className="block truncate text-[12.5px] text-muted-foreground">
+                  {f.saved_at
+                    ? `${f.files.toLocaleString()} files kept · opens instantly`
+                    : "Saving their shares…"}
+                </span>
+              </span>
+            </button>
+            <FavouriteStar username={f.username} className="mr-2 size-9 border-transparent bg-transparent" />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 /** Look someone up to browse their shares. */
 export function PeopleTab() {
   const navigate = useNavigate()
@@ -172,6 +215,8 @@ export function PeopleTab() {
           Browse <ArrowRight />
         </Button>
       </form>
+
+      <Favourites onOpen={browse} />
 
       {recent.length > 0 && (
         <section className="mt-12">

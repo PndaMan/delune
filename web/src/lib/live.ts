@@ -17,6 +17,8 @@ export function useLiveUpdates(enabled: boolean) {
         return
       }
       void client.invalidateQueries({ queryKey: [topic] })
+      // A favourite's fresh share list replaces the saved copy on screen.
+      if (topic === "favourites") void client.invalidateQueries({ queryKey: ["share-tree"] })
       // A finished download changes what Review and the library show too.
       if (topic === "downloads") {
         void client.invalidateQueries({ queryKey: ["library"] })

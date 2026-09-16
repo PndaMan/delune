@@ -290,7 +290,13 @@ export type ShareFolder = {
   quality_rank: number
 }
 
-export type ShareTree = { username: string; folders: ShareFolder[]; private_folders: number }
+export type ShareTree = {
+  username: string
+  folders: ShareFolder[]
+  private_folders: number
+  /** Set when this is delune's saved copy of a favourite's shares; a fresh one is coming. */
+  saved_at: number | null
+}
 
 /** Fired whenever the server says the session is gone, so the app can show sign-in. */
 export const sessionEvents = new EventTarget()

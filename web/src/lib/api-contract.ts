@@ -10,6 +10,7 @@ import type * as Web4 from "@/lib/library"
 import type * as Web5 from "@/lib/notifications"
 import type * as Web6 from "@/lib/requests"
 import type * as Web7 from "@/lib/sharing"
+import type * as Web9 from "@/lib/favourites"
 import type * as Web8 from "@/lib/wishlist"
 
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -43,6 +44,7 @@ export type Contract = [
   Expect<Same<Web.SessionInfo, Server.SessionInfo>>,
   Expect<Same<Web.ShareFolder, Server.ShareFolder>>,
   Expect<Same<Web.ShareTree, Server.ShareTree>>,
+  Expect<Same<Web9.FavouriteUser, Server.FavouriteUser>>,
   Expect<Same<Web.SoulseekState, Server.SoulseekState>>,
   Expect<Same<Web.SoulseekStatus, Server.SoulseekStatus>>,
   Expect<Same<Web.SoulseekUser, Server.SoulseekUser>>,

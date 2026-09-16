@@ -36,6 +36,7 @@ pub enum Topic {
     Session,
     Soulseek,
     Chat,
+    Favourites,
 }
 
 impl Topic {
@@ -52,6 +53,7 @@ impl Topic {
             Self::Session => "session",
             Self::Soulseek => "soulseek",
             Self::Chat => "chat",
+            Self::Favourites => "favourites",
         }
     }
 }

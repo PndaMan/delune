@@ -93,6 +93,7 @@ fn main() {
         SoulseekProfile,
         ShareFolder,
         ShareTree,
+        FavouriteUser,
         ChatMessage,
         ConversationSummary,
         RoomSummary,
