@@ -97,9 +97,9 @@ function SignedIn() {
   const tonight = moonPhase()
   const reviews = useReviewCount()
   const typing = useTyping()
-  const nav = NAV.filter((item) => !item.manage || me.permissions.manage)
   useLiveUpdates(true)
   const me = useMe()
+  const nav = NAV.filter((item) => !item.manage || me.permissions.manage)
   const setup = useSetupStatus(me.permissions.manage)
   const [skipped, setSkipped] = useState(setupSkipped)
   if (setup.data?.needed && !skipped) return <SetupPage status={setup.data} onSkip={() => setSkipped(true)} />
