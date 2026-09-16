@@ -35,7 +35,15 @@ import { plural } from "@/lib/format"
 import { useMe, useSignOut } from "@/lib/session"
 import { useSetupStatus } from "@/lib/setup"
 import { PageFrame } from "@/pages/placeholder-pages"
-import { api, type People, type Permissions, type Person, type SessionInfo, type SoulseekStatus } from "@/lib/api"
+import {
+  api,
+  toApiError,
+  type People,
+  type Permissions,
+  type Person,
+  type SessionInfo,
+  type SoulseekStatus,
+} from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const GROUPS = [
@@ -144,7 +152,7 @@ export function SettingsPage({ section }: { section?: string }) {
   if (!active) {
     return (
       <PageFrame title="Settings" wide>
-        <div className="mt-2 md:hidden">
+        <div className="mt-2 pb-12 md:hidden">
           <ul className="overflow-hidden rounded-2xl border bg-card/50">
             {groups.map((group) => (
               <li key={group.id}>
@@ -181,7 +189,7 @@ export function SettingsPage({ section }: { section?: string }) {
         <ChevronLeft className="size-4" /> All settings
       </button>
       <p className="max-w-[60ch] text-[15px] text-muted-foreground md:hidden">{active.blurb}</p>
-      <div className="mt-4 md:hidden">
+      <div className="mt-4 pb-12 md:hidden">
         <active.panel />
       </div>
       <div className="hidden md:block">
@@ -288,6 +296,7 @@ function Part({ title, hint, children }: { title: string; hint: string; children
 
 function Sources() {
   const sources = useQuery({ queryKey: ["sources"], queryFn: ({ signal }) => api.sources(signal) })
+  if (sources.isError) return <LoadFailed error={sources.error} retry={() => void sources.refetch()} />
   if (!sources.data) return <div className="h-40 animate-pulse rounded-xl bg-muted/50" />
   const ordered = [...sources.data].sort((a, b) => (a.order ?? 99) - (b.order ?? 99))
 
@@ -361,7 +370,9 @@ function Reachability({ status }: { status: SoulseekStatus }) {
         <span className="block text-destructive">Automatic port forwarding: {mapping.message}</span>
       )}
       {status.public_ip && (
-        <span className="block text-muted-foreground">Soulseek sees you at {status.public_ip}.</span>
+        <span className="block text-muted-foreground">
+          Soulseek sees you at {status.public_ip}. Behind a VPN, that should be the VPN's address.
+        </span>
       )}
     </p>
   )
@@ -381,7 +392,7 @@ function AvatarPicker() {
         title="Change profile picture"
       >
         <Avatar name={me.username} src={avatarUrl(me.username, me.avatar)} className="size-14 text-xl" />
-        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-60">
           {setAvatar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Camera className="size-5" />}
         </span>
       </button>
@@ -485,7 +496,11 @@ function ImportOptionsPanel({ editable }: { editable: boolean }) {
   const client = useQueryClient()
   const options = useQuery({
     queryKey: ["import-options"],
-    queryFn: async () => (await (await fetch("/api/v1/import-options")).json()) as ImportOptions,
+    queryFn: async () => {
+      const res = await fetch("/api/v1/import-options")
+      if (!res.ok) throw await toApiError(res)
+      return (await res.json()) as ImportOptions
+    },
   })
   const save = useMutation({
     mutationFn: async (next: ImportOptions) => {
@@ -499,6 +514,7 @@ function ImportOptionsPanel({ editable }: { editable: boolean }) {
     },
     onSuccess: (next) => client.setQueryData(["import-options"], next),
   })
+  if (options.isError) return <LoadFailed error={options.error} retry={() => void options.refetch()} />
   if (!options.data) return <div className="h-32 animate-pulse rounded-xl bg-muted/50" />
   const o = options.data
   return (
@@ -544,6 +560,7 @@ function ImportOptionsPanel({ editable }: { editable: boolean }) {
 
 function AutomationSettingsPanel() {
   const { settings, save } = useAutomation()
+  if (settings.isError) return <LoadFailed error={settings.error} retry={() => void settings.refetch()} />
   if (!settings.data) return <div className="h-32 animate-pulse rounded-xl bg-muted/50" />
   const s = settings.data
   const set = (patch: Partial<AutomationSettings>) => save.mutate({ ...s, ...patch })
@@ -622,14 +639,26 @@ function Account() {
   )
 }
 
+/** A settings panel whose data didn't load, with a way to try again. */
+function LoadFailed({ error, retry }: { error: Error; retry: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-5 py-4">
+      <p className="min-w-0 flex-1 text-[14px]">Couldn't load this: {error.message}</p>
+      <Button variant="outline" size="sm" onClick={retry}>
+        Try again
+      </Button>
+    </div>
+  )
+}
+
 /** Where you're signed in. Folded away: most people never need it. */
 function Devices() {
   const [open, setOpen] = useState(false)
   const client = useQueryClient()
   const devices = useQuery({ queryKey: ["devices"], queryFn: ({ signal }) => api.devices(signal) })
   const onDone = (next: SessionInfo[]) => client.setQueryData(["devices"], next)
-  const one = useMutation({ mutationFn: api.signOutDevice, onSuccess: onDone })
-  const others = useMutation({ mutationFn: api.signOutOtherDevices, onSuccess: onDone })
+  const one = useMutation({ meta: { quiet: true }, mutationFn: api.signOutDevice, onSuccess: onDone })
+  const others = useMutation({ meta: { quiet: true }, mutationFn: api.signOutOtherDevices, onSuccess: onDone })
   if (!devices.data) return null
   const elsewhere = devices.data.filter((d) => !d.current).length
   return (
@@ -690,12 +719,13 @@ function PeopleSettings() {
   const client = useQueryClient()
   const people = useQuery({ queryKey: ["people"], queryFn: ({ signal }) => api.people(signal) })
   const onSaved = (data: People) => client.setQueryData(["people"], data)
-  const approval = useMutation({ mutationFn: api.setRequireApproval, onSuccess: onSaved })
+  const approval = useMutation({ meta: { quiet: true }, mutationFn: api.setRequireApproval, onSuccess: onSaved })
   const permissions = useMutation({
+    meta: { quiet: true },
     mutationFn: ({ username, next }: { username: string; next: Permissions }) => api.setPermissions(username, next),
     onSuccess: onSaved,
   })
-  const signOutPerson = useMutation({ mutationFn: api.signOutPerson, onSuccess: onSaved })
+  const signOutPerson = useMutation({ meta: { quiet: true }, mutationFn: api.signOutPerson, onSuccess: onSaved })
 
   if (me.mode === "open") {
     return (
@@ -704,6 +734,7 @@ function PeopleSettings() {
       </p>
     )
   }
+  if (people.isError) return <LoadFailed error={people.error} retry={() => void people.refetch()} />
   if (!people.data) return <div className="h-40 animate-pulse rounded-xl bg-muted/50" />
   const { require_approval } = people.data
 

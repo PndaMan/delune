@@ -1,13 +1,15 @@
 import { Link, Outlet } from "@tanstack/react-router"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ArrowDownToLine, Earth, Inbox, Search, SlidersHorizontal } from "lucide-react"
 
 import { Moon } from "@/components/moon"
 import { MusicViewsProvider } from "@/components/music-views"
 import { NotificationsButton } from "@/components/notifications-button"
 import { ProfileMenu } from "@/components/profile-menu"
+import { Toaster } from "@/components/toaster"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useDownloads } from "@/lib/downloads"
 import { useLiveUpdates } from "@/lib/live"
 import { moonPhase } from "@/lib/moon-phase"
 import { useMe, useSession } from "@/lib/session"
@@ -42,8 +44,58 @@ export function AppShell() {
   return <SignedIn />
 }
 
+/**
+ * Whether the on-screen keyboard is up: a text field has focus on a touch screen.
+ * The bottom bar steps aside meanwhile, as it does in native apps, instead of
+ * riding on top of the keyboard.
+ */
+function useTyping() {
+  const [typing, setTyping] = useState(false)
+  useEffect(() => {
+    if (!window.matchMedia("(pointer: coarse)").matches) return
+    const isField = (el: EventTarget | null) =>
+      el instanceof HTMLTextAreaElement ||
+      (el instanceof HTMLElement && el.isContentEditable) ||
+      (el instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "range", "file"].includes(el.type))
+    const onIn = (e: FocusEvent) => setTyping(isField(e.target))
+    const onOut = (e: FocusEvent) => {
+      if (!isField(e.relatedTarget)) setTyping(false)
+    }
+    document.addEventListener("focusin", onIn)
+    document.addEventListener("focusout", onOut)
+    return () => {
+      document.removeEventListener("focusin", onIn)
+      document.removeEventListener("focusout", onOut)
+    }
+  }, [])
+  return typing
+}
+
+/** Downloads waiting for someone to review them, for a count on the Review tab. */
+function useReviewCount() {
+  const downloads = useDownloads()
+  return (downloads.data ?? []).filter((job) => job.status === "ready").length
+}
+
+function Badge({ count, className }: { count: number; className?: string }) {
+  if (!count) return null
+  return (
+    <span
+      className={cn(
+        "absolute flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-primary px-1 text-[10.5px] font-semibold text-primary-foreground",
+        className,
+      )}
+      aria-hidden
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  )
+}
+
 function SignedIn() {
   const tonight = moonPhase()
+  const reviews = useReviewCount()
+  const typing = useTyping()
   useLiveUpdates(true)
   const me = useMe()
   const setup = useSetupStatus(me.permissions.manage)
@@ -89,6 +141,7 @@ function SignedIn() {
                   >
                     <span className="absolute -left-[17px] h-5 w-[3px] rounded-r-full bg-primary opacity-0 transition-opacity group-data-[status=active]:opacity-100" />
                     <Icon className="size-[19px]" strokeWidth={1.8} />
+                    {to === "/review" && <Badge count={reviews} className="-top-0.5 -right-0.5" />}
                   </TooltipTrigger>
                   <TooltipContent side="right">{label}</TooltipContent>
                 </Tooltip>
@@ -120,19 +173,25 @@ function SignedIn() {
         <main className="pb-[var(--chrome-bottom)]">
           <Outlet />
         </main>
+        <Toaster />
 
         <nav
           aria-label="Main"
-          className="fixed inset-x-0 bottom-0 z-30 flex h-[var(--chrome-bottom)] items-center justify-around border-t bg-card/85 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-30 flex h-[var(--chrome-bottom)] items-center justify-around border-t bg-card/85 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden",
+            typing && "hidden",
+          )}
         >
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
               to={to}
               activeOptions={{ exact: to === "/", includeSearch: false }}
-              className="flex min-w-16 flex-col items-center gap-1 rounded-lg px-3 py-1 text-[11.5px] text-muted-foreground data-[status=active]:text-foreground"
+              className="relative flex min-w-16 flex-col items-center gap-1 rounded-lg px-3 py-1 text-[11.5px] text-muted-foreground data-[status=active]:text-foreground"
+              aria-label={to === "/review" && reviews ? `${label}, ${reviews} waiting` : undefined}
             >
               <Icon className="size-5" strokeWidth={1.8} />
+              {to === "/review" && <Badge count={reviews} className="top-0 right-3" />}
               {label}
             </Link>
           ))}

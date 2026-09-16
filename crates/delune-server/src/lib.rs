@@ -161,10 +161,7 @@ impl Default for AppState {
             db: Arc::default(),
             external: Arc::default(),
             changes: Arc::default(),
-            music_http: reqwest::Client::builder()
-                .user_agent(concat!("delune/", env!("CARGO_PKG_VERSION"), " (+https://github.com/PndaMan/delune)"))
-                .build()
-                .unwrap_or_default(),
+            music_http: music::http_client(),
             nat: Arc::default(),
             nat_wake: Arc::new(tokio::sync::watch::channel(0).0),
         }
@@ -237,13 +234,20 @@ impl AppState {
             state.search_timeout = slsk.search_timeout;
             state.soulseek = Some(delune_soulseek::Client::start(slsk));
         }
-        tokio::spawn(async move {
-            let mut every = tokio::time::interval(Duration::from_secs(2));
-            loop {
-                every.tick().await;
-                downloads.save_if_changed();
-            }
-        });
+        {
+            // Saving is also the moment clients hear that something about a download
+            // moved (progress, a review finishing), whatever changed it.
+            let app = state.clone();
+            tokio::spawn(async move {
+                let mut every = tokio::time::interval(Duration::from_secs(2));
+                loop {
+                    every.tick().await;
+                    if downloads.save_if_changed() {
+                        events::changed(&app, events::Topic::Progress);
+                    }
+                }
+            });
+        }
         notifications::start(&state);
         downloads::resume(&state);
         chat::start(&state);

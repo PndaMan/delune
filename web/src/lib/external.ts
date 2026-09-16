@@ -28,6 +28,7 @@ export function useExternalSource(enabled: boolean) {
 export function useSaveExternalSource() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: (settings: ExternalSource) => call<ExternalSource>("PUT", "/external", settings),
     onSuccess: (next) => client.setQueryData(["external"], next),
   })

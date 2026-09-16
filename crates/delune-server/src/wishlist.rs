@@ -19,8 +19,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use delune_core::api::{
-    ApiError, Candidate, DownloadJobRequest, LibraryState, QualityTier, RequestedFile, WishlistItem, WishlistRequest,
-    WishlistUpdate,
+    ApiError, Candidate, DownloadJob, DownloadJobRequest, JobStatus, LibraryState, QualityTier, RequestedFile,
+    WishlistItem, WishlistRequest, WishlistUpdate,
 };
 use delune_soulseek::SessionState;
 
@@ -28,7 +28,7 @@ use crate::AppState;
 use crate::accounts::CurrentUser;
 use crate::store::Database;
 
-const MAX_ITEMS: usize = 500;
+pub(crate) const MAX_ITEMS: usize = 500;
 const FIRST_RUN_AFTER: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Default)]
@@ -171,7 +171,10 @@ async fn finish_run(app: &AppState, item: WishlistItem, mut search: delune_souls
         && let Some(best) = &best
     {
         let owned = crate::library::lookup(app, best.parent.as_deref(), &best.title, Some(&item.query)).await;
+        // An upgrade is by definition already in the library; that's no reason to skip it.
+        let upgrade = item.playlist.as_deref() == Some(crate::automation::UPGRADE_SOURCE);
         let complete = item.track.is_none()
+            && !upgrade
             && owned.state == LibraryState::InLibrary
             && owned.tracks.len() >= usize::try_from(best.audio_files).unwrap_or(usize::MAX);
         if complete {
@@ -210,6 +213,26 @@ async fn finish_run(app: &AppState, item: WishlistItem, mut search: delune_souls
             i.download_id = download_id;
         }
     });
+    crate::events::changed(app, crate::events::Topic::Wishlist);
+}
+
+/// A download changed. One that failed or was removed frees its wishlist items to be
+/// searched for again at their next turn, rather than waiting on it forever.
+pub fn job_changed(app: &AppState, job: &DownloadJob) {
+    if !matches!(job.status, JobStatus::Failed | JobStatus::Cancelled) {
+        return;
+    }
+    let mut freed = false;
+    app.wishlist.with_items(|items| {
+        for item in items.iter_mut().filter(|i| i.download_id.as_deref() == Some(&job.id)) {
+            item.download_id = None;
+            item.last_searched = Some(now());
+            freed = true;
+        }
+    });
+    if freed {
+        crate::events::changed(app, crate::events::Topic::Wishlist);
+    }
 }
 
 fn is_image(name: &str) -> bool {
@@ -322,6 +345,11 @@ pub(crate) fn insert_for(
     result.map(|(_, item)| item)
 }
 
+/// Items still being looked for; found ones don't count against the limit.
+pub(crate) fn active(items: &[WishlistItem]) -> usize {
+    items.iter().filter(|i| i.download_id.is_none()).count()
+}
+
 /// Add one item, or return the matching one already there (`false`).
 fn insert(
     items: &mut Vec<WishlistItem>,
@@ -335,11 +363,11 @@ fn insert(
     if let Some(existing) = items.iter().find(|i| i.query.eq_ignore_ascii_case(&query) && i.added_by == username) {
         return Ok((false, existing.clone()));
     }
-    if items.len() >= MAX_ITEMS {
+    if active(items) >= MAX_ITEMS {
         return Err((StatusCode::CONFLICT, "wishlist-full", "The wishlist is full. Remove something first."));
     }
     let item = WishlistItem {
-        id: format!("w{:x}{:04x}", now(), items.len()),
+        id: crate::store::new_id("w"),
         query,
         track: request.track.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty()),
         playlist: request.playlist,
@@ -394,6 +422,8 @@ pub async fn update(
     }
     let item = item.clone();
     app.wishlist.save(&items);
+    drop(items);
+    crate::events::changed(&app, crate::events::Topic::Wishlist);
     Json(item).into_response()
 }
 
@@ -420,6 +450,8 @@ pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
         return error(StatusCode::NOT_FOUND, "no-such-item", "That isn't on the wishlist.");
     }
     app.wishlist.save(&items);
+    drop(items);
+    crate::events::changed(&app, crate::events::Topic::Wishlist);
     StatusCode::NO_CONTENT.into_response()
 }
 

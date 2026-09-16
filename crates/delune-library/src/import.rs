@@ -263,9 +263,23 @@ pub fn execute(plan: &Plan, root: &Path) -> Result<Vec<PathBuf>, ImportError> {
     }
     let mut imported = Vec::with_capacity(plan.tracks.len());
     for track in &plan.tracks {
-        let destination = resolve(root, &track.destination)?;
-        move_file(&track.source, &destination)?;
-        imported.push(destination);
+        let moved = resolve(root, &track.destination).and_then(|destination| {
+            move_file(&track.source, &destination)?;
+            Ok(destination)
+        });
+        match moved {
+            Ok(destination) => imported.push(destination),
+            Err(error) => {
+                // Half an album in the library would block importing it again; put back
+                // what already moved so the next try starts clean.
+                for (track, destination) in plan.tracks.iter().zip(&imported) {
+                    if let Err(undo) = move_file(destination, &track.source) {
+                        tracing::warn!(%undo, path = %destination.display(), "couldn't undo part of an import");
+                    }
+                }
+                return Err(error);
+            }
+        }
     }
     if let Some((image, relative)) = &plan.cover {
         let destination = resolve(root, relative)?;
@@ -285,8 +299,11 @@ fn move_file(from: &Path, to: &Path) -> Result<(), ImportError> {
         Ok(()) => Ok(()),
         // Staging and library on different filesystems (a NAS mount): copy, sync, delete.
         Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
-            fs::copy(from, to).map_err(io_err)?;
-            fs::File::open(to).and_then(|f| f.sync_all()).map_err(io_err)?;
+            if let Err(e) = fs::copy(from, to).and_then(|_| fs::File::open(to)?.sync_all()) {
+                // Don't leave a partial copy behind in the library.
+                let _ = fs::remove_file(to);
+                return Err(io_err(e));
+            }
             fs::remove_file(from).map_err(io_err)
         }
         Err(e) => Err(io_err(e)),
@@ -442,6 +459,31 @@ mod tests {
         fs::write(&tracks[0].path, "again").unwrap();
         assert!(matches!(execute(&plan, library.path()), Err(ImportError::Conflicts(c)) if c.len() == 1));
         assert!(tracks[0].path.exists());
+    }
+
+    #[test]
+    fn a_failed_import_puts_back_what_moved() {
+        let staging = tempfile::tempdir().unwrap();
+        let library = tempfile::tempdir().unwrap();
+        let first = staging.path().join("01.flac");
+        fs::write(&first, "one").unwrap();
+        let file = |source: PathBuf, destination: &str| PlannedFile {
+            source,
+            destination: destination.into(),
+            fields: TrackFields::default(),
+        };
+        let plan = Plan {
+            tracks: vec![
+                file(first.clone(), "A/B/01.flac"),
+                // Vanished from staging: this move fails after the first succeeded.
+                file(staging.path().join("02.flac"), "A/B/02.flac"),
+            ],
+            cover: None,
+            warnings: vec![],
+        };
+        assert!(matches!(execute(&plan, library.path()), Err(ImportError::Io { .. })));
+        assert_eq!(fs::read_to_string(&first).unwrap(), "one", "the first track is back in staging");
+        assert!(!library.path().join("A/B/01.flac").exists());
     }
 
     #[test]

@@ -34,6 +34,7 @@ function useSharingDraft(): Draft | null {
   const status = useSharingStatus()
   const [draft, setDraft] = useState<SharingSettings | null>(null)
   const save = useMutation({
+    meta: { quiet: true },
     mutationFn: sharingApi.update,
     onSuccess: (next) => {
       client.setQueryData(["sharing"], next)
@@ -61,7 +62,7 @@ function useSharingDraft(): Draft | null {
 function SaveBar({ draft }: { draft: Draft }) {
   if (!draft.dirty && !draft.error) return null
   return (
-    <div className="sticky bottom-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-card/95 px-5 py-3 shadow-lg backdrop-blur">
+    <div className="sticky bottom-[calc(var(--chrome-bottom)+1rem)] z-10 flex flex-wrap items-center gap-3 rounded-2xl border bg-card/95 px-5 py-3 shadow-lg backdrop-blur">
       <p className="min-w-0 flex-1 text-sm text-destructive">{draft.error}</p>
       <Button variant="ghost" onClick={draft.discard} disabled={draft.saving}>
         Discard

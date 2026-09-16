@@ -267,6 +267,7 @@ function ReviewCard({ job }: { job: DownloadJob }) {
     retry: false,
   })
   const importRelease = useMutation({
+    meta: { quiet: true },
     mutationFn: () => api.importRelease(job.id),
     onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
   })
@@ -355,6 +356,16 @@ function ReviewCard({ job }: { job: DownloadJob }) {
         </p>
       )}
 
+      {report.isError && (
+        <div className="mx-5 mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 sm:mx-6">
+          <p className="min-w-0 flex-1 text-[14px]">
+            Couldn't load the check for this download: {report.error.message}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void report.refetch()} disabled={report.isFetching}>
+            Try again
+          </Button>
+        </div>
+      )}
       {report.data && <ReportBody report={report.data} />}
       {job.review !== "ready" && (
         <p className="flex items-center gap-2 border-t px-6 py-5 text-sm text-muted-foreground">
@@ -363,7 +374,7 @@ function ReviewCard({ job }: { job: DownloadJob }) {
         </p>
       )}
       {/* Phones: the decision stays in reach while scrolling a long tracklist. */}
-      <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-10 flex items-center gap-2 border-t bg-card/90 px-4 py-3 backdrop-blur-md sm:hidden">
+      <div className="sticky bottom-[var(--chrome-bottom)] z-10 flex items-center gap-2 border-t bg-card/90 px-4 py-3 backdrop-blur-md sm:hidden">
         {actions}
       </div>
     </li>

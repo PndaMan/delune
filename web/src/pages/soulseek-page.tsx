@@ -26,7 +26,8 @@ export function SoulseekLayout() {
     <div
       className={cn(
         "mx-auto flex w-full max-w-[1200px] flex-col px-4 sm:px-10",
-        fill && "h-[calc(100dvh-6rem)] md:h-dvh",
+        // Exactly the screen between the app's own bars, so the message box sits above the nav.
+        fill && "h-[calc(100dvh-var(--chrome-top)-var(--chrome-bottom))] md:h-dvh",
       )}
     >
       <header className="flex shrink-0 flex-wrap items-end justify-between gap-x-8 gap-y-3 pt-8 pb-5 sm:pt-12">
@@ -163,9 +164,7 @@ function Favourites({ onOpen }: { onOpen: (username: string) => void }) {
               <span className="min-w-0">
                 <span className="block truncate text-[15px]">{f.username}</span>
                 <span className="block truncate text-[12.5px] text-muted-foreground">
-                  {f.saved_at
-                    ? `${f.files.toLocaleString()} files kept · opens instantly`
-                    : "Saving their shares…"}
+                  {f.saved_at ? `${f.files.toLocaleString()} files` : "Saving their shares…"}
                 </span>
               </span>
             </button>
@@ -179,11 +178,19 @@ function Favourites({ onOpen }: { onOpen: (username: string) => void }) {
 
 /** Look someone up to browse their shares. */
 export function PeopleTab() {
+  const me = useMe()
   const navigate = useNavigate()
   const [name, setName] = useState("")
   const { recent, forget } = useRecentList("delune.recent-users")
   const browse = (username: string) => void navigate({ to: "/soulseek/users/$username", params: { username } })
 
+  if (!me.permissions.search) {
+    return (
+      <p className="max-w-[60ch] pb-24 text-[15px] text-muted-foreground">
+        Browsing other people's shares needs search access. Ask whoever runs delune to turn it on for you.
+      </p>
+    )
+  }
   return (
     <div className="pb-24">
       <Stats />

@@ -49,7 +49,7 @@ export function PlaylistImport({ link }: { link: ResolvedLink }) {
     return out
   }, [chosen, mode, auto, quality, link.title])
 
-  const add = useMutation({
+  const add = useMutation({ meta: { quiet: true },
     mutationFn: async () => {
       const res = await fetch("/api/v1/wishlist/batch", {
         method: "POST",

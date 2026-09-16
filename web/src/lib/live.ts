@@ -16,6 +16,10 @@ export function useLiveUpdates(enabled: boolean) {
         void client.invalidateQueries()
         return
       }
+      if (topic === "progress") {
+        void client.invalidateQueries({ queryKey: ["downloads"] })
+        return
+      }
       void client.invalidateQueries({ queryKey: [topic] })
       // A favourite's fresh share list replaces the saved copy on screen.
       if (topic === "favourites") void client.invalidateQueries({ queryKey: ["share-tree"] })

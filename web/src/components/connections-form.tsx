@@ -49,10 +49,12 @@ function useApply(onApply: (applying: boolean) => void) {
     (request.library_dir !== undefined ? check.library : request.navidrome ? check.navidrome : check.soulseek) ?? null
 
   const check = useMutation({
+    meta: { quiet: true },
     mutationFn: setupApi.check,
     onSuccess: ({ check: results }, request) => setResult(pick(request, results)),
   })
   const save = useMutation({
+    meta: { quiet: true },
     mutationFn: setupApi.save,
     onSuccess: ({ ok, check: results }, request) => {
       setResult(pick(request, results))

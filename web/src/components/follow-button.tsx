@@ -19,14 +19,22 @@ export function FollowButton({ artist, size = "default" }: { artist: string; siz
   const follow = useFollow()
   const unfollow = useUnfollow()
   const [justFollowed, setJustFollowed] = useState(false)
+  // Touch screens have no hover to warn with, so unfollowing takes a second tap.
+  const [confirming, setConfirming] = useState(false)
   const following = (follows.data ?? []).find((f) => f.artist.toLowerCase() === artist.toLowerCase())
   const busy = follow.isPending || unfollow.isPending
 
-  if (!me.permissions.download) return null
+  if (!me.permissions.download || !me.permissions.search) return null
 
   const toggle = () => {
     if (following) {
+      if (!confirming && window.matchMedia("(hover: none)").matches) {
+        setConfirming(true)
+        window.setTimeout(() => setConfirming(false), 3000)
+        return
+      }
       unfollow.mutate(following.deezer_id)
+      setConfirming(false)
       setJustFollowed(false)
       return
     }
@@ -66,10 +74,14 @@ export function FollowButton({ artist, size = "default" }: { artist: string; siz
           strokeWidth={1.9}
         />
         {following ? (
-          <>
-            <span className="group-hover:hidden">Following</span>
-            <span className="hidden group-hover:inline">Unfollow</span>
-          </>
+          confirming ? (
+            "Tap to unfollow"
+          ) : (
+            <>
+              <span className="group-hover:hidden">Following</span>
+              <span className="hidden group-hover:inline">Unfollow</span>
+            </>
+          )
         ) : (
           "Follow"
         )}

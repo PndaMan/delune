@@ -79,8 +79,11 @@ export function SearchPage() {
 /** Opens the wishlist, with however many things are on it. */
 function WishlistButton({ withLabel }: { withLabel?: boolean }) {
   const navigate = useNavigate()
+  const me = useMe()
   const wishlist = useWishlist()
   const waiting = (wishlist.data ?? []).filter((item) => !item.download_id && !item.paused).length
+  // The wishlist searches and downloads on your behalf; both are needed to use it.
+  if (!me.permissions.search || !me.permissions.download) return null
   return (
     <Button
       variant={withLabel ? "outline" : "ghost"}
@@ -116,6 +119,7 @@ function Idle({
   onForget: (q: string) => void
 }) {
   const tonight = moonPhase()
+  const me = useMe()
   const status = useSoulseekStatus()
   const soulseek = describeSoulseek(status.data, status.isError)
 
@@ -143,7 +147,13 @@ function Idle({
       </div>
 
       <div className="mt-7 w-full sm:mt-10">
-        <SearchField size="lg" onSubmit={onSubmit} />
+        {me.permissions.search ? (
+          <SearchField size="lg" onSubmit={onSubmit} />
+        ) : (
+          <p className="rounded-2xl border bg-card/60 px-5 py-4 text-[15px] text-muted-foreground">
+            Your account can't search yet. Ask whoever runs delune to give you search access.
+          </p>
+        )}
       </div>
 
       <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -154,9 +164,19 @@ function Idle({
       {soulseek.tone === "bad" && (
         <p className="mt-2 w-full rounded-xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm">
           {soulseek.text}.{" "}
-          {status.data?.state === "not-configured"
-            ? "Start the server with DELUNE_SLSK_USERNAME and DELUNE_SLSK_PASSWORD to search."
-            : "Searches won't return anything until this is fixed."}
+          {status.data?.state !== "not-configured" ? (
+            "Searches won't return anything until this is fixed."
+          ) : me.permissions.manage ? (
+            <Link
+              to="/settings/$section"
+              params={{ section: "connections" }}
+              className="font-medium underline underline-offset-4"
+            >
+              Connect a Soulseek account
+            </Link>
+          ) : (
+            "Ask whoever runs delune to connect a Soulseek account."
+          )}
         </p>
       )}
 
@@ -400,7 +420,7 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
                     onLeaveTop={onLeaveTop}
                     paused={open !== null}
                   />
-                  <p className="px-5 pt-6 text-[13px] text-muted-foreground/70">
+                  <p className="px-5 pt-6 text-[13px] text-muted-foreground/70 [@media(pointer:coarse)]:hidden">
                     Use ↑ ↓ to move through results and Enter to open one.
                   </p>
                 </>
@@ -493,12 +513,14 @@ function looksLikeLink(query: string) {
 }
 
 function KeepLooking({ query }: { query: string }) {
+  const me = useMe()
   const add = useAddToWishlist()
+  if (!me.permissions.search || !me.permissions.download) return null
   if (add.isSuccess) {
     return (
       <p className="text-[15px] text-q-lossless">
         On your wishlist.{" "}
-        <Link to="/downloads" className="underline underline-offset-4">
+        <Link to="/" search={{ q: query, wishlist: true }} className="underline underline-offset-4">
           See the wishlist
         </Link>
       </p>

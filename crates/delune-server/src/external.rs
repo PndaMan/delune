@@ -117,6 +117,11 @@ pub async fn update(
     if let Some(denied) = user.refuse_unless(|p| p.manage, "change where delune fetches from") {
         return denied;
     }
+    if settings.enabled
+        && let Some(refused) = refuse_in_open_mode(&app)
+    {
+        return refused;
+    }
     settings.program = settings.program.trim().to_owned();
     settings.arguments = settings.arguments.iter().map(|a| a.trim().to_owned()).filter(|a| !a.is_empty()).collect();
     if settings.enabled {
@@ -136,7 +141,19 @@ pub async fn update(
     }
     tracing::info!(by = %user.username, program = %settings.program, enabled = settings.enabled, "fetch command changed");
     app.external.set(&settings);
+    crate::events::changed(&app, crate::events::Topic::External);
     Json(app.external.settings()).into_response()
+}
+
+/// Running programs needs sign-in: in open mode anyone who can reach delune is an admin.
+fn refuse_in_open_mode(app: &AppState) -> Option<Response> {
+    (app.accounts.mode() == delune_core::api::AuthMode::Open).then(|| {
+        error(
+            StatusCode::FORBIDDEN,
+            "needs-sign-in",
+            "The fetch command runs programs on this server, so it needs sign-in: connect Navidrome first.",
+        )
+    })
 }
 
 /// `POST /api/v1/external/fetch`: run the command for a link, then review what it got.
@@ -158,6 +175,9 @@ pub async fn fetch(State(app): State<AppState>, user: CurrentUser, Json(request)
     if let Some(denied) = user.refuse_unless(|p| p.manage, "fetch with the command") {
         return denied;
     }
+    if let Some(refused) = refuse_in_open_mode(&app) {
+        return refused;
+    }
     let settings = app.external.settings();
     if !settings.enabled || settings.program.is_empty() {
         return error(
@@ -175,14 +195,13 @@ pub async fn fetch(State(app): State<AppState>, user: CurrentUser, Json(request)
         return error(StatusCode::BAD_REQUEST, "no-title", "Say what this is, so it can be reviewed.");
     }
 
-    let job =
+    let (job, cancelled) =
         crate::downloads::begin_external(&app, &settings.program, title, request.artist.as_deref(), &user.username);
     let staging = crate::downloads::staging_dir(&app.data_dir, &job.id);
     tracing::info!(id = %job.id, by = %user.username, program = %settings.program, "fetching with a command");
     let (app, id, url) = (app.clone(), job.id.clone(), url.to_owned());
     tokio::spawn(async move {
-        let outcome = run(&settings, &url, &staging).await;
-        crate::downloads::finish_external(&app, &id, outcome).await;
+        crate::downloads::run_external(&app, &id, cancelled, run(&settings, &url, &staging)).await;
     });
     (StatusCode::CREATED, Json(job)).into_response()
 }
@@ -199,7 +218,8 @@ async fn run(settings: &ExternalSource, url: &str, staging: &Path) -> Result<(),
         .args(&arguments)
         .current_dir(staging)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
+        // Downloaders print progress to stdout; an unread pipe would fill and stall them.
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()

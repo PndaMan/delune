@@ -102,6 +102,7 @@ pub fn start(app: &AppState) {
                 Ok((job, before)) => {
                     job_changed(&app, &job, before);
                     crate::requests::job_changed(&app, &job);
+                    crate::wishlist::job_changed(&app, &job);
                     crate::events::changed(&app, crate::events::Topic::Downloads);
                     crate::events::changed(&app, crate::events::Topic::Notifications);
                 }
@@ -193,6 +194,7 @@ pub async fn read(State(app): State<AppState>, user: CurrentUser, Json(body): Js
 )]
 pub async fn clear(State(app): State<AppState>, user: CurrentUser) -> Response {
     app.notifications.clear(&user.username);
+    crate::events::changed(&app, crate::events::Topic::Notifications);
     StatusCode::NO_CONTENT.into_response()
 }
 

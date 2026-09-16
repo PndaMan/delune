@@ -63,3 +63,26 @@ export function sameTitle(a: string, b: string): boolean {
   if (!a || !b) return false
   return a === b || (b.length >= 4 && a.includes(b)) || (a.length >= 4 && b.includes(a))
 }
+
+/** Folder names that say where music is kept, not who made it. */
+const GENERIC_FOLDERS =
+  /^(@@\w+|music|musik|musique|mp3s?|flacs?|lossless|albums?|downloads?|complete|shared?|soulseek|slsk|new|misc|various|va|library|media|audio|collection)$/i
+
+/**
+ * The artist a shared folder's parent names, unless it's just a storage folder like
+ * "Music" or "FLAC", which would send lookups (lyrics, artwork) to the wrong place.
+ */
+export function artistFromFolder(parent: string | null | undefined): string | null {
+  const name = parent?.trim()
+  if (!name || GENERIC_FOLDERS.test(name)) return null
+  return name
+}
+
+/** An album name from a folder: "2001 - Toxicity [FLAC]" → "Toxicity". */
+export function albumFromFolder(folder: string): string {
+  const cleaned = folder
+    .replace(/^\(?\d{4}\)?\s*[-–.]\s*/, "")
+    .replace(/\s*[[(](?:\d{4}|flac|mp3|320|v0|web|cd|vinyl|24[- ]?bit|16[- ]?bit|lossless)[^\])]*[\])]\s*/gi, " ")
+    .trim()
+  return cleaned || folder
+}

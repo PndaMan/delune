@@ -61,6 +61,7 @@ prefersLight.addEventListener("change", () => applyAppearance())
 export function useSetAppearance() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: async (appearance: Appearance) => {
       applyAppearance(appearance)
       const res = await fetch("/api/v1/session/appearance", {
@@ -78,6 +79,7 @@ export function useSetAppearance() {
 export function useSetAvatar() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: async (file: File | null) => {
       const res = await fetch("/api/v1/session/avatar", { method: file ? "PUT" : "DELETE", body: file ?? undefined })
       if (!res.ok) throw await toApiError(res)

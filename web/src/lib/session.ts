@@ -48,6 +48,7 @@ export function useMe(): Me {
 export function useSignIn() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: ({ username, password }: { username: string; password: string }) => api.signIn(username, password),
     onSuccess: (me) => {
       // Start fresh: nothing cached for someone else should linger, but keep the

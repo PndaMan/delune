@@ -44,6 +44,7 @@ pub struct AlbumParams {
 
 #[derive(Debug, Deserialize)]
 pub struct LyricsParams {
+    #[serde(default)]
     artist: String,
     title: String,
     duration_secs: Option<u32>,
@@ -60,6 +61,17 @@ async fn deezer(app: &AppState, path: &str, query: &[(&str, &str)]) -> Option<Va
         .ok()?;
     let value: Value = response.json().await.ok()?;
     if value.get("error").is_some() { None } else { Some(value) }
+}
+
+/// The client for public music services: identified, and never left hanging.
+#[must_use]
+pub fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(concat!("delune/", env!("CARGO_PKG_VERSION"), " (+https://github.com/PndaMan/delune)"))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default()
 }
 
 fn str_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {

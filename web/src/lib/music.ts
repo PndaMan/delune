@@ -66,7 +66,8 @@ export function useAlbum(artist: string | null | undefined, album: string | null
 export function useLyrics(artist: string | null | undefined, title: string | null, durationSecs?: number | null) {
   return useQuery({
     queryKey: ["music", "lyrics", artist ?? "", title ?? "", durationSecs ?? 0],
-    enabled: !!artist && !!title,
+    // The artist helps but isn't needed: the server can match by title and length.
+    enabled: !!title,
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({ artist: artist ?? "", title: title ?? "" })
       if (durationSecs) params.set("duration_secs", String(durationSecs))

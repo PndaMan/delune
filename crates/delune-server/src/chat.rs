@@ -59,6 +59,9 @@ struct History {
     available: Vec<(String, u32)>,
 }
 
+/// Private conversations kept at once.
+const MAX_CONVERSATIONS: usize = 300;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Conversation {
     messages: VecDeque<ChatMessage>,
@@ -130,6 +133,17 @@ impl Chat {
         let update = match event {
             ChatEvent::PrivateMessage { timestamp, username, message } => {
                 let line = self.message(&username, &message, false, u64::from(timestamp));
+                // Anyone can message delune; keep the history to the most recent people.
+                if !state.conversations.contains_key(&username) && state.conversations.len() >= MAX_CONVERSATIONS {
+                    let quietest = state
+                        .conversations
+                        .iter()
+                        .min_by_key(|(_, c)| c.messages.back().map_or(0, |m| m.at))
+                        .map(|(name, _)| name.clone());
+                    if let Some(name) = quietest {
+                        state.conversations.remove(&name);
+                    }
+                }
                 let conversation = state.conversations.entry(username.clone()).or_default();
                 push(&mut conversation.messages, line.clone(), KEEP_PRIVATE);
                 conversation.unread += 1;

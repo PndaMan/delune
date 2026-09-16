@@ -16,6 +16,7 @@ export function useDownloads() {
 export function useStartDownload() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     /** `files` narrows the download, e.g. to one track; by default it's the whole folder. */
     mutationFn: ({ candidate, files }: { candidate: Candidate; files?: CandidateFile[] }) =>
       api.startDownload({

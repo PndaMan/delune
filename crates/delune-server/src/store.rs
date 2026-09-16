@@ -19,6 +19,14 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// A short id that is unique for the life of the process and sorts by creation time.
+#[must_use]
+pub fn new_id(prefix: &str) -> String {
+    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{prefix}{:x}{:05x}", now(), n & 0xf_ffff)
+}
+
 /// Keys that used to be `<key>.json` in the data directory.
 const IMPORTED_FILES: &[&str] = &[
     "accounts",

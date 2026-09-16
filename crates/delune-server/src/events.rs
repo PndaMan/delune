@@ -39,6 +39,11 @@ pub enum Topic {
     Favourites,
     Bandcamp,
     Soundcloud,
+    Automation,
+    ImportOptions,
+    External,
+    /// Download progress: only the download list needs refreshing.
+    Progress,
 }
 
 impl Topic {
@@ -58,6 +63,10 @@ impl Topic {
             Self::Favourites => "favourites",
             Self::Bandcamp => "bandcamp",
             Self::Soundcloud => "soundcloud",
+            Self::Automation => "automation",
+            Self::ImportOptions => "import-options",
+            Self::External => "external",
+            Self::Progress => "progress",
         }
     }
 }

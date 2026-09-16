@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { applyAppearance } from "@/lib/appearance"
+import { toast } from "@/lib/toast"
 import { router } from "@/router"
 import "@/index.css"
 
@@ -33,14 +34,21 @@ applyAppearance()
 // iOS leaves fixed bars (the bottom nav) floating above where they belong after the
 // keyboard closes, until something makes it lay the page out again. Nudge it.
 if (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) {
+  // Scrolling to where the page already is does nothing, so move a pixel and back:
+  // that makes Safari lay out fixed elements against the full screen again.
+  const relayout = () =>
+    window.requestAnimationFrame(() => {
+      window.scrollBy(0, 1)
+      window.scrollBy(0, -1)
+    })
   document.addEventListener("focusout", (event) => {
-    if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) return
-    window.requestAnimationFrame(() => window.scrollTo(window.scrollX, window.scrollY))
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      window.setTimeout(relayout, 50)
+      window.setTimeout(relayout, 400)
+    }
   })
   window.visualViewport?.addEventListener("resize", () => {
-    if (window.visualViewport && window.visualViewport.height >= window.innerHeight - 1) {
-      window.scrollTo(window.scrollX, window.scrollY)
-    }
+    if (window.visualViewport && window.visualViewport.height >= window.innerHeight - 1) relayout()
   })
 }
 
@@ -51,6 +59,13 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
+  // Any action that fails says so, unless the screen already shows the error itself.
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      if (mutation.meta?.quiet) return
+      toast(error instanceof Error ? error.message : "That didn't work. Try again.", "error")
+    },
+  }),
 })
 
 createRoot(document.getElementById("root")!).render(

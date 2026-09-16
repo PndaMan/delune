@@ -349,8 +349,26 @@ export function PurchasesSheet({ open, onClose }: { open: boolean; onClose: () =
               </div>
             </div>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3">
-            {purchases.isPending ? (
+          <div className="min-h-0 flex-1 overflow-y-auto p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
+            {account.data && !account.data.linked ? (
+              <div className="px-4 py-10 text-center text-[14.5px] text-muted-foreground">
+                <p>Link your Bandcamp account to see what you've bought.</p>
+                <Button
+                  className="mt-4"
+                  nativeButton={false}
+                  render={<Link to="/settings/$section" params={{ section: "bandcamp" }} onClick={onClose} />}
+                >
+                  Link Bandcamp
+                </Button>
+              </div>
+            ) : purchases.isError ? (
+              <div className="px-4 py-10 text-center text-[14.5px]">
+                <p className="text-destructive">{purchases.error.message}</p>
+                <Button variant="outline" className="mt-4" onClick={() => void purchases.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            ) : purchases.isPending || account.isPending ? (
               <div className="space-y-2 p-3">
                 {[0, 1, 2, 3].map((i) => (
                   <div key={i} className="h-16 animate-pulse rounded-xl bg-muted/40" />

@@ -100,7 +100,7 @@ function Composer({ placeholder, onSend, disabled }: { placeholder: string; onSe
   }
 
   return (
-    <div className="border-t px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
+    <div className="border-t px-3 pt-3 pb-3 sm:px-5">
       {error && <p className="mb-2 text-sm text-destructive">{error}</p>}
       <div className="flex items-end gap-2 rounded-2xl border bg-card/70 p-1.5 pl-4 focus-within:border-primary/50">
         <textarea

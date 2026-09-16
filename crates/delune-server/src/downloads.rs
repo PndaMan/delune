@@ -92,6 +92,8 @@ impl Downloads {
             .map(|mut job| {
                 // A fetch command that got nothing has no files to work the status out from.
                 let failed_empty = job.status == JobStatus::Failed && job.files.is_empty();
+                // A fetch (command or Bandcamp) can't pick up where it left off.
+                let interrupted = is_external(&job) && matches!(job.status, JobStatus::Queued | JobStatus::Downloading);
                 for file in &mut job.files {
                     if !matches!(file.status, FileStatus::Done | FileStatus::Failed | FileStatus::Cancelled) {
                         file.status = FileStatus::Waiting;
@@ -104,6 +106,10 @@ impl Downloads {
                 job.refresh();
                 if failed_empty {
                     job.status = JobStatus::Failed;
+                }
+                if interrupted {
+                    job.status = JobStatus::Failed;
+                    job.error = Some("delune restarted before this finished. Fetch it again.".into());
                 }
                 // A ready job's review isn't saved; it's recomputed on startup.
                 if job.status == JobStatus::Ready {
@@ -223,18 +229,28 @@ impl Downloads {
     }
 
     /// Save jobs if anything changed since the last save.
-    pub fn save_if_changed(&self) {
-        let Some(db) = &self.store else { return };
+    /// Save the jobs if anything changed since last time. Returns whether it had.
+    pub fn save_if_changed(&self) -> bool {
         if !self.dirty.swap(false, Ordering::Relaxed) {
-            return;
+            return false;
         }
-        if !db.save("jobs", &self.list()) {
+        if let Some(db) = &self.store
+            && !db.save("jobs", &self.list())
+        {
             self.dirty.store(true, Ordering::Relaxed);
         }
+        true
     }
 
     fn changed(&self) {
         self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    /// Tell whoever follows download statuses that a job is gone.
+    fn announce_removed(&self, mut job: DownloadJob) {
+        let before = job.status;
+        job.status = JobStatus::Cancelled;
+        let _ = self.status_changes.send((job, before));
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Entry>> {
@@ -433,13 +449,20 @@ pub fn begin(
 }
 
 /// Start a job that something other than Soulseek fills in, such as a fetch command.
+/// A job fetched by a command or from Bandcamp rather than downloaded from a peer;
+/// only Soulseek downloads name a folder.
+pub(crate) fn is_external(job: &DownloadJob) -> bool {
+    job.folder.is_empty()
+}
+
+/// Begin a fetch job. The receiver turns `true` when someone stops it.
 pub fn begin_external(
     app: &AppState,
     source: &str,
     title: &str,
     artist: Option<&str>,
     requested_by: &str,
-) -> DownloadJob {
+) -> (DownloadJob, watch::Receiver<bool>) {
     let id = app.downloads.new_id();
     // Just the program's name; the full path would read oddly in "Downloading from…".
     let name = Path::new(source).file_name().and_then(|n| n.to_str()).unwrap_or(source);
@@ -462,14 +485,38 @@ pub fn begin_external(
         waiting_for_slot: None,
         error: None,
     };
-    app.downloads.lock().push(Entry {
-        job: job.clone(),
-        cancel: watch::channel(false).0,
-        checked: None,
-        slot: Slot::None,
-    });
+    let (cancel, cancelled) = watch::channel(false);
+    app.downloads.lock().push(Entry { job: job.clone(), cancel, checked: None, slot: Slot::None });
     app.downloads.changed();
-    job
+    (job, cancelled)
+}
+
+/// Run a fetch for job `id` until it finishes or someone stops it, then record the outcome.
+pub async fn run_external(
+    app: &AppState,
+    id: &str,
+    mut cancelled: watch::Receiver<bool>,
+    work: impl std::future::Future<Output = Result<(), String>>,
+) {
+    let stop = async {
+        while !*cancelled.borrow() {
+            if cancelled.changed().await.is_err() {
+                // The job was removed; nobody is waiting for the result.
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    tokio::select! {
+        outcome = work => finish_external(app, id, outcome).await,
+        () = stop => stopped_external(app, id),
+    }
+}
+
+/// Someone stopped a fetch before it finished. Dropping the work stops it: a command
+/// is killed, a transfer is abandoned.
+fn stopped_external(app: &AppState, id: &str) {
+    app.downloads.fetched(id, Vec::new(), JobStatus::Cancelled, Some("Stopped.".into()));
+    crate::events::changed(app, crate::events::Topic::Downloads);
 }
 
 /// A fetch command finished: list what it left and send the job on to review.
@@ -559,6 +606,7 @@ fn start(app: &AppState, client: delune_soulseek::Client, job: &DownloadJob, can
 /// Pick up where saved jobs left off: resume unfinished downloads and redo
 /// reviews. Call once at startup.
 pub fn resume(app: &AppState) {
+    tidy(app);
     let pending: Vec<(DownloadJob, watch::Receiver<bool>)> = {
         let mut jobs = app.downloads.lock();
         jobs.iter_mut()
@@ -578,6 +626,41 @@ pub fn resume(app: &AppState) {
             start(app, client, &job, cancel);
         }
     }
+}
+
+/// Finished jobs are kept this long after they finish, then forgotten.
+const KEEP_FINISHED: u64 = 60 * 24 * 60 * 60;
+
+/// Forget long-finished jobs, and delete staging folders no job owns any more.
+fn tidy(app: &AppState) {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let kept: std::collections::HashSet<String> = {
+        let mut jobs = app.downloads.lock();
+        let before = jobs.len();
+        jobs.retain(|e| {
+            let finished = matches!(e.job.status, JobStatus::Imported | JobStatus::Failed | JobStatus::Cancelled);
+            let at = e.job.imported_at.unwrap_or(e.job.created_at);
+            !finished || now.saturating_sub(at) < KEEP_FINISHED
+        });
+        if jobs.len() != before {
+            tracing::info!(forgotten = before - jobs.len(), "forgot long-finished downloads");
+        }
+        jobs.iter().map(|e| e.job.id.clone()).collect()
+    };
+    app.downloads.changed();
+    let staging = app.data_dir.join("staging");
+    tokio::task::spawn_blocking(move || {
+        let Ok(entries) = std::fs::read_dir(&staging) else { return };
+        for entry in entries.filter_map(Result::ok) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !kept.contains(&name)
+                && entry.file_type().is_ok_and(|t| t.is_dir())
+                && let Err(error) = std::fs::remove_dir_all(entry.path())
+            {
+                tracing::warn!(%error, folder = %name, "couldn't remove a leftover staging folder");
+            }
+        }
+    });
 }
 
 /// Check a finished job again, for example after the naming template changed.
@@ -649,6 +732,14 @@ pub async fn stop(State(app): State<AppState>, user: CurrentUser, UrlPath(id): U
     ),
 )]
 pub async fn resume_one(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    let external = app.downloads.lock().iter().any(|e| e.job.id == id && is_external(&e.job));
+    if external {
+        return error(
+            StatusCode::CONFLICT,
+            "fetch-again",
+            "This came from a fetch, not Soulseek. Fetch it again from where you found it.",
+        );
+    }
     let Some(client) = app.soulseek.clone() else {
         return error(StatusCode::SERVICE_UNAVAILABLE, "soulseek-not-configured", "Soulseek isn't set up.");
     };
@@ -735,6 +826,7 @@ pub async fn remove(State(app): State<AppState>, user: CurrentUser, UrlPath(id):
     app.downloads.wake_waiting();
     crate::events::changed(&app, crate::events::Topic::Downloads);
     let _ = entry.cancel.send(true);
+    app.downloads.announce_removed(entry.job.clone());
     // Job ids are generated here, so this path can't escape the staging folder.
     let staging = app.data_dir.join("staging").join(&entry.job.id);
     if let Err(error) = tokio::fs::remove_dir_all(&staging).await

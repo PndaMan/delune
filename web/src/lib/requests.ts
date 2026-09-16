@@ -64,6 +64,7 @@ export function useRequests() {
 export function useCreateRequest() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: (request: NewRequest) => call<MusicRequest>("POST", "/requests", request),
     onSuccess: () => client.invalidateQueries({ queryKey: ["requests"] }),
   })
@@ -72,6 +73,7 @@ export function useCreateRequest() {
 export function useDecideRequest() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: ({ id, approve, reason }: { id: string; approve: boolean; reason?: string }) =>
       call<MusicRequest>("POST", `/requests/${encodeURIComponent(id)}/decision`, { approve, reason: reason || null }),
     onSuccess: () => {
@@ -85,6 +87,7 @@ export function useDecideRequest() {
 export function useRemoveRequest() {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet: true },
     mutationFn: (id: string) => call<void>("DELETE", `/requests/${encodeURIComponent(id)}`),
     onSuccess: () => client.invalidateQueries({ queryKey: ["requests"] }),
   })

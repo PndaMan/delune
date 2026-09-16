@@ -1,13 +1,14 @@
 import { Dialog } from "@base-ui/react/dialog"
 import { Link } from "@tanstack/react-router"
-import { Bell, BellOff, Check, CircleCheck, Inbox, LoaderCircle, Pause, Play, Search, Trash2, X } from "lucide-react"
+import { Check, CircleCheck, Inbox, LoaderCircle, Pause, Play, Search, Trash2, X } from "lucide-react"
 import { useDeferredValue, useState } from "react"
 
 import { Cover } from "@/components/cover"
+import { FollowButton } from "@/components/follow-button"
 import { useMusicViews } from "@/components/music-views"
 import { SoundcloudGlyph } from "@/components/soundcloud"
 import { Button } from "@/components/ui/button"
-import { useFollow, useFollows, useUnfollow } from "@/lib/automation"
+import { useFollows } from "@/lib/automation"
 import { plural } from "@/lib/format"
 import { type AlbumHit, type ArtistHit, useMusicSearch } from "@/lib/music"
 import { type SoundcloudFollow, useSetSoundcloudFollow, useSoundcloudFollows } from "@/lib/soundcloud"
@@ -214,10 +215,6 @@ function Results({
 }
 
 function ArtistResult({ artist }: { artist: ArtistHit }) {
-  const follows = useFollows()
-  const follow = useFollow()
-  const unfollow = useUnfollow()
-  const following = (follows.data ?? []).find((f) => f.artist.toLowerCase() === artist.name.toLowerCase())
   return (
     <li className="flex items-center gap-3 rounded-xl px-3 py-2">
       <Cover src={artist.picture ?? undefined} alt="" className="size-11 rounded-full" />
@@ -227,20 +224,7 @@ function ArtistResult({ artist }: { artist: ArtistHit }) {
           {artist.listeners ? `${artist.listeners.toLocaleString()} followers` : "Artist"}
         </p>
       </div>
-      {following ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => unfollow.mutate(following.deezer_id)}
-          disabled={unfollow.isPending}
-        >
-          <BellOff /> Following
-        </Button>
-      ) : (
-        <Button variant="outline" size="sm" onClick={() => follow.mutate(artist.name)} disabled={follow.isPending}>
-          {follow.isPending ? <LoaderCircle className="animate-spin" /> : <Bell />} Follow
-        </Button>
-      )}
+      <FollowButton artist={artist.name} size="small" />
     </li>
   )
 }
@@ -376,7 +360,6 @@ function FollowRow({
   follow: { artist: string; picture: string | null; deezer_id: number; seen: number[] }
   onClose: () => void
 }) {
-  const unfollow = useUnfollow()
   return (
     <li className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-accent/40">
       <Cover src={follow.picture ?? undefined} alt="" className="size-11 rounded-full" />
@@ -393,15 +376,7 @@ function FollowRow({
             : "Watching for new releases"}
         </p>
       </Link>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => unfollow.mutate(follow.deezer_id)}
-        disabled={unfollow.isPending}
-        className="text-muted-foreground"
-      >
-        <CircleCheck /> Following
-      </Button>
+      <FollowButton artist={follow.artist} size="small" />
     </li>
   )
 }

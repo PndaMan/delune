@@ -67,7 +67,13 @@ impl Client {
         if !base.path().ends_with('/') {
             base.set_path(&format!("{}/", base.path()));
         }
-        let http = reqwest::Client::builder().user_agent(concat!("delune/", env!("CARGO_PKG_VERSION"))).build()?;
+        // A Navidrome that accepts connections but never answers mustn't hang sign-in,
+        // library checks or the wishlist behind them.
+        let http = reqwest::Client::builder()
+            .user_agent(concat!("delune/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
         Ok(Self { base, creds, http })
     }
 

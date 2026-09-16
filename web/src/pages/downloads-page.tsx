@@ -80,6 +80,8 @@ export function JobCard({ job }: { job: DownloadJob }) {
   const stopped = job.status === "failed" || job.status === "cancelled"
   const progress = job.total_bytes ? job.bytes / job.total_bytes : 0
   const running = job.status === "queued" || job.status === "downloading"
+  // Fetched by a command or from Bandcamp: it can't be resumed, only fetched again.
+  const fetched = job.folder === ""
   const requester = requesterLabel(useMe(), job.requested_by)
 
   return (
@@ -134,11 +136,15 @@ export function JobCard({ job }: { job: DownloadJob }) {
           </p>
         </div>
         <div className="flex items-center gap-1">
+          {job.status === "ready" && (
+            <Button size="sm" nativeButton={false} render={<Link to="/review" />}>
+              Review
+            </Button>
+          )}
           {stopped && (
             <Button
               variant="ghost"
               size="icon"
-              className="hidden sm:inline-flex"
               nativeButton={false}
               render={<Link to="/" search={{ q: [job.parent, job.title].filter(Boolean).join(" ") }} />}
               aria-label="Find another copy"
@@ -159,7 +165,7 @@ export function JobCard({ job }: { job: DownloadJob }) {
               <ArrowUpToLine />
             </Button>
           )}
-          {(running || stopped) && (
+          {(running || (stopped && !fetched)) && (
             <Button
               variant="ghost"
               size="icon"

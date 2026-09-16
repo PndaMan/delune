@@ -124,7 +124,7 @@ function Room({ name }: { name: string }) {
   useEffect(() => {
     if (room.dataUpdatedAt) void client.invalidateQueries({ queryKey: chatKeys.overview })
   }, [room.dataUpdatedAt, client])
-  const join = useMutation({ mutationFn: () => chatApi.join(name), onSuccess: refresh })
+  const join = useMutation({ meta: { quiet: true }, mutationFn: () => chatApi.join(name), onSuccess: refresh })
   const leave = useMutation({ mutationFn: () => chatApi.leave(name), onSuccess: refresh })
   const members = useMemo(
     () => [...(room.data?.members ?? [])].sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: "base" })),

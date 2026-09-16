@@ -63,7 +63,7 @@ impl Automation {
     #[must_use]
     pub fn open(db: &Arc<Database>) -> Self {
         let state = db.load("automation").unwrap_or_default();
-        Self { store: Some(db.clone()), state: Mutex::new(state), http: reqwest::Client::new() }
+        Self { store: Some(db.clone()), state: Mutex::new(state), http: crate::music::http_client() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Stored> {
@@ -88,23 +88,30 @@ impl Automation {
     }
 }
 
+/// Where quality-upgrade wishlist items say they came from.
+pub(crate) const UPGRADE_SOURCE: &str = "Quality upgrades";
+
 /// Add an automation-made item to the wishlist unless the same search is there.
 pub(crate) fn queue(
     app: &AppState,
     query: String,
+    track: Option<String>,
     added_by: &str,
     min_quality: MinQuality,
     auto_download: bool,
     source: &str,
 ) {
     app.wishlist.with_items(|items| {
-        if items.iter().any(|i| i.query.eq_ignore_ascii_case(&query)) {
+        // Someone else wishing for the same thing doesn't cover this person.
+        if items.iter().any(|i| i.query.eq_ignore_ascii_case(&query) && i.added_by == added_by)
+            || crate::wishlist::active(items) >= crate::wishlist::MAX_ITEMS
+        {
             return;
         }
         let item = WishlistItem {
-            id: format!("a{:x}{:04x}", now(), items.len()),
+            id: crate::store::new_id("a"),
             query,
-            track: None,
+            track,
             playlist: Some(source.to_owned()),
             added_by: added_by.to_owned(),
             added_at: now(),
@@ -180,6 +187,7 @@ async fn check_follows(app: &AppState) {
             queue(
                 app,
                 format!("{} {title}", follow.artist),
+                None,
                 &follow.added_by,
                 MinQuality::Lossless,
                 settings.auto_download,
@@ -258,10 +266,11 @@ async fn look_for_upgrades(app: &AppState) {
         queue(
             app,
             format!("{artist} {}", full.name).trim().to_owned(),
+            None,
             "delune",
             settings.upgrade_to,
             settings.auto_download,
-            "Quality upgrades",
+            UPGRADE_SOURCE,
         );
         let mut state = app.automation.lock();
         state.upgrades_queued.insert(album.id.clone());
@@ -315,6 +324,8 @@ pub async fn update(
     let mut state = app.automation.lock();
     state.settings = settings.clone();
     app.automation.save(&state);
+    drop(state);
+    crate::events::changed(&app, crate::events::Topic::Automation);
     Json(settings).into_response()
 }
 

@@ -192,7 +192,7 @@ pub async fn create(State(app): State<AppState>, user: CurrentUser, Json(new): J
             items.remove(oldest);
         }
         let request = MusicRequest {
-            id: format!("r{:x}{:04x}", now(), items.len() & 0xffff),
+            id: crate::store::new_id("r"),
             requested_by: user.username.clone(),
             requested_at: now(),
             title,

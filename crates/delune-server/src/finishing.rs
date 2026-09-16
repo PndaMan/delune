@@ -80,8 +80,10 @@ pub fn finish(app: &AppState, tracks: Vec<Imported>, cover: Option<PathBuf>) {
             })
             .await;
         }
+        // Show the album straight away; lyrics can follow.
+        rescan(&app).await;
         if options.lyrics != LyricsMode::Off {
-            let http = reqwest::Client::new();
+            let http = app.music_http.clone();
             let mut found = 0;
             for track in &tracks {
                 let duration = {
@@ -102,13 +104,24 @@ pub fn finish(app: &AppState, tracks: Vec<Imported>, cover: Option<PathBuf>) {
                 tokio::time::sleep(Duration::from_millis(250)).await;
             }
             tracing::info!(tracks = tracks.len(), found, "lyrics fetched");
-        }
-        if let Some(navidrome) = &app.navidrome
-            && let Err(error) = navidrome.start_scan(false).await
-        {
-            tracing::warn!(%error, "imported, but Navidrome didn't start a scan");
+            if found > 0 {
+                rescan(&app).await;
+            }
         }
     });
+}
+
+/// Ask Navidrome to pick up new files, trying again for a few minutes if it's down.
+async fn rescan(app: &AppState) {
+    let Some(navidrome) = &app.navidrome else { return };
+    for wait in [0, 10, 30, 90, 180] {
+        tokio::time::sleep(Duration::from_secs(wait)).await;
+        match navidrome.start_scan(false).await {
+            Ok(_) => return,
+            Err(error) => tracing::warn!(%error, retry_in = wait, "Navidrome didn't start a scan"),
+        }
+    }
+    tracing::warn!("imported, but Navidrome never started a scan; it will find the files on its next one");
 }
 
 /// Words for one song from LRCLIB, or `None` when it doesn't have it.
@@ -121,11 +134,24 @@ pub(crate) async fn lyrics_for(
     lookup(http, title, artist, duration).await
 }
 
+/// Search LRCLIB by title and artist. When the artist is unknown or wrong (a folder
+/// name like "Music", say), fall back to the title alone, trusting only a match on length.
 async fn lookup(http: &reqwest::Client, title: &str, artist: &str, duration: Option<u32>) -> Option<Lyrics> {
+    let artist = artist.trim();
+    if !artist.is_empty()
+        && let Some(found) = search(http, &[("track_name", title), ("artist_name", artist)], duration).await
+    {
+        return Some(found);
+    }
+    duration?;
+    search(http, &[("track_name", title)], duration).await
+}
+
+async fn search(http: &reqwest::Client, query: &[(&str, &str)], duration: Option<u32>) -> Option<Lyrics> {
     let response = http
         .get(LRCLIB)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
-        .query(&[("track_name", title), ("artist_name", artist)])
+        .query(query)
         .timeout(Duration::from_secs(15))
         .send()
         .await
@@ -199,6 +225,7 @@ pub async fn set_options(
     if let Some(db) = &app.finishing.store {
         db.save("import-options", &options);
     }
+    crate::events::changed(&app, crate::events::Topic::ImportOptions);
     Json(options).into_response()
 }
 

@@ -39,6 +39,7 @@ export function NamingEditor({ editable }: { editable: boolean }) {
     (draft.template !== saved.data?.template || JSON.stringify(draft.options) !== JSON.stringify(saved.data?.options))
 
   const save = useMutation({
+    meta: { quiet: true },
     mutationFn: namingApi.update,
     onSuccess: (next) => {
       client.setQueryData(["naming"], next)
@@ -48,6 +49,7 @@ export function NamingEditor({ editable }: { editable: boolean }) {
     },
   })
   const detect = useMutation({
+    meta: { quiet: true },
     mutationFn: namingApi.detect,
     onSuccess: (layout) => {
       setDetected(layout)
@@ -237,7 +239,7 @@ export function NamingEditor({ editable }: { editable: boolean }) {
       </div>
 
       {editable && (dirty || save.isError) && (
-        <div className="sticky bottom-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-card/95 px-5 py-3 shadow-lg backdrop-blur">
+        <div className="sticky bottom-[calc(var(--chrome-bottom)+1rem)] z-10 flex flex-wrap items-center gap-3 rounded-2xl border bg-card/95 px-5 py-3 shadow-lg backdrop-blur">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">
             {save.isError ? (
               <span className="text-destructive">{save.error.message}</span>

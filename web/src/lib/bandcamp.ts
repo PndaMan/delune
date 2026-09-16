@@ -89,9 +89,10 @@ export function useBandcampPurchases(enabled: boolean) {
   })
 }
 
-function useAccountMutation<V>(run: (vars: V) => Promise<BandcampAccount>) {
+function useAccountMutation<V>(run: (vars: V) => Promise<BandcampAccount>, quiet = false) {
   const client = useQueryClient()
   return useMutation({
+    meta: { quiet },
     mutationFn: run,
     onSuccess: (account) => {
       client.setQueryData(["bandcamp", "account"], account)
@@ -101,7 +102,10 @@ function useAccountMutation<V>(run: (vars: V) => Promise<BandcampAccount>) {
 }
 
 export const useLinkBandcamp = () =>
-  useAccountMutation((cookie: string) => call<BandcampAccount>("PUT", "/account", { cookie } satisfies LinkBandcamp))
+  useAccountMutation(
+    (cookie: string) => call<BandcampAccount>("PUT", "/account", { cookie } satisfies LinkBandcamp),
+    true,
+  )
 export const useUnlinkBandcamp = () => useAccountMutation(() => call<BandcampAccount>("DELETE", "/account"))
 export const useSyncBandcamp = () => useAccountMutation(() => call<BandcampAccount>("POST", "/purchases/sync"))
 

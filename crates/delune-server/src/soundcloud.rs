@@ -169,8 +169,8 @@ impl SoundCloud {
         Ok(found)
     }
 
-    fn artist(&self, (profile, feed): (Profile, Vec<FeedTrack>)) -> SoundcloudArtist {
-        let following = self.follows().iter().any(|f| f.id == profile.id);
+    fn artist(&self, (profile, feed): (Profile, Vec<FeedTrack>), who: &str) -> SoundcloudArtist {
+        let following = self.follows().iter().any(|f| f.id == profile.id && f.added_by == who);
         SoundcloudArtist {
             id: profile.id,
             name: profile.name,
@@ -224,6 +224,7 @@ pub async fn check_follows(app: &AppState) {
             crate::automation::queue(
                 app,
                 query,
+                Some(item.title.clone()),
                 &follow.added_by,
                 MinQuality::Any,
                 app.automation.auto_download(),
@@ -232,7 +233,7 @@ pub async fn check_follows(app: &AppState) {
             seen.push(item.id);
         }
         let mut follows = app.soundcloud.follows();
-        if let Some(f) = follows.iter_mut().find(|f| f.id == follow.id) {
+        if let Some(f) = follows.iter_mut().find(|f| f.id == follow.id && f.added_by == follow.added_by) {
             f.seen = seen;
             f.last_checked = Some(now());
         }
@@ -263,14 +264,14 @@ pub struct ArtistParams {
         (status = 401, description = "Signed out", body = delune_core::api::ApiError),
     ),
 )]
-pub async fn artist(State(app): State<AppState>, _user: CurrentUser, Query(params): Query<ArtistParams>) -> Response {
+pub async fn artist(State(app): State<AppState>, user: CurrentUser, Query(params): Query<ArtistParams>) -> Response {
     let found = match (params.permalink.as_deref().map(str::trim), params.name.as_deref().map(str::trim)) {
         (Some(permalink), _) if !permalink.is_empty() => app.soundcloud.by_permalink(permalink).await,
         (_, Some(name)) if !name.is_empty() => app.soundcloud.by_name(name).await,
         _ => return error(StatusCode::BAD_REQUEST, "no-artist", "Say which artist."),
     };
     match found {
-        Ok(Some(found)) => Json(app.soundcloud.artist(found)).into_response(),
+        Ok(Some(found)) => Json(app.soundcloud.artist(found, &user.username)).into_response(),
         Ok(None) => soundcloud_error(&SoundcloudError::NotFound),
         Err(e) => soundcloud_error(&e),
     }
@@ -327,8 +328,13 @@ pub async fn track_detail(
         (status = 401, description = "Signed out", body = delune_core::api::ApiError),
     ),
 )]
-pub async fn follows(State(app): State<AppState>, _user: CurrentUser) -> Json<Vec<SoundcloudFollow>> {
-    Json(app.soundcloud.follows().clone())
+pub async fn follows(State(app): State<AppState>, user: CurrentUser) -> Json<Vec<SoundcloudFollow>> {
+    Json(visible(&app, &user))
+}
+
+/// Your follows, or everyone's if you manage delune.
+fn visible(app: &AppState, user: &CurrentUser) -> Vec<SoundcloudFollow> {
+    app.soundcloud.follows().iter().filter(|f| user.can_see(Some(&f.added_by))).cloned().collect()
 }
 
 /// `PUT /api/v1/soundcloud/follows/{permalink}`: follow an artist from now on.
@@ -356,7 +362,7 @@ pub async fn follow(State(app): State<AppState>, user: CurrentUser, UrlPath(perm
     };
     {
         let mut follows = app.soundcloud.follows();
-        if !follows.iter().any(|f| f.id == profile.id) {
+        if !follows.iter().any(|f| f.id == profile.id && f.added_by == user.username) {
             follows.push(SoundcloudFollow {
                 id: profile.id,
                 name: profile.name,
@@ -372,7 +378,7 @@ pub async fn follow(State(app): State<AppState>, user: CurrentUser, UrlPath(perm
         }
     }
     changed(&app, Topic::Soundcloud);
-    Json(app.soundcloud.follows().clone()).into_response()
+    Json(visible(&app, &user)).into_response()
 }
 
 /// `DELETE /api/v1/soundcloud/follows/{artist}`
@@ -394,18 +400,23 @@ pub async fn unfollow(State(app): State<AppState>, user: CurrentUser, UrlPath(ar
     }
     {
         let mut follows = app.soundcloud.follows();
-        let matches = |f: &SoundcloudFollow| f.id.to_string() == artist || f.permalink.eq_ignore_ascii_case(&artist);
-        // Someone else's follow is theirs to drop, unless you manage delune.
-        let others = follows.iter().any(|f| matches(f) && f.added_by != user.username);
-        if others && !user.permissions.manage {
+        let artist_matches =
+            |f: &SoundcloudFollow| f.id.to_string() == artist || f.permalink.eq_ignore_ascii_case(&artist);
+        // Your own follow goes; someone else's is theirs, unless you manage delune and it's
+        // the only one left for that artist.
+        let mine = follows.iter().any(|f| artist_matches(f) && f.added_by == user.username);
+        if mine {
+            follows.retain(|f| !(artist_matches(f) && f.added_by == user.username));
+        } else if user.permissions.manage {
+            follows.retain(|f| !artist_matches(f));
+        } else if follows.iter().any(artist_matches) {
             drop(follows);
             return error(StatusCode::FORBIDDEN, "not-your-follow", "Someone else follows this artist.");
         }
-        follows.retain(|f| !matches(f));
         app.soundcloud.save(&follows);
     }
     changed(&app, Topic::Soundcloud);
-    Json(app.soundcloud.follows().clone()).into_response()
+    Json(visible(&app, &user)).into_response()
 }
 
 #[cfg(test)]

@@ -2,8 +2,6 @@ import { Dialog } from "@base-ui/react/dialog"
 import { Link } from "@tanstack/react-router"
 import {
   ArrowDownToLine,
-  Bell,
-  BellRing,
   Check,
   Info,
   MessageSquarePlus,
@@ -17,6 +15,7 @@ import {
 import { useLayoutEffect, useRef, useState } from "react"
 
 import { Cover } from "@/components/cover"
+import { FollowButton } from "@/components/follow-button"
 import { useMusicViews } from "@/components/music-views"
 import { Button } from "@/components/ui/button"
 import type { Candidate, CandidateFile, PeerHistory } from "@/lib/api"
@@ -25,9 +24,8 @@ import { describeJob, jobForCandidate, useDownloads, useStartDownload } from "@/
 import { coverStatus, type LibraryMatch, type Ownership, ownership, useLibraryAlbum } from "@/lib/library"
 import { formatBytes, formatRuntime, formatSpeed, formatTrackTime, plural } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
-import { parseTrackName } from "@/lib/track-name"
+import { albumFromFolder, artistFromFolder, parseTrackName } from "@/lib/track-name"
 import { matchLink, useResolved } from "@/lib/tracklist"
-import { useFollow, useFollows, useUnfollow } from "@/lib/automation"
 import { useHiddenUsers } from "@/lib/hidden-users"
 import { REQUEST_STATUS, useCreateRequest, useRequests } from "@/lib/requests"
 import { useMe } from "@/lib/session"
@@ -174,7 +172,9 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
         {owned && <LibraryNote owned={owned} library={library.data} />}
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-          <FollowArtist artist={artwork.data?.artist ?? c.parent} />
+          {(artwork.data?.artist ?? artistFromFolder(c.parent)) && (
+            <FollowButton artist={(artwork.data?.artist ?? artistFromFolder(c.parent))!} size="small" />
+          )}
           <HideSharer username={c.username} />
         </div>
 
@@ -197,8 +197,8 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
           highlight={linkedTrack?.path}
           excluded={excluded}
           onToggle={toggle}
-          artist={artwork.data?.artist ?? c.parent ?? null}
-          album={artwork.data?.album ?? c.title}
+          artist={artwork.data?.artist ?? artistFromFolder(c.parent)}
+          album={artwork.data?.album ?? albumFromFolder(c.title)}
         />
         {other.length > 0 && (
           <ul className="mx-3 mt-3 flex flex-wrap gap-2 border-t pt-4">
@@ -355,7 +355,7 @@ function Tracklist({
                     e.stopPropagation()
                     views.openTrack({ artist, title, album, durationSecs: file.duration_secs })
                   }}
-                  className="rounded-md p-1 text-muted-foreground/60 opacity-0 outline-none transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="rounded-md p-1 text-muted-foreground/60 opacity-0 outline-none transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Info className="size-3.5" />
                 </button>
@@ -432,7 +432,7 @@ function DownloadAction({
             variant="outline"
             size="sm"
             nativeButton={false}
-            render={<Link to={job.status === "ready" ? "/review" : "/downloads"} />}
+            render={<Link to={job.status === "ready" || job.status === "imported" ? "/review" : "/downloads"} />}
           >
             {job.status === "ready" ? "Review" : job.status === "imported" ? "Done" : "Progress"}
           </Button>
@@ -522,9 +522,15 @@ function DownloadAction({
           Or the whole folder, {plural(candidate.audio_files, "track")}
         </button>
       )}
-      <p className="mt-2 hidden text-center text-[12.5px] text-muted-foreground sm:block">
-        {start.isError ? start.error.message : "Nothing reaches your library until you approve it."}
-      </p>
+      {start.isError ? (
+        <p className="mt-2 text-center text-[13px] text-destructive" role="alert">
+          {start.error.message}
+        </p>
+      ) : (
+        <p className="mt-2 hidden text-center text-[12.5px] text-muted-foreground sm:block">
+          Nothing reaches your library until you approve it.
+        </p>
+      )}
     </div>
   )
 }
@@ -621,29 +627,6 @@ function RequestAction({
 }
 
 /** Follow the artist, so new releases land on the wishlist. */
-function FollowArtist({ artist }: { artist: string | null | undefined }) {
-  const follows = useFollows()
-  const follow = useFollow()
-  const unfollow = useUnfollow()
-  if (!artist) return null
-  const existing = follows.data?.find((f) => f.artist.toLowerCase() === artist.toLowerCase())
-  return (
-    <button
-      type="button"
-      disabled={follow.isPending || unfollow.isPending}
-      onClick={() => (existing ? unfollow.mutate(existing.deezer_id) : follow.mutate(artist))}
-      className={cn(
-        "flex items-center gap-1.5 text-[12.5px] underline-offset-4 hover:underline",
-        existing ? "text-primary" : "text-muted-foreground/80 hover:text-foreground",
-      )}
-      title={follow.isError ? follow.error.message : undefined}
-    >
-      {existing ? <BellRing className="size-3.5" /> : <Bell className="size-3.5" />}
-      {existing ? `Following ${existing.artist}` : `Follow ${artist}`}
-    </button>
-  )
-}
-
 /** Hide someone's results for good, e.g. after a fake or a failed download. */
 function HideSharer({ username }: { username: string }) {
   const { hidden, hide, unhide } = useHiddenUsers()

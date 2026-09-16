@@ -202,7 +202,7 @@ export function AlbumBody({
       </div>
 
       {!owned && <BandcampOfferLine artist={artist} title={title} />}
-      <div className="flex flex-wrap gap-2 border-t p-4 sm:p-5">
+      <div className="flex flex-wrap gap-2 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5">
         <Button
           nativeButton={false}
           render={<Link to="/" search={{ q: [artist, title].filter(Boolean).join(" ") }} onClick={onClose} />}

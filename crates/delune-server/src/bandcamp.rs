@@ -485,7 +485,7 @@ pub async fn download(
         return error(StatusCode::NOT_FOUND, "no-download", "Bandcamp doesn't offer the files for that one.");
     };
 
-    let job =
+    let (job, cancelled) =
         crate::downloads::begin_external(&app, "Bandcamp", &purchase.title, Some(&purchase.artist), &user.username);
     {
         let mut linked = app.bandcamp.lock();
@@ -498,8 +498,8 @@ pub async fn download(
     let staging = crate::downloads::staging_dir(&app.data_dir, &job.id);
     let (app2, job_id, format) = (app.clone(), job.id.clone(), format.to_owned());
     tokio::spawn(async move {
-        let outcome = fetch(&app2.bandcamp.client, &cookie, &page, &format, &staging).await;
-        crate::downloads::finish_external(&app2, &job_id, outcome).await;
+        let work = fetch(&app2.bandcamp.client, &cookie, &page, &format, &staging);
+        crate::downloads::run_external(&app2, &job_id, cancelled, work).await;
         changed(&app2, Topic::Bandcamp);
     });
     changed(&app, Topic::Bandcamp);
@@ -517,7 +517,13 @@ async fn fetch(client: &Client, cookie: &str, page: &str, format: &str, staging:
         "Bandcamp didn't hand over the files. Try again in a while.".to_owned()
     })?;
     tokio::fs::create_dir_all(staging).await.map_err(|e| format!("Couldn't make a folder to download into: {e}"))?;
-    let mut response = reqwest::Client::new()
+    // No overall limit (albums are big), but a transfer that goes quiet is given up on.
+    let http = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(60))
+        .build()
+        .unwrap_or_default();
+    let mut response = http
         .get(&url)
         .header(reqwest::header::COOKIE, delune_bandcamp::cookie_header(cookie))
         .send()
