@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { Choice } from "@/components/choice"
 import { BandcampGlyph, BandcampGroup } from "@/components/bandcamp"
 import { ConnectionsForm } from "@/components/connections-form"
 import { ExternalSourcePanel } from "@/components/external-source"
@@ -45,6 +46,11 @@ import {
   type SoulseekStatus,
 } from "@/lib/api"
 import { cn } from "@/lib/utils"
+
+const UPGRADE_OPTIONS: { value: AutomationSettings["upgrade_to"]; label: string }[] = [
+  { value: "lossless", label: "Lossless" },
+  { value: "hi-res", label: "Hi-res" },
+]
 
 const GROUPS = [
   {
@@ -585,14 +591,13 @@ function AutomationSettingsPanel() {
       {s.quality_upgrades && (
         <div className="flex items-center gap-3 border-b px-5 py-3 text-sm">
           <span className="text-muted-foreground">Upgrade to</span>
-          <select
+          <Choice
             value={s.upgrade_to}
-            onChange={(e) => set({ upgrade_to: e.target.value as AutomationSettings["upgrade_to"] })}
-            className="h-9 rounded-lg border bg-background/50 px-2"
-          >
-            <option value="lossless">Lossless</option>
-            <option value="hi-res">Hi-res</option>
-          </select>
+            onChange={(upgrade_to) => set({ upgrade_to })}
+            options={UPGRADE_OPTIONS}
+            label="Upgrade to"
+            className="h-9"
+          />
         </div>
       )}
       {row(

@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { Check, CircleCheck, Inbox, LoaderCircle, Pause, Play, Search, Trash2, X } from "lucide-react"
 import { useDeferredValue, useState } from "react"
 
+import { Choice } from "@/components/choice"
 import { Cover } from "@/components/cover"
 import { FollowButton } from "@/components/follow-button"
 import { useMusicViews } from "@/components/music-views"
@@ -22,6 +23,11 @@ import {
   useWishlist,
 } from "@/lib/wishlist"
 import { cn } from "@/lib/utils"
+
+const QUALITY_OPTIONS = (Object.keys(MIN_QUALITY_LABELS) as MinQuality[]).map((value) => ({
+  value,
+  label: MIN_QUALITY_LABELS[value],
+}))
 
 /**
  * Everything delune is watching for, in one place: search for an artist or album,
@@ -307,18 +313,14 @@ function WishRow({ item }: { item: WishlistItem }) {
           {item.track && <span className="text-muted-foreground/70"> · one song</span>}
         </p>
       </div>
-      <select
+      <Choice
         value={item.min_quality}
-        onChange={(e) => update.mutate({ id: item.id, min_quality: e.target.value as MinQuality })}
-        aria-label={`Quality for ${item.query}`}
-        className="hidden h-8 rounded-lg border bg-background/50 px-2 text-[13px] outline-none sm:block"
-      >
-        {Object.entries(MIN_QUALITY_LABELS).map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
+        onChange={(min_quality) => update.mutate({ id: item.id, min_quality })}
+        options={QUALITY_OPTIONS}
+        label={`Quality for ${item.query}`}
+        size="sm"
+        className="hidden text-[13px] sm:flex"
+      />
       {item.download_id ? (
         <Button
           variant="ghost"

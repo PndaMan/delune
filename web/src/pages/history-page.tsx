@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
 
+import { Choice } from "@/components/choice"
 import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
 import { useMusicViews } from "@/components/music-views"
@@ -114,19 +115,16 @@ export function HistoryPage() {
           </button>
         ))}
         {me.permissions.manage && people.length > 1 && (
-          <select
+          <Choice
             value={person}
-            onChange={(e) => setPerson(e.target.value)}
-            aria-label="Whose history"
-            className="ml-auto h-9 rounded-full border bg-card/60 px-3 text-[14px] outline-none"
-          >
-            <option value="everyone">Everyone</option>
-            {people.map((p) => (
-              <option key={p} value={p}>
-                {p === me.username ? "You" : p}
-              </option>
-            ))}
-          </select>
+            onChange={setPerson}
+            options={[
+              { value: "everyone", label: "Everyone" },
+              ...people.map((p) => ({ value: p, label: p === me.username ? "You" : p })),
+            ]}
+            label="Whose history"
+            className="ml-auto h-9 rounded-full px-3 text-[14px]"
+          />
         )}
       </div>
 

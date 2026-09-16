@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { Check, ListPlus, LoaderCircle } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { Choice } from "@/components/choice"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { type ResolvedLink, toApiError } from "@/lib/api"
@@ -86,18 +87,13 @@ export function PlaylistImport({ link }: { link: ResolvedLink }) {
             ))}
           </div>
         )}
-        <select
+        <Choice
           value={quality}
-          onChange={(e) => setQuality(e.target.value as MinQuality)}
-          aria-label="Least quality to accept"
-          className="h-10 rounded-xl border bg-background/50 px-3 text-[14px]"
-        >
-          {(Object.keys(MIN_QUALITY_LABELS) as MinQuality[]).map((q) => (
-            <option key={q} value={q}>
-              {MIN_QUALITY_LABELS[q]}
-            </option>
-          ))}
-        </select>
+          onChange={setQuality}
+          options={(Object.keys(MIN_QUALITY_LABELS) as MinQuality[]).map((q) => ({ value: q, label: MIN_QUALITY_LABELS[q] }))}
+          label="Least quality to accept"
+          className="h-10 rounded-xl px-3 text-[14px]"
+        />
         <label className="flex cursor-pointer items-center gap-2 text-[14px] text-muted-foreground">
           <Switch checked={auto} onCheckedChange={setAuto} /> Download for review when found
         </label>
