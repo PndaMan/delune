@@ -222,7 +222,8 @@ in
           volumes = [
             "${cfg.dataDir}:${cfg.dataDir}"
           ]
-          ++ lib.optional (cfg.libraryDir != null) "${cfg.libraryDir}:${cfg.libraryDir}"
+          # rslave: a NAS share mounted on demand (automount) still shows up inside.
+          ++ lib.optional (cfg.libraryDir != null) "${cfg.libraryDir}:${cfg.libraryDir}:rslave"
           ++ cfg.vpn.volumes;
           dependsOn = [ cfg.vpn.container ];
           extraOptions = [ "--network=container:${cfg.vpn.container}" ];
@@ -230,6 +231,14 @@ in
         systemd.tmpfiles.rules = [
           "d ${cfg.dataDir} 0750 ${builtins.replaceStrings [ ":" ] [ " " ] cfg.vpn.user} -"
         ];
+        # Wait for a music folder on a network share, and keep retrying behind it.
+        systemd.services."${config.virtualisation.oci-containers.backend}-delune" = {
+          unitConfig.WantsMountsFor = lib.optional (cfg.libraryDir != null) cfg.libraryDir;
+          serviceConfig = {
+            Restart = lib.mkOverride 90 "always";
+            RestartSec = lib.mkOverride 90 "30s";
+          };
+        };
       })
 
       (mkIf (cfg.vpn.container == null) {
