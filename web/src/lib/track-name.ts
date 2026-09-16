@@ -43,25 +43,36 @@ export function parseTrackName(fileName: string): TrackName {
   return { title: parts.at(-1) ?? stem, extension }
 }
 
+/** Bracketed words that are notes, not part of the song's name: "(feat. …)", "[2011 Remaster]". */
+const NOTE = /^\s*(feat|ft\b|featuring|with\b|prod\b)|remaster|explicit|clean|bonus|album version|mono|stereo/i
+
 /**
- * A comparison key for song titles: case, accents, punctuation and bracketed extras
- * ("(Remastered)", "[Live]") don't count, and "&" reads as "and".
+ * A comparison key for song titles: case, accents, punctuation and bracketed notes
+ * ("(Remastered)", "[feat. X]") don't count, and "&" reads as "and". Brackets that
+ * name a version, like "(Dapa remix)", stay: that's a different song.
  */
 export function titleKey(title: string): string {
   return title
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\(.*?\)|\[.*?\]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\(([^)]*)\)|\[([^\]]*)\]/g, (_, round: string | undefined, square: string | undefined) => {
+      const inner = round ?? square ?? ""
+      return NOTE.test(inner) ? "" : ` ${inner} `
+    })
     .replace(/&/g, "and")
     .replace(/colour/g, "color")
     .replace(/[^a-z0-9]+/g, "")
 }
 
+/** Words that make a longer title another version of a song rather than the same one. */
+const VERSION = /remix|mix|edit|version|live|acoustic|instrumental|demo|rework|vip|dub|extended/
+
 /** Whether two title keys name the same song, allowing for a prefix or suffix on one of them. */
 export function sameTitle(a: string, b: string): boolean {
   if (!a || !b) return false
-  return a === b || (b.length >= 4 && a.includes(b)) || (a.length >= 4 && b.includes(a))
+  const [long, short] = a.length >= b.length ? [a, b] : [b, a]
+  return long === short || (short.length >= 4 && long.includes(short) && !VERSION.test(long.replace(short, "")))
 }
 
 /** Folder names that say where music is kept, not who made it. */

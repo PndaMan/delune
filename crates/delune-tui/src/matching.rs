@@ -62,24 +62,58 @@ fn fold_accent(c: char) -> char {
     }
 }
 
-fn without_brackets(text: &str) -> String {
+/// Words that make a bracketed part of a title a note rather than part of the name:
+/// "(feat. …)" and "[2011 Remaster]" don't make a different song, "(Dapa remix)" does.
+const NOTE_WORDS: &[&str] = &[
+    "feat",
+    "ft",
+    "featuring",
+    "with",
+    "prod",
+    "remaster",
+    "explicit",
+    "clean",
+    "bonus",
+    "album version",
+    "mono",
+    "stereo",
+];
+
+fn is_note(inner: &str) -> bool {
+    let inner = inner.trim().to_lowercase();
+    NOTE_WORDS.iter().any(|w| inner.starts_with(w) || (w.len() > 4 && inner.contains(w)))
+}
+
+/// The title without its bracketed notes.
+fn without_notes(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut depth = 0u32;
-    for c in text.chars() {
-        match c {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth = depth.saturating_sub(1),
-            _ if depth == 0 => out.push(c),
-            _ => {}
+    let mut rest = text;
+    while let Some(start) = rest.find(['(', '[', '{']) {
+        out.push_str(&rest[..start]);
+        let close = match rest.as_bytes()[start] {
+            b'(' => ')',
+            b'[' => ']',
+            _ => '}',
+        };
+        let Some(end) = rest[start..].find(close).map(|e| start + e) else {
+            rest = &rest[start + 1..];
+            continue;
+        };
+        let inner = &rest[start + 1..end];
+        if !is_note(inner) {
+            out.push(' ');
+            out.push_str(inner);
         }
+        rest = &rest[end + 1..];
     }
+    out.push_str(rest);
     out
 }
 
-/// A comparison key for titles: case, accents, punctuation and bracketed extras don't count.
+/// A comparison key for titles: case, accents, punctuation and bracketed notes don't count.
 #[must_use]
 pub fn title_key(title: &str) -> String {
-    let lower: String = without_brackets(&title.to_lowercase()).chars().map(fold_accent).collect();
+    let lower: String = without_notes(&title.to_lowercase()).chars().map(fold_accent).collect();
     lower.replace('&', "and").replace("colour", "color").chars().filter(char::is_ascii_alphanumeric).collect()
 }
 
@@ -89,7 +123,28 @@ pub fn same_title(a: &str, b: &str) -> bool {
     if a.is_empty() || b.is_empty() {
         return false;
     }
-    a == b || (b.len() >= 4 && a.contains(b)) || (a.len() >= 4 && b.contains(a))
+    let (long, short) = if a.len() >= b.len() { (a, b) } else { (b, a) };
+    long == short || (short.len() >= 4 && long.contains(short) && !is_version(&long.replacen(short, "", 1)))
+}
+
+/// Words that make a longer title another version of a song rather than the same one.
+const VERSION_WORDS: &[&str] = &[
+    "remix",
+    "mix",
+    "edit",
+    "version",
+    "live",
+    "acoustic",
+    "instrumental",
+    "demo",
+    "rework",
+    "vip",
+    "dub",
+    "extended",
+];
+
+fn is_version(extra: &str) -> bool {
+    VERSION_WORDS.iter().any(|w| extra.contains(w))
 }
 
 fn is_audio_extension(ext: &str) -> bool {
@@ -321,6 +376,9 @@ mod tests {
     #[test]
     fn titles_compare_loosely() {
         assert_eq!(title_key("Café del Mar (Remastered)"), "cafedelmar");
+        assert_ne!(title_key("solo (KETTAMA remix)"), title_key("solo"));
+        assert!(!same_title(&title_key("solo (KETTAMA remix)"), &title_key("solo")), "a remix isn't the song");
+        assert!(same_title(&title_key("Pink Floyd - Time"), &title_key("Time")));
         assert!(same_title(&title_key("Time - 2011 Remaster"), &title_key("Time")));
         assert!(!same_title("", "x"));
         assert_eq!(artist_from_folder(Some("FLAC")), None);

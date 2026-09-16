@@ -53,22 +53,58 @@ pub struct Renumber {
 
 const AUDIO: &[&str] = &["flac", "alac", "wav", "aif", "aiff", "mp3", "m4a", "aac", "opus", "ogg", "oga", "wv", "ape"];
 
-/// A comparison key: case, accents, punctuation and bracketed extras don't count.
+/// Words that make a bracketed part of a title a note rather than part of the name:
+/// "(feat. …)" and "[2011 Remaster]" don't make a different song, "(Dapa remix)" does.
+const NOTE_WORDS: &[&str] = &[
+    "feat",
+    "ft",
+    "featuring",
+    "with",
+    "prod",
+    "remaster",
+    "explicit",
+    "clean",
+    "bonus",
+    "album version",
+    "mono",
+    "stereo",
+];
+
+fn is_note(inner: &str) -> bool {
+    let inner = inner.trim().to_lowercase();
+    NOTE_WORDS.iter().any(|w| inner.starts_with(w) || (w.len() > 4 && inner.contains(w)))
+}
+
+/// A comparison key: case, accents, punctuation and bracketed notes don't count.
 #[must_use]
 pub fn title_key(title: &str) -> String {
-    let mut depth = 0u32;
     let mut out = String::new();
-    for c in title.to_lowercase().chars() {
+    let mut rest = title;
+    while let Some(start) = rest.find(['(', '[']) {
+        push_key(&mut out, &rest[..start]);
+        let close = if rest.as_bytes()[start] == b'(' { ')' } else { ']' };
+        let Some(end) = rest[start..].find(close).map(|e| start + e) else {
+            rest = &rest[start + 1..];
+            continue;
+        };
+        let inner = &rest[start + 1..end];
+        if !is_note(inner) {
+            push_key(&mut out, inner);
+        }
+        rest = &rest[end + 1..];
+    }
+    push_key(&mut out, rest);
+    out
+}
+
+fn push_key(out: &mut String, text: &str) {
+    for c in text.to_lowercase().chars() {
         match c {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth = depth.saturating_sub(1),
-            _ if depth > 0 => {}
             '&' => out.push_str("and"),
             c if c.is_alphanumeric() => out.push(fold(c)),
             _ => {}
         }
     }
-    out
 }
 
 const fn fold(c: char) -> char {
@@ -85,8 +121,31 @@ const fn fold(c: char) -> char {
     }
 }
 
+/// Words that make a longer title another version of a song rather than the same one.
+const VERSION_WORDS: &[&str] = &[
+    "remix",
+    "mix",
+    "edit",
+    "version",
+    "live",
+    "acoustic",
+    "instrumental",
+    "demo",
+    "rework",
+    "vip",
+    "dub",
+    "extended",
+];
+
 fn same_title(a: &str, b: &str) -> bool {
-    !a.is_empty() && !b.is_empty() && (a == b || (a.len() >= 5 && b.len() >= 5 && (a.contains(b) || b.contains(a))))
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    let (long, short) = if a.len() >= b.len() { (a, b) } else { (b, a) };
+    long == short
+        || (short.len() >= 5
+            && long.contains(short)
+            && !VERSION_WORDS.iter().any(|w| long.replacen(short, "", 1).contains(w)))
 }
 
 /// A title's place in the tracklist. An exact match wins over a loose one, so
@@ -221,8 +280,18 @@ mod tests {
         let tracklist = list(&["Lights Burn Dimmer", "Beto's Horns", "Beto's Horns (Dapa remix)", "Jungle"]);
         assert_eq!(position(&tracklist, "lights burn dimmer"), Some(1));
         assert_eq!(position(&tracklist, "Beto’s Horns"), Some(2), "exact beats the remix");
+        assert_eq!(position(&tracklist, "Beto's Horns (Dapa Remix)"), Some(3), "a remix is its own song");
         assert_eq!(position(&tracklist, "Jungle (feat. Elley Duhé)"), Some(4), "brackets don't count");
         assert_eq!(position(&tracklist, "Kyle"), None);
+    }
+
+    #[test]
+    fn bracketed_notes_dont_count_but_versions_do() {
+        assert_eq!(title_key("Time (2011 Remaster)"), title_key("Time"));
+        assert_eq!(title_key("Jungle [feat. Elley Duhé]"), "jungle");
+        assert_ne!(title_key("solo (KETTAMA remix)"), title_key("solo"));
+        assert_eq!(title_key("Rock & Roll (Live)"), "rockandrolllive");
+        assert_eq!(title_key("Unclosed (bracket"), "unclosedbracket");
     }
 
     #[test]
