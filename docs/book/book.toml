@@ -1,0 +1,23 @@
+[book]
+title = "delune"
+description = "Find music on Soulseek, check it, and file it into Navidrome."
+authors = ["Aidan McConnon"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/PndaMan/delune"
+edit-url-template = "https://github.com/PndaMan/delune/edit/main/docs/book/{path}"
+site-url = "/delune/"
+default-theme = "navy"
+preferred-dark-theme = "navy"
+smart-punctuation = true
+additional-js = ["theme/mermaid-init.js"]
+
+[output.html.fold]
+enable = true
+level = 1

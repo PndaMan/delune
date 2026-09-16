@@ -5,3 +5,6 @@ node_modules/
 *.local
 .DS_Store
 /.local
+
+# Built documentation (mdbook build docs/book)
+/docs/book/book/

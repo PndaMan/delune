@@ -10,17 +10,24 @@ lets you review it, and puts it in your library with the tags, artwork, lyrics a
 file names you asked for.
 
 [![CI](https://github.com/PndaMan/delune/actions/workflows/ci.yml/badge.svg)](https://github.com/PndaMan/delune/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-pndaman.github.io%2Fdelune-aeb8ff)](https://pndaman.github.io/delune/)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-4f5bd5)](LICENSE)
+
+**[Documentation](https://pndaman.github.io/delune/)** ·
+[Quick start](https://pndaman.github.io/delune/quick-start.html) ·
+[Install](https://pndaman.github.io/delune/install/script.html) ·
+[Troubleshooting](https://pndaman.github.io/delune/operate/troubleshooting.html)
 
 <img src="docs/assets/results.png" alt="delune search results for Pink Floyd's The Dark Side of the Moon: album covers, colour-coded quality from FLAC 24/192 down, track counts, sizes and whether each person can send now" width="820">
 
 </div>
 
-> [!WARNING]
-> **delune is in early development and can't download anything yet.** Live
-> Soulseek search works in the web UI, the terminal UI and the API; the first working
-> release (v0.1) is tracked in the [roadmap](docs/ROADMAP.md). Star or watch the
-> repo to follow along.
+> [!NOTE]
+> **delune works end to end** — search, download, review, import, sharing — and runs in
+> production next to its author's Navidrome, but there's no tagged release yet, so
+> install [from source](https://pndaman.github.io/delune/install/source.html) or with
+> [Nix](https://pndaman.github.io/delune/install/nixos.html) for now. Progress is in the
+> [roadmap](docs/ROADMAP.md).
 
 <table>
   <tr>
@@ -178,6 +185,11 @@ builds are static, so they run on any distribution, NixOS included) and starts
 `delune setup`: a wizard in the terminal that asks
 for your music folder, Navidrome and Soulseek, tries each one, writes the settings,
 and sets delune up as a systemd service. Run `delune setup` again any time.
+
+Run the script again to upgrade, or with `--uninstall` to remove delune (your data
+stays). `sh -s -- --help` lists the rest: a specific `--version`, `--bin-dir`,
+`--no-setup`, `--dry-run` and more. The
+[install guide](https://pndaman.github.io/delune/install/script.html) has the details.
 
 On another computer, `delune-tui myserver` connects to it. Give it delune's address,
 the host name, or your Navidrome's address; it looks next to Navidrome, remembers

@@ -97,6 +97,16 @@ jobs:
             "$path" --version
           done
 
+  installer:
+    name: Install script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: shellcheck -s sh install.sh && shellcheck scripts/test-install.sh
+      - run: scripts/test-install.sh
+        env:
+          SHELL_UNDER_TEST: dash
+
   macos:
     name: macOS
     runs-on: macos-15
