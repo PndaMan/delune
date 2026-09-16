@@ -75,11 +75,17 @@ function ReleaseDetail({ candidate: c }: { candidate: Candidate }) {
   const status = coverStatus(jobForCandidate(downloads.data ?? [], c), owned)
   const linkMatch = matchLink(c, useResolved())
   const linkedTrack = linkMatch?.kind === "track" ? linkMatch.file : undefined
-  // Every track is picked by default; untick any you don't want.
-  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  // Every track is picked by default, except those the library already has when it
+  // has only some of them; untick any you don't want.
+  const [choice, setExcluded] = useState<Set<string> | null>(null)
+  const alreadyHave =
+    owned && !owned.complete && owned.owned > 0
+      ? new Set(audio.filter((f) => !owned.missing.has(f.name)).map((f) => f.path))
+      : new Set<string>()
+  const excluded = choice ?? alreadyHave
   const toggle = (path: string) =>
     setExcluded((current) => {
-      const next = new Set(current)
+      const next = new Set(current ?? alreadyHave)
       if (next.has(path)) next.delete(path)
       else next.add(path)
       return next
