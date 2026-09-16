@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter } from "@tanstack/react-rout
 
 import { AppShell } from "@/components/app-shell"
 import { ArtistPage } from "@/pages/artist-page"
+import { AlbumPage, SharePage, SongPage } from "@/pages/music-pages"
 import { DownloadsPage } from "@/pages/downloads-page"
 import { HistoryPage } from "@/pages/history-page"
 import { ReviewPage } from "@/pages/review-page"
@@ -40,6 +41,33 @@ function Artist() {
   const { name } = artistRoute.useParams()
   return <ArtistPage name={name} />
 }
+
+const albumRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/album/$artist/$title",
+  component: Album,
+})
+
+function Album() {
+  const { artist, title } = albumRoute.useParams()
+  return <AlbumPage artist={artist === "-" ? null : artist} title={title} />
+}
+
+const songRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/song/$artist/$title",
+  validateSearch: (search: Record<string, unknown>): { album?: string } =>
+    typeof search.album === "string" && search.album ? { album: search.album } : {},
+  component: Song,
+})
+
+function Song() {
+  const { artist, title } = songRoute.useParams()
+  const { album } = songRoute.useSearch()
+  return <SongPage artist={artist === "-" ? null : artist} title={title} album={album ?? null} />
+}
+
+const shareRoute = createRoute({ getParentRoute: () => rootRoute, path: "/share", component: SharePage })
 
 const historyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/history", component: HistoryPage })
 const settingsRoute = createRoute({
@@ -85,6 +113,9 @@ const routeTree = rootRoute.addChildren([
     uploadsRoute,
   ]),
   artistRoute,
+  albumRoute,
+  songRoute,
+  shareRoute,
   historyRoute,
   settingsRoute,
   settingsSectionRoute,

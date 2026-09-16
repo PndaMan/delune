@@ -16,7 +16,6 @@ import { Cover } from "@/components/cover"
 import { EmptyState } from "@/components/empty-state"
 import { useMusicViews } from "@/components/music-views"
 import { RequestsSection } from "@/components/requests-section"
-import { WishlistSection } from "@/components/wishlist-section"
 import { Button } from "@/components/ui/button"
 import type { DownloadJob, JobFile } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
@@ -67,7 +66,6 @@ export function DownloadsPage() {
           ))}
         </ul>
       )}
-      <WishlistSection />
     </PageFrame>
   )
 }

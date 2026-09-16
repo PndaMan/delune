@@ -12,8 +12,8 @@ import { useMe } from "@/lib/session"
 import { useAddToWishlist } from "@/lib/wishlist"
 import { cn } from "@/lib/utils"
 
-type AlbumRef = { artist: string | null; title: string }
-type TrackRef = { artist: string | null; title: string; album?: string | null; durationSecs?: number | null }
+export type AlbumRef = { artist: string | null; title: string }
+export type TrackRef = { artist: string | null; title: string; album?: string | null; durationSecs?: number | null }
 
 type MusicViews = {
   /** Open an album: its tracklist, whether you have it, and what to do about it. */
@@ -91,6 +91,26 @@ function AlbumDialog({
   onClose: () => void
   onTrack: (track: TrackRef) => void
 }) {
+  return (
+    <Shell open={album !== null} onClose={onClose} label={album?.title ?? "Album"} wide>
+      {album && <AlbumBody album={album} onClose={onClose} onTrack={onTrack} />}
+    </Shell>
+  )
+}
+
+/**
+ * One album: cover, tracklist, whether it's in the library, and what to do next.
+ * Shown inside a dialog in the app, and as a page when a link opens it directly.
+ */
+export function AlbumBody({
+  album,
+  onClose,
+  onTrack,
+}: {
+  album: AlbumRef
+  onClose?: () => void
+  onTrack: (track: TrackRef) => void
+}) {
   const me = useMe()
   const info = useAlbum(album?.artist, album?.title ?? null)
   const artwork = useArtwork(album?.artist ?? null, album?.title ?? null)
@@ -102,7 +122,7 @@ function AlbumDialog({
   const runtime = info.data?.tracks.reduce((total, track) => total + (track.duration_secs ?? 0), 0)
 
   return (
-    <Shell open={album !== null} onClose={onClose} label={title} wide>
+    <>
       <div className="flex gap-4 border-b p-5 sm:gap-5 sm:p-6">
         <Cover src={cover} pending={info.isPending} alt="" className="size-24 rounded-xl sm:size-32" />
         <div className="min-w-0 flex-1 pr-10">
@@ -201,19 +221,30 @@ function AlbumDialog({
           </Button>
         )}
       </div>
-    </Shell>
+    </>
   )
 }
 
 function TrackDialog({ track, onClose }: { track: TrackRef | null; onClose: () => void }) {
-  const lyrics = useLyrics(track?.artist, track?.title ?? null, track?.durationSecs)
-  const lines = lyrics.data ? plainFrom(lyrics.data) : []
   return (
     <Shell open={track !== null} onClose={onClose} label={track?.title ?? "Song"}>
+      {track && <SongBody track={track} onClose={onClose} />}
+    </Shell>
+  )
+}
+
+/** One song: where it's from, how long it is, and its words. */
+export function SongBody({ track, onClose }: { track: TrackRef; onClose?: () => void }) {
+  const lyrics = useLyrics(track.artist, track.title, track.durationSecs)
+  const lines = lyrics.data ? plainFrom(lyrics.data) : []
+  return (
+    <>
       <div className="border-b p-5 pr-14 sm:p-6 sm:pr-14">
-        <Dialog.Title className="type-title text-[20px] leading-tight text-balance">{track?.title}</Dialog.Title>
+        <Dialog.Title className="type-title text-[20px] leading-tight text-balance" render={<h2 />}>
+          {track.title}
+        </Dialog.Title>
         <p className="mt-1 text-[15px] text-muted-foreground">
-          {track?.artist && (
+          {track.artist && (
             <Link
               to="/artist/$name"
               params={{ name: track.artist }}
@@ -223,8 +254,8 @@ function TrackDialog({ track, onClose }: { track: TrackRef | null; onClose: () =
               {track.artist}
             </Link>
           )}
-          {track?.album && <span> · {track.album}</span>}
-          {track?.durationSecs ? <span> · {formatTrackTime(track.durationSecs ?? null)}</span> : null}
+          {track.album && <span> · {track.album}</span>}
+          {track.durationSecs ? <span> · {formatTrackTime(track.durationSecs)}</span> : null}
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
@@ -242,6 +273,6 @@ function TrackDialog({ track, onClose }: { track: TrackRef | null; onClose: () =
           </p>
         )}
       </div>
-    </Shell>
+    </>
   )
 }

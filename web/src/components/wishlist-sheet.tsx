@@ -78,7 +78,13 @@ export function WishlistSheet({ open, onClose }: { open: boolean; onClose: () =>
 
           <div className="scrollbar-themed min-h-0 flex-1 overflow-y-auto px-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-3">
             {typing ? (
-              <Results search={search.data} pending={search.isFetching} query={query} onAdded={() => setQuery("")} />
+              <Results
+                search={search.data}
+                pending={search.isFetching}
+                failed={search.isError}
+                query={query}
+                onAdded={() => setQuery("")}
+              />
             ) : (
               <>
                 <Group title="Waiting" count={waiting.length}>
@@ -131,11 +137,13 @@ function Group({ title, count, children }: { title: string; count: number; child
 function Results({
   search,
   pending,
+  failed,
   query,
   onAdded,
 }: {
   search: { artists: ArtistHit[]; albums: AlbumHit[] } | undefined
   pending: boolean
+  failed: boolean
   query: string
   onAdded: () => void
 }) {
@@ -163,6 +171,21 @@ function Results({
           {[0, 1, 2].map((i) => (
             <div key={i} className="h-14 animate-pulse rounded-xl bg-muted/40" />
           ))}
+        </div>
+      )}
+      {failed && !search && (
+        <div className="px-4 py-8 text-center">
+          <p className="text-[15px] text-muted-foreground">
+            Couldn't reach the catalogue delune looks names up in. You can still watch for it by name.
+          </p>
+          <Button
+            variant="outline"
+            className="mt-3"
+            disabled={add.isPending}
+            onClick={() => add.mutate({ query: query.trim() }, { onSuccess: onAdded })}
+          >
+            Watch for “{query.trim()}”
+          </Button>
         </div>
       )}
       {nothing && !pending && (
