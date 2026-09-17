@@ -112,7 +112,7 @@ pub fn finish(app: &AppState, tracks: Vec<Imported>, cover: Option<PathBuf>) {
 }
 
 /// Ask Navidrome to pick up new files, trying again for a few minutes if it's down.
-async fn rescan(app: &AppState) {
+pub(crate) async fn rescan(app: &AppState) {
     let Some(navidrome) = &app.navidrome else { return };
     for wait in [0, 10, 30, 90, 180] {
         tokio::time::sleep(Duration::from_secs(wait)).await;

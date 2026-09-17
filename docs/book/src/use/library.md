@@ -44,3 +44,28 @@ Album, artist and song names are links throughout the app.
 
 Each has its own address (`/album/<artist>/<title>`, `/artist/<name>`,
 `/song/<artist>/<title>`), so they can be shared and opened directly.
+
+## Checking the library
+
+**Settings → Library check** (for people who manage delune) looks through the music
+folder for two things:
+
+- **An album in several folders.** This happens when the artist's folder is spelled in
+  different ways (`Fred again..`, `Fred again._`) or the folder names carry different
+  years. **Merge** moves the tracks into the fullest folder. Where both folders have a
+  track, the better copy stays.
+- **A track twice in one folder**, such as an MP3 beside the FLAC. **Keep the best**
+  keeps the highest-quality copy of each track.
+
+These fixes never delete anything:
+
+- Whatever a fix takes out goes to `.delune-trash` in the music folder, which Navidrome
+  doesn't show. Anything in the trash is emptied after 30 days.
+- **Put back** undoes a whole fix, including the moves.
+- Before each fix, delune checks that the files are still exactly as they were when you
+  looked. If anything changed, it asks you to check again.
+- A fix that touches more than 20 files needs a second tap. One that would touch more
+  than 400 files is refused.
+
+New tracks go into an album's existing folder even when that folder is spelled
+differently, so new splits shouldn't appear.

@@ -20,6 +20,7 @@ pub mod external;
 pub mod favourites;
 pub mod finishing;
 pub mod library;
+pub mod library_health;
 pub mod music;
 pub mod naming;
 pub mod nat;
@@ -135,6 +136,8 @@ pub struct AppState {
     pub nat_wake: Arc<tokio::sync::watch::Sender<u64>>,
     /// Uploads arriving in pieces.
     pub upload_sessions: Arc<uploads::Sessions>,
+    /// The last library check, which fixes act on.
+    pub library_health: Arc<library_health::LastScan>,
 }
 
 impl Default for AppState {
@@ -175,6 +178,7 @@ impl Default for AppState {
             nat: Arc::default(),
             nat_wake: Arc::new(tokio::sync::watch::channel(0).0),
             upload_sessions: Arc::default(),
+            library_health: Arc::default(),
         }
     }
 }
@@ -365,6 +369,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}/files/{name}/spectrogram", get(review::spectrogram))
         .route("/api/v1/library/album", get(library::album))
         .route("/api/v1/library/recent", get(stats::recent))
+        .route("/api/v1/library/health", get(library_health::check))
+        .route("/api/v1/library/health/fix", post(library_health::fix))
+        .route("/api/v1/library/trash/{id}/restore", post(library_health::restore))
         .route("/api/v1/library/cover/{id}", get(stats::cover))
         .route("/api/v1/stats", get(stats::stats))
         .route("/api/v1/events", get(events::stream))
@@ -576,7 +583,7 @@ fn purge_trash(state: &AppState) {
         loop {
             let root = root.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                delune_library::trash::purge(&root, Duration::from_secs(30 * 24 * 60 * 60));
+                delune_library::trash::purge(&root, library_health::trash_age());
             })
             .await;
             tokio::time::sleep(Duration::from_secs(6 * 60 * 60)).await;

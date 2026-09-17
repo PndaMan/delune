@@ -378,6 +378,39 @@ export type FollowAlbumRequest = { artist: string; album: string }
 
 export type Health = { name: string; version: string; status: HealthStatus }
 
+export type HealthFinding = {
+  /**
+   * Changes whenever the files involved do; a fix needs the current one.
+   */
+  id: string
+  kind: HealthKind
+  /**
+   * Library-relative folders; for a split album, the one kept comes first.
+   */
+  folders: Array<string>
+  /**
+   * For duplicate tracks: the copies of each track, library-relative.
+   */
+  duplicates: Array<Array<string>>
+  /**
+   * How many audio files a fix moves or puts in the trash.
+   */
+  files: number
+}
+
+export type HealthFixRequest = { id: string }
+
+export type HealthFixed = {
+  moved: number
+  trashed: number
+  /**
+   * Restore this batch to undo the fix.
+   */
+  batch: string
+}
+
+export type HealthKind = "split-album" | "duplicate-tracks"
+
 export type HealthStatus = "ok" | "degraded"
 
 export type ImportResult = { imported: number; folder: string; scan_started: boolean }
@@ -393,6 +426,17 @@ export type JobFile = {
 }
 
 export type JobStatus = "queued" | "downloading" | "ready" | "failed" | "cancelled" | "imported"
+
+export type LibraryHealth = {
+  albums: number
+  tracks: number
+  findings: Array<HealthFinding>
+  trash: Array<TrashBatch>
+  /**
+   * Batches in the trash are emptied after this many days.
+   */
+  trash_days: number
+}
 
 export type LibraryMatch = {
   state: LibraryState
@@ -1205,6 +1249,22 @@ export type TransferHour = {
   hour: number
   uploaded_bytes: number
   downloaded_bytes: number
+}
+
+export type TrashBatch = {
+  id: string
+  /**
+   * Unix seconds.
+   */
+  created_at: number
+  files: number
+}
+
+export type TrashRestored = {
+  /**
+   * Files that couldn't go back because their place is taken; they stay in the trash.
+   */
+  left: Array<string>
 }
 
 export type Upload = {

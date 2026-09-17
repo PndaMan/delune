@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Globe,
   HeartPulse,
+  FolderSearch,
   Library,
   LoaderCircle,
   Lock,
@@ -24,6 +25,7 @@ import { useEffect, useRef, useState } from "react"
 import { AlertsPanel } from "@/components/alerts-panel"
 import { Choice } from "@/components/choice"
 import { DiagnosticsPanel } from "@/components/diagnostics-panel"
+import { LibraryHealthPanel } from "@/components/library-health-panel"
 import { BandcampGlyph, BandcampGroup } from "@/components/bandcamp"
 import { ConnectionsForm } from "@/components/connections-form"
 import { ExternalSourcePanel } from "@/components/external-source"
@@ -80,6 +82,14 @@ const GROUPS = [
     icon: HeartPulse,
     manage: true,
     panel: () => <DiagnosticsPanel />,
+  },
+  {
+    id: "tidy",
+    title: "Library check",
+    blurb: "Albums split over folders, tracks in an album twice, and what's in the trash.",
+    icon: FolderSearch,
+    manage: true,
+    panel: () => <LibraryHealthPanel />,
   },
   {
     id: "appearance",

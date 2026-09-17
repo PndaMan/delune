@@ -1582,6 +1582,84 @@ pub struct FollowAlbumRequest {
     pub album: String,
 }
 
+/// What a library check can find.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub enum HealthKind {
+    /// One album in several folders.
+    SplitAlbum,
+    /// The same track more than once in one folder.
+    DuplicateTracks,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct HealthFinding {
+    /// Changes whenever the files involved do; a fix needs the current one.
+    pub id: String,
+    pub kind: HealthKind,
+    /// Library-relative folders; for a split album, the one kept comes first.
+    pub folders: Vec<String>,
+    /// For duplicate tracks: the copies of each track, library-relative.
+    pub duplicates: Vec<Vec<String>>,
+    /// How many audio files a fix moves or puts in the trash.
+    pub files: u32,
+}
+
+/// A set of files a fix or an import took out of the library, which can be put back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TrashBatch {
+    pub id: String,
+    /// Unix seconds.
+    pub created_at: u64,
+    pub files: u32,
+}
+
+/// `GET /api/v1/library/health`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LibraryHealth {
+    pub albums: u32,
+    pub tracks: u32,
+    pub findings: Vec<HealthFinding>,
+    pub trash: Vec<TrashBatch>,
+    /// Batches in the trash are emptied after this many days.
+    pub trash_days: u32,
+}
+
+/// `POST /api/v1/library/health/fix`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct HealthFixRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct HealthFixed {
+    pub moved: u32,
+    pub trashed: u32,
+    /// Restore this batch to undo the fix.
+    pub batch: String,
+}
+
+/// `POST /api/v1/library/trash/{id}/restore`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TrashRestored {
+    /// Files that couldn't go back because their place is taken; they stay in the trash.
+    pub left: Vec<String>,
+}
+
 /// `POST /api/v1/uploads/sessions`: an upload sent in pieces, so no single request is
 /// large (proxies such as Cloudflare refuse big bodies, and time out slow ones).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

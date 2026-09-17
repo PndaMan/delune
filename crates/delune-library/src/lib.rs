@@ -10,6 +10,7 @@
 //! - [`extras`] — embedded artwork and lyrics.
 
 pub mod extras;
+pub mod health;
 pub mod import;
 pub mod inspect;
 pub mod layout;

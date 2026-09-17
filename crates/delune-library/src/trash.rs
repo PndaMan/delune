@@ -11,6 +11,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const DIR: &str = ".delune-trash";
 
+/// In a batch: the files a fix moved within the library, one `from\tto` per line, so
+/// undoing the batch can move them back.
+const MOVES: &str = ".delune-moves";
+
 /// A name for a new batch: sorts by time, unique within the process.
 #[must_use]
 pub fn batch_name() -> String {
@@ -62,11 +66,22 @@ pub fn put(root: &Path, relative: &str, batch: &str) -> io::Result<Vec<String>> 
     let stem = source.file_stem().map(std::ffi::OsStr::to_os_string);
     let mut companions = Vec::new();
     if let (Some(parent), Some(stem)) = (source.parent(), stem) {
+        let mut others_remain = false;
         for entry in fs::read_dir(parent)?.flatten() {
             let p = entry.path();
-            if p != source && p.is_file() && p.file_stem() == Some(stem.as_os_str()) {
+            if p == source || !p.is_file() || p.file_stem() != Some(stem.as_os_str()) {
+                continue;
+            }
+            // Another copy of the track in another format isn't a companion, and it
+            // keeps the lyrics they share.
+            if crate::health::is_audio(&p) {
+                others_remain = true;
+            } else {
                 companions.push(p);
             }
+        }
+        if others_remain {
+            companions.clear();
         }
     }
     for file in std::iter::once(source.clone()).chain(companions) {
@@ -81,6 +96,30 @@ pub fn put(root: &Path, relative: &str, batch: &str) -> io::Result<Vec<String>> 
     Ok(moved)
 }
 
+/// Note that `from` was moved to `to` (both library-relative) as part of `batch`.
+///
+/// # Errors
+///
+/// When the note can't be written.
+pub fn record_move(root: &Path, batch: &str, from: &str, to: &str) -> io::Result<()> {
+    use std::io::Write as _;
+    safe(from)?;
+    safe(to)?;
+    let dir = prepare(root)?.join(batch);
+    fs::create_dir_all(&dir)?;
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(dir.join(MOVES))?;
+    writeln!(file, "{from}\t{to}")
+}
+
+fn moves(root: &Path, batch: &str) -> Vec<(String, String)> {
+    let text = fs::read_to_string(root.join(DIR).join(batch).join(MOVES)).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| l.split_once('\t'))
+        .filter(|(from, to)| safe(from).is_ok() && safe(to).is_ok())
+        .map(|(a, b)| (a.to_owned(), b.to_owned()))
+        .collect()
+}
+
 /// Library-relative paths of everything in a batch.
 #[must_use]
 pub fn contents(root: &Path, batch: &str) -> Vec<String> {
@@ -93,7 +132,9 @@ pub fn contents(root: &Path, batch: &str) -> Vec<String> {
             let p = entry.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if let Ok(inside) = p.strip_prefix(&base) {
+            } else if p != base.join(MOVES)
+                && let Ok(inside) = p.strip_prefix(&base)
+            {
                 out.push(inside.to_string_lossy().replace('\\', "/"));
             }
         }
@@ -102,8 +143,8 @@ pub fn contents(root: &Path, batch: &str) -> Vec<String> {
     out
 }
 
-/// Put a batch back where it came from. Files whose place is taken again stay in the
-/// trash; their paths are returned.
+/// Put a batch back where it came from, and undo the moves it recorded. Files whose
+/// place is taken again stay where they are; their paths are returned.
 ///
 /// # Errors
 ///
@@ -112,6 +153,23 @@ pub fn restore(root: &Path, batch: &str) -> io::Result<Vec<String>> {
     safe(batch)?;
     let base = root.join(DIR).join(batch);
     let mut left = Vec::new();
+    // Files moved within the library go back where they were, newest move first.
+    for (from, to) in moves(root, batch).into_iter().rev() {
+        let (was, now) = (root.join(&from), root.join(&to));
+        if !now.exists() || was.exists() {
+            left.push(to);
+            continue;
+        }
+        if let Some(parent) = was.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if fs::rename(&now, &was).is_err() {
+            left.push(to);
+        } else if let Some(parent) = now.parent() {
+            // A folder the fix filled and that's now empty again.
+            let _ = fs::remove_dir(parent);
+        }
+    }
     for relative in contents(root, batch) {
         let from = base.join(&relative);
         let to = root.join(&relative);
@@ -130,6 +188,24 @@ pub fn restore(root: &Path, batch: &str) -> io::Result<Vec<String>> {
         let _ = fs::remove_dir_all(&base);
     }
     Ok(left)
+}
+
+/// The batches in the trash, newest first, with how many files each holds.
+#[must_use]
+pub fn batches(root: &Path) -> Vec<(String, u64, usize)> {
+    let Ok(entries) = fs::read_dir(root.join(DIR)) else { return Vec::new() };
+    let mut out: Vec<(String, u64, usize)> = entries
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let secs = name.split('-').next()?.parse::<u64>().ok()?;
+            let files = contents(root, &name).len();
+            Some((name, secs, files))
+        })
+        .collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
+    out
 }
 
 /// Remove batches older than `age`. Only ever touches the trash folder.
