@@ -8,11 +8,12 @@ import {
   ChevronRight,
   Globe,
   HeartPulse,
-  FolderSearch,
+  Image as ImageIcon,
   Library,
   LoaderCircle,
   Lock,
   LogOut,
+  Mic2,
   Palette,
   Plug,
   Share2,
@@ -84,14 +85,6 @@ const GROUPS = [
     panel: () => <DiagnosticsPanel />,
   },
   {
-    id: "tidy",
-    title: "Library check",
-    blurb: "Albums split over folders or showing up twice, doubled tracks, and recent changes to undo.",
-    icon: FolderSearch,
-    manage: true,
-    panel: () => <LibraryHealthPanel />,
-  },
-  {
     id: "appearance",
     title: "Appearance",
     blurb: "Theme and accent, saved to your account.",
@@ -110,7 +103,7 @@ const GROUPS = [
   {
     id: "library",
     title: "Library and imports",
-    blurb: "How imported music is named, and what's added to it.",
+    blurb: "How imported music is named, what's added to it, and keeping the library tidy.",
     icon: Library,
     // Naming and import options shape everyone's library; they're for whoever runs delune.
     manage: true,
@@ -178,7 +171,9 @@ export function SettingsPage({ section }: { section?: string }) {
   const me = useMe()
   const navigate = useNavigate()
   const groups = visibleGroups(me.permissions.manage)
-  const active = groups.find((group) => group.id === section)
+  // The library check used to be its own group.
+  const wanted = section === "tidy" ? "library" : section
+  const active = groups.find((group) => group.id === wanted)
   // Older links named the group in the hash (/settings#sharing); send them to its page.
   const legacy = !section && groups.find((group) => `#${group.id}` === window.location.hash)
   useEffect(() => {
@@ -282,7 +277,7 @@ function SettingsPane({
 function LibraryGroup() {
   const me = useMe()
   return (
-    <div className="space-y-10">
+    <div className="space-y-14">
       <Part title="File naming" hint="How folders and files are named when a release is imported.">
         <NamingEditor editable={me.permissions.manage} />
       </Part>
@@ -292,6 +287,16 @@ function LibraryGroup() {
       >
         <ImportOptionsPanel editable={me.permissions.manage} />
       </Part>
+      {me.permissions.manage && (
+        <Part
+          title="Library check"
+          hint="Albums split over folders or showing up twice, tracks in an album twice, and the changes you can undo."
+        >
+          <div className="overflow-hidden rounded-2xl border bg-card/40">
+            <LibraryHealthPanel />
+          </div>
+        </Part>
+      )}
     </div>
   )
 }
@@ -556,33 +561,37 @@ function ImportOptionsPanel({ editable }: { editable: boolean }) {
   if (!options.data) return <div className="h-32 animate-pulse rounded-xl bg-muted/50" />
   const o = options.data
   return (
-    <div className="space-y-4">
-      <div role="radiogroup" aria-label="Lyrics" className="grid gap-2 sm:grid-cols-2">
-        {LYRICS_CHOICES.map((choice) => (
-          <button
-            key={choice.id}
-            type="button"
-            role="radio"
-            aria-checked={o.lyrics === choice.id}
-            disabled={!editable}
-            onClick={() => save.mutate({ ...o, lyrics: choice.id })}
-            className={cn(
-              "rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-default",
-              o.lyrics === choice.id ? "border-primary ring-1 ring-primary" : "enabled:hover:border-foreground/30",
-            )}
-          >
-            <span className="block text-[15px]">{choice.label}</span>
-            <span className="block text-[13px] text-muted-foreground">{choice.description}</span>
-          </button>
-        ))}
+    <div className="overflow-hidden rounded-2xl border bg-card/40">
+      <div className="flex items-start gap-4 border-b px-5 py-4">
+        <Mic2 className="mt-0.5 size-5 shrink-0 text-muted-foreground" strokeWidth={1.8} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px]">Lyrics</p>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
+            {LYRICS_CHOICES.find((c) => c.id === o.lyrics)?.description}
+          </p>
+          <div role="radiogroup" aria-label="Lyrics" className="mt-3 inline-flex flex-wrap rounded-xl border bg-card/60 p-1">
+            {LYRICS_CHOICES.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                role="radio"
+                aria-checked={o.lyrics === choice.id}
+                disabled={!editable}
+                onClick={() => save.mutate({ ...o, lyrics: choice.id })}
+                className="h-8 rounded-lg px-3 text-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default aria-checked:bg-accent aria-checked:text-foreground"
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
-      <label
-        className={cn("flex items-start gap-4 rounded-2xl border bg-card/50 px-5 py-4", editable && "cursor-pointer")}
-      >
+      <label className={cn("flex items-start gap-4 px-5 py-4", editable && "cursor-pointer")}>
+        <ImageIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" strokeWidth={1.8} />
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px]">Embed cover art</span>
-          <span className="mt-1 block text-sm text-muted-foreground">
-            Put the album cover inside each track, as well as a cover file in the folder.
+          <span className="block text-[15px]">Cover art inside each track</span>
+          <span className="mt-0.5 block text-[13px] text-muted-foreground">
+            As well as a cover file in the folder. Albums without one get theirs from Deezer.
           </span>
         </span>
         <Switch

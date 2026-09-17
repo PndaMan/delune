@@ -313,16 +313,21 @@ function TrashList({ batches, onDone }: { batches: TrashBatch[]; onDone: () => v
   })
   if (!batches.length) return null
   return (
-    <section className="px-5 py-4">
-      <h3 className="text-[12.5px] font-semibold tracking-wide text-muted-foreground uppercase">Recent changes</h3>
-      <p className="mt-1 text-[13px] text-muted-foreground">
+    <section className="px-5 py-5">
+      <h3 className="text-[15px] font-semibold">Recent changes</h3>
+      <p className="mt-0.5 text-[13px] text-muted-foreground">
         Fixes and upgrades, newest first. Undo puts back everything one of them did.
       </p>
-      <ul className="mt-2 space-y-1">
+      <ol className="mt-4 border-l border-border/80 pl-5">
         {batches.map((batch) => (
-          <TrashRow key={batch.id} batch={batch} onUndo={() => restore.mutate(batch.id)} busy={restore.isPending} />
+          <TrashRow
+            key={batch.id}
+            batch={batch}
+            onUndo={() => restore.mutate(batch.id)}
+            busy={restore.isPending}
+          />
         ))}
-      </ul>
+      </ol>
     </section>
   )
 }
@@ -334,7 +339,8 @@ function TrashRow({ batch, onUndo, busy }: { batch: TrashBatch; onUndo: () => vo
     .map(([kind, n]) => `${n} ${(CHANGE_WORDS[kind] ?? kind).toLowerCase()}`)
     .join(" · ")
   return (
-    <li className="rounded-xl px-2 py-2">
+    <li className="relative pb-5 last:pb-0">
+      <span className="absolute top-1.5 -left-[25px] size-2.5 rounded-full bg-primary ring-4 ring-card" aria-hidden />
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[14.5px] text-pretty">{batch.label ?? "Changes to your library"}</p>

@@ -47,7 +47,7 @@ Each has its own address (`/album/<artist>/<title>`, `/artist/<name>`,
 
 ## Checking the library
 
-**Settings → Library check** (for people who manage delune) looks through the music
+**Settings → Library and imports → Library check** (for people who manage delune) looks through the music
 folder for three things:
 
 - **An album in several folders.** This happens when the artist's folder is spelled in
