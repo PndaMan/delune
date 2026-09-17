@@ -208,7 +208,8 @@ in
         virtualisation.oci-containers.containers.delune = {
           # A tag per build: with one fixed tag, podman could keep starting the image it
           # already had, and an upgrade never reached the container.
-          image = "delune:${imageTag}";
+          # Fully qualified, so podman never looks for it on a public registry.
+          image = "localhost/delune:${imageTag}";
           imageStream = pkgs.dockerTools.streamLayeredImage {
             name = "delune";
             tag = imageTag;

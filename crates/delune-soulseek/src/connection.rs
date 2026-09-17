@@ -527,8 +527,7 @@ mod tests {
 
     #[test]
     fn tells_internet_peers_from_local_ones() {
-        for local in ["192.168.1.20", "10.0.0.5", "127.0.0.1", "100.100.1.1", "::1", "fd00::1", "::ffff:192.168.1.2"]
-        {
+        for local in ["192.168.1.20", "10.0.0.5", "127.0.0.1", "100.100.1.1", "::1", "fd00::1", "::ffff:192.168.1.2"] {
             assert!(!from_internet(local.parse().unwrap()), "{local}");
         }
         for internet in ["81.2.69.160", "2a00:1450:4009::200e", "::ffff:81.2.69.160"] {
