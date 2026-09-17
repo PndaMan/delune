@@ -219,7 +219,7 @@ fn is_decoration(inner: &str) -> bool {
 }
 
 /// An album's key, from a title or a folder name, without the year or format a template
-/// or ripper adds: "2022 - USB", "USB (2022)" and "USB [FLAC]" are all "usb".
+/// or ripper adds: `2022 - USB`, `USB (2022)` and `USB [FLAC]` are all `usb`.
 #[must_use]
 pub fn album_key(name: &str) -> String {
     let mut s = name.trim();
