@@ -9,6 +9,7 @@
 //! | Log users in, detect admins       | `getUser`                |
 //! | "Already in library?"             | `search3`                |
 //! | Pick up imported files            | `startScan`, `getScanStatus` |
+//! | Forget files delune moved         | Navidrome's own `/api/missing` |
 //!
 //! Navidrome has no upload endpoint, so delune runs on the same host and writes to
 //! the music folder directly; this client only *tells* Navidrome about it.
@@ -26,6 +27,8 @@ use url::Url;
 pub const API_VERSION: &str = "1.16.1";
 /// Sent as the `c` (client) parameter; shows up in Navidrome's player list.
 pub const CLIENT_NAME: &str = "delune";
+/// The header Navidrome's own API reads its session from.
+const NATIVE_AUTH: &str = "x-nd-authorization";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -176,6 +179,55 @@ impl Client {
     pub async fn scan_status(&self) -> Result<ScanStatus, Error> {
         let body: Envelope<ScanBody> = self.get("getScanStatus", &[]).await?;
         body.into_result().map(|(_, b)| b.scan_status)
+    }
+
+    /// A session on Navidrome's own API, which has what Subsonic lacks.
+    async fn native_token(&self) -> Result<String, Error> {
+        #[derive(Deserialize)]
+        struct Login {
+            token: String,
+        }
+        let url = self.base.join("auth/login")?;
+        let body = serde_json::json!({ "username": self.creds.username, "password": self.creds.password });
+        let response = self.http.post(url).json(&body).send().await?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(Error::Api { code: 40, message: "Wrong username or password".into() });
+        }
+        let login: Login = response.error_for_status()?.json().await.map_err(|_| Error::Unexpected)?;
+        Ok(login.token)
+    }
+
+    /// Tracks Navidrome still lists but can no longer find on disk. Navidrome only.
+    pub async fn missing_files(&self) -> Result<Vec<MissingFile>, Error> {
+        let token = self.native_token().await?;
+        let url = self.base.join("api/missing")?;
+        let response = self
+            .http
+            .get(url)
+            .header(NATIVE_AUTH, format!("Bearer {token}"))
+            .query(&[("_start", "0"), ("_end", "10000")])
+            .send()
+            .await?
+            .error_for_status()?;
+        response.json().await.map_err(|_| Error::Unexpected)
+    }
+
+    /// Drop these missing tracks from Navidrome. Requires an admin user.
+    pub async fn forget_missing(&self, ids: &[String]) -> Result<(), Error> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let token = self.native_token().await?;
+        let url = self.base.join("api/missing")?;
+        let params: Vec<(&str, &str)> = ids.iter().map(|id| ("id", id.as_str())).collect();
+        self.http
+            .delete(url)
+            .header(NATIVE_AUTH, format!("Bearer {token}"))
+            .query(&params)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
     }
 
     async fn get<T: for<'de> Deserialize<'de>>(&self, endpoint: &str, params: &[(&str, &str)]) -> Result<T, Error> {
@@ -366,6 +418,14 @@ pub struct Song {
     pub album_id: Option<String>,
     #[serde(default)]
     pub artist_id: Option<String>,
+}
+
+/// A track Navidrome lists as missing.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct MissingFile {
+    pub id: String,
+    /// Relative to the music folder.
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

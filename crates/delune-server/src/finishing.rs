@@ -212,11 +212,63 @@ pub(crate) async fn rescan(app: &AppState) {
     for wait in [0, 10, 30, 90, 180] {
         tokio::time::sleep(Duration::from_secs(wait)).await;
         match navidrome.start_scan(false).await {
-            Ok(_) => return,
+            Ok(_) => {
+                forget_moved(app, navidrome).await;
+                return;
+            }
             Err(error) => tracing::warn!(%error, retry_in = wait, "Navidrome didn't start a scan"),
         }
     }
     tracing::warn!("imported, but Navidrome never started a scan; it will find the files on its next one");
+}
+
+/// Once Navidrome's scan is done, drop the tracks it still lists at places delune moved
+/// or removed files from. A quick scan keeps them, so they'd show as missing songs.
+async fn forget_moved(app: &AppState, navidrome: &delune_navidrome::Client) {
+    let Some(root) = app.library.library_dir.clone() else { return };
+    for _ in 0..120 {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        match navidrome.scan_status().await {
+            Ok(status) if !status.scanning => break,
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "couldn't tell whether Navidrome finished scanning");
+                return;
+            }
+        }
+    }
+    let missing = match navidrome.missing_files().await {
+        Ok(missing) if !missing.is_empty() => missing,
+        Ok(_) => return,
+        Err(error) => {
+            tracing::debug!(%error, "couldn't list Navidrome's missing files");
+            return;
+        }
+    };
+    let Ok(ids) = tokio::task::spawn_blocking(move || left_behind(&root, &missing)).await else { return };
+    if ids.is_empty() {
+        return;
+    }
+    match navidrome.forget_missing(&ids).await {
+        Ok(()) => tracing::info!(count = ids.len(), "removed moved tracks from Navidrome's missing files"),
+        Err(error) => tracing::warn!(%error, "couldn't remove moved tracks from Navidrome's missing files"),
+    }
+}
+
+/// The missing tracks delune accounts for: at a path its trash says it moved or removed a
+/// file from, with nothing there now.
+fn left_behind(root: &Path, missing: &[delune_navidrome::MissingFile]) -> Vec<String> {
+    let gone: std::collections::HashSet<String> = delune_library::trash::batches(root)
+        .into_iter()
+        .flat_map(|batch| batch.changes)
+        .filter(|change| change.kind == "moved" || change.kind == "removed")
+        .map(|change| change.path)
+        .collect();
+    missing
+        .iter()
+        .filter(|file| gone.contains(&file.path) && !root.join(&file.path).exists())
+        .map(|file| file.id.clone())
+        .collect()
 }
 
 /// Words for one song from LRCLIB, or `None` when it doesn't have it.
@@ -326,6 +378,37 @@ pub async fn set_options(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_tracks_delune_moved_away_are_forgotten() {
+        let tmp = std::env::temp_dir().join(format!("delune-forget-{}", std::process::id()));
+        let root = tmp.as_path();
+        let batch = delune_library::trash::batch_name();
+        delune_library::trash::record_move(
+            root,
+            &batch,
+            "Fred again/USB/02 - scared.flac",
+            "Fred again../USB/02 - scared.flac",
+        )
+        .unwrap();
+        delune_library::trash::record_move(
+            root,
+            &batch,
+            "Fred again/USB/03 - back.flac",
+            "Fred again../USB/03 - back.flac",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("Fred again/USB")).unwrap();
+        std::fs::write(root.join("Fred again/USB/03 - back.flac"), b"").unwrap();
+        let file = |id: &str, path: &str| delune_navidrome::MissingFile { id: id.into(), path: path.into() };
+        let missing = [
+            file("a", "Fred again/USB/02 - scared.flac"),
+            file("b", "Fred again/USB/03 - back.flac"),
+            file("c", "Someone/Else/01.flac"),
+        ];
+        assert_eq!(left_behind(root, &missing), ["a"]);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     use super::*;
 
     #[test]
