@@ -857,7 +857,7 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
             shared.wishlist_interval.store(seconds, std::sync::atomic::Ordering::Relaxed);
         }
         ServerEvent::ExcludedSearchPhrases(phrases) => {
-            tracing::debug!(count = phrases.len(), "server excluded search phrases");
+            tracing::info!(count = phrases.len(), "the server says which search phrases it excludes");
             shared.set_excluded_phrases(phrases);
         }
         ServerEvent::UserStatus { username, status, .. } => chat(ChatEvent::UserStatus { username, status }),

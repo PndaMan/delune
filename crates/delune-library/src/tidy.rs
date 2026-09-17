@@ -108,6 +108,8 @@ pub struct Look {
     pub album: String,
     pub album_artist: Option<String>,
     pub date: Option<String>,
+    #[serde(default)]
+    pub release_date: Option<String>,
     /// Kept only when every track that has one agrees.
     pub release_id: Option<String>,
     /// Likewise; players use it to tell album artists apart.
@@ -169,6 +171,7 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
     let artists: Vec<String> = members.iter().filter_map(|(_, id)| album_artist(id)).collect();
     let main_artist = most_common(artists.iter().map(String::as_str));
     let date = most_common(members.iter().filter_map(|(_, id)| id.date.as_deref()));
+    let release_date = most_common(members.iter().filter_map(|(_, id)| id.release_date.as_deref()));
     let ids: Vec<&str> = members.iter().filter_map(|(_, id)| id.release_id.as_deref()).collect();
     // Tracks without the id would still be their own album, so it's all or nothing.
     let release_id = ids
@@ -184,11 +187,12 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
     let retag = members
         .iter()
         .filter(|(_, id)| {
+            // The same album artist under several tag names ("ALBUM ARTIST", "ALBUMARTIST")
+            // is one artist; only a different one splits the album.
             id.album.as_deref() != Some(album.as_str())
-                || id.album_artists.len() > 1
                 || album_artist(id) != main_artist
                 || (date.is_some() && id.date != date)
-                || id.release_date.as_ref().is_some_and(|d| Some(d) != date.as_ref())
+                || (release_date.is_some() && id.release_date != release_date)
                 || id.release_id != release_id
                 || (release_id.is_none() && id.release_group_id.is_some())
                 || id.release_artist_id != release_artist_id
@@ -196,7 +200,24 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
         .map(|(p, _)| relative(root, p))
         .collect();
     let strays = others.iter().map(|(p, _)| relative(root, p)).collect();
-    Some(Look { album, album_artist: main_artist, date, release_id, release_artist_id, retag, strays })
+    Some(Look { album, album_artist: main_artist, date, release_date, release_id, release_artist_id, retag, strays })
+}
+
+/// A safe folder name for an album.
+fn folder_name(album: &str) -> String {
+    let name: String =
+        album
+            .chars()
+            .map(|c| {
+                if c.is_control() || matches!(c, '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*') {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
+    let name = name.trim().trim_end_matches(['.', ' ']).to_owned();
+    if name.is_empty() || name.starts_with('.') { format!("_{name}") } else { name }
 }
 
 /// A track's album tags before [`tidy`] changed them.
@@ -267,13 +288,18 @@ pub fn tidy(root: &Path, dir: &Path, batch: &str) -> io::Result<Tidied> {
             done.left.push(stray.clone());
             continue;
         };
-        let home = album_folders(root, &artist, &album).into_iter().find(|d| d != dir);
+        // Its album's folder, or a new one for it beside this album.
+        let home = album_folders(root, &artist, &album)
+            .into_iter()
+            .find(|d| d != dir)
+            .or_else(|| dir.parent().map(|artist_dir| artist_dir.join(folder_name(&album))));
         match home {
-            Some(home) => {
+            Some(home) if home != *dir => {
+                fs::create_dir_all(&home)?;
                 crate::health::move_in(root, &path, &home, batch, None)?;
                 done.moved_out += 1;
             }
-            None => done.left.push(stray.clone()),
+            _ => done.left.push(stray.clone()),
         }
     }
 
@@ -285,7 +311,7 @@ pub fn tidy(root: &Path, dir: &Path, batch: &str) -> io::Result<Tidied> {
             album_artists: look.album_artist.iter().cloned().collect(),
             artist: before.artist.clone(),
             date: look.date.clone().or_else(|| before.date.clone()),
-            release_date: None,
+            release_date: look.release_date.clone().or_else(|| before.release_date.clone()),
             release_id: look.release_id.clone(),
             release_group_id: look.release_id.as_ref().and(before.release_group_id.clone()),
             release_artist_id: look.release_artist_id.clone(),
@@ -414,6 +440,36 @@ mod tests {
         assert_eq!((solo.album_artists.len(), solo.release_id.as_deref()), (2, Some("be7a")));
         let dimmer = identity(&usb.join("01 - Lights Burn Dimmer.flac")).unwrap();
         assert_eq!(dimmer.date.as_deref(), Some("2026-03-13"));
+    }
+
+    #[test]
+    fn repeated_album_artist_tags_are_not_a_problem() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join("Radiohead/In Rainbows (2007)");
+        let names = ["Radiohead", "Radiohead", "Radiohead"];
+        flac(&dir.join("01 - 15 Step.flac"), "In Rainbows", &names, "2007", None);
+        flac(&dir.join("02 - Bodysnatchers.flac"), "In Rainbows", &names, "2007", None);
+        let look = look_of(root, &dir);
+        assert!(look.is_tidy(), "{look:?}");
+
+        // Another album's tracks in the folder still show.
+        flac(&dir.join("01 - Everything In Its Right Place.flac"), "Kid A", &["Radiohead"], "2000", None);
+        flac(&dir.join("02 - Kid A.flac"), "Kid A", &["Radiohead"], "2000", None);
+        flac(&dir.join("03 - Nude.flac"), "In Rainbows", &names, "2007", None);
+        let look = look_of(root, &dir);
+        assert_eq!(look.album, "In Rainbows");
+        assert_eq!(look.strays.len(), 2);
+        assert!(look.retag.is_empty());
+
+        // With no Kid A folder yet, they move into a new one beside In Rainbows.
+        let batch = trash::batch_name();
+        let done = tidy(root, &dir, &batch).unwrap();
+        assert_eq!(done.moved_out, 2);
+        assert!(root.join("Radiohead/Kid A/02 - Kid A.flac").exists());
+        undo(root, &batch).unwrap();
+        assert!(dir.join("02 - Kid A.flac").exists());
+        assert!(!root.join("Radiohead/Kid A").exists(), "the folder made for them goes again");
     }
 
     fn look_of(root: &Path, dir: &Path) -> Look {

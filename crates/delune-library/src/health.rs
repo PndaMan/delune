@@ -161,11 +161,18 @@ fn key_of(kind: Kind, folders: &[String]) -> String {
     format!("{kind:?}:{}", sorted.join("\u{1f}"))
 }
 
+/// A track's whole title, brackets and all: in one folder, "Pigstep (Mono Mix)" and
+/// "Pigstep (Stereo Mix)" are two songs, while "01 - Song.flac" and "01 - Song.mp3"
+/// are one.
+fn exact_key(path: &Path) -> String {
+    crate::import::parse_file_name(path).1.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
 /// Groups of copies of the same track in one folder.
 fn duplicates_in(dir: &Path) -> Vec<Vec<PathBuf>> {
     let mut by_key: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     for file in audio_files(dir) {
-        let key = track_key(&file);
+        let key = exact_key(&file);
         if key.len() >= 2 {
             by_key.entry(key).or_default().push(file);
         }
