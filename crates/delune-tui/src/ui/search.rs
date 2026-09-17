@@ -19,8 +19,8 @@ use super::theme::{
     ACCENT, CD, ERR, FAINT, HIRES, MUTED, OK, TEXT, WARN, bold, duration, fg, human_bytes, human_speed, mark_span,
     spinner,
 };
-use super::{Keys, empty, heading, selected_style};
-use crate::app::{App, CatalogItem, Focus, Loadable, Page, SearchState};
+use super::{Keys, empty, heading, picture, picture_area, selected_style};
+use crate::app::{App, CatalogItem, Focus, Loadable, Page, SearchState, library_key};
 use crate::matching;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Keys {
@@ -35,7 +35,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Keys {
     }
     if app.results.is_empty() && app.catalog.is_empty() {
         draw_idle(frame, body, app);
-        return vec![("enter", "search"), ("esc", "clear"), ("2 3", "downloads, review")];
+        return vec![("enter", "search"), ("esc", "clear"), ("F2 F3", "downloads, review")];
     }
 
     let wide = body.width >= 100;
@@ -72,7 +72,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, app: &App) -> Keys {
         Focus::Catalog => vec![("enter", "open"), ("tab", "releases"), ("esc", "search box")],
         _ => {
             let download = if app.can_download() { "download" } else { "ask for it" };
-            vec![("d", download), ("enter", "album"), ("a", "artist"), ("tab", "switch"), ("/", "search")]
+            vec![("enter", "open"), ("d", download), ("i", "album info"), ("a", "artist"), ("/", "search")]
         }
     }
 }
@@ -320,6 +320,8 @@ fn draw_files(frame: &mut Frame<'_>, area: Rect, app: &App, c: &Candidate) {
         .padding(Padding::horizontal(1));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let (cover, inner) = picture_area(inner, inner.height);
+    picture(frame, cover, app, &App::cover_key(c));
 
     let rows = c.files.iter().map(|f| {
         let have = if !f.audio || library.is_none() {
@@ -360,6 +362,7 @@ fn draw_page(frame: &mut Frame<'_>, area: Rect, app: &App, page: &Page) -> Keys 
         .map(|p| match p {
             Page::Artist { name, .. } => name.clone(),
             Page::Album { title, .. } => title.clone(),
+            Page::Release { candidate, .. } => format!("{} (from {})", candidate.title, candidate.username),
         })
         .collect();
     let [crumb, body] = Layout::vertical([Constraint::Length(2), Constraint::Fill(1)]).areas(area);
@@ -380,7 +383,19 @@ fn draw_page(frame: &mut Frame<'_>, area: Rect, app: &App, page: &Page) -> Keys 
             }
             vec![("enter", "open album"), ("s", "search for it"), ("esc", "back")]
         }
-        Page::Album { title, info, .. } => {
+        Page::Release { candidate, selected, excluded } => {
+            draw_release(frame, body, app, candidate, *selected, excluded.as_ref());
+            let download = if app.can_download() { "download ticked" } else { "ask for it" };
+            vec![
+                ("space", "tick"),
+                ("t", "all or none"),
+                ("d", download),
+                ("i", "album info"),
+                ("a", "artist"),
+                ("esc", "back"),
+            ]
+        }
+        Page::Album { title, info, source, .. } => {
             match info {
                 Loadable::Ready(info) => draw_album(frame, body, app, info, page),
                 Loadable::Loading => empty(frame, body, &format!("{} Looking up {title}…", spinner()), &[]),
@@ -391,7 +406,12 @@ fn draw_page(frame: &mut Frame<'_>, area: Rect, app: &App, page: &Page) -> Keys 
                     &[e, "", "Press s to search Soulseek for it anyway."],
                 ),
             }
-            vec![("s", "search Soulseek for it"), ("a", "artist"), ("esc", "back")]
+            if source.is_some() {
+                let download = if app.can_download() { "download this copy" } else { "ask for it" };
+                vec![("d", download), ("s", "search for others"), ("a", "artist"), ("esc", "back")]
+            } else {
+                vec![("s", "search Soulseek for it"), ("a", "artist"), ("esc", "back")]
+            }
         }
     }
 }
@@ -403,9 +423,12 @@ fn draw_artist(frame: &mut Frame<'_>, area: Rect, app: &App, info: &ArtistInfo, 
         facts.push(format!("{} fans", compact_count(n)));
     }
     facts.push(format!("{} releases", info.albums.len()));
-    let [head, list] = Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).areas(area);
+    let [head, list] = Layout::vertical([Constraint::Length(6), Constraint::Fill(1)]).spacing(1).areas(area);
+    let (face, head) = picture_area(head, 6);
+    picture(frame, face, app, &format!("artist:{}", info.name));
     frame.render_widget(
         Paragraph::new(vec![
+            Line::from(""),
             Line::from(Span::styled(info.name.clone(), bold(TEXT))),
             Line::from(vec![
                 Span::styled(facts.join(" · "), fg(MUTED)),
@@ -487,15 +510,30 @@ fn draw_album(frame: &mut Frame<'_>, area: Rect, app: &App, info: &AlbumInfo, pa
         }
         (None, _) => Line::from(Span::styled("Not in your library yet. Press s to find a copy.", fg(MUTED))),
     };
-    let [head, list] = Layout::vertical([Constraint::Length(4), Constraint::Fill(1)]).areas(area);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(info.title.clone(), bold(TEXT))),
-            Line::from(Span::styled(facts.join(" · "), fg(MUTED))),
-            status,
-        ]),
-        head,
-    );
+    let Page::Album { artist, title, source, .. } = page else { return };
+    let [head, list] = Layout::vertical([Constraint::Length(7), Constraint::Fill(1)]).spacing(1).areas(area);
+    let (cover, head) = picture_area(head, 7);
+    picture(frame, cover, app, &library_key(artist.as_deref(), title));
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(info.title.clone(), bold(TEXT))),
+        Line::from(Span::styled(facts.join(" · "), fg(MUTED))),
+        status,
+    ];
+    if let Some(c) = source {
+        lines.push(Line::from(vec![
+            Span::styled("d", fg(ACCENT)),
+            Span::styled(
+                format!(
+                    " downloads {}'s copy · {}",
+                    c.username,
+                    c.quality_label.as_deref().unwrap_or("unknown quality")
+                ),
+                fg(MUTED),
+            ),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines), head);
     let rows = info.tracks.iter().map(|t| {
         let have = library.is_some() && titles.iter().any(|k| matching::same_title(&matching::title_key(&t.title), k));
         let mark = if library.is_none() {
@@ -523,4 +561,103 @@ fn draw_album(frame: &mut Frame<'_>, area: Rect, app: &App, info: &AlbumInfo, pa
     let mut state = TableState::default().with_selected(Some(*selected));
     frame.render_stateful_widget(table, list, &mut state);
     let _ = Style::new();
+}
+
+/// One person's folder: the cover, what it is, and its tracks to tick for download.
+fn draw_release(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    app: &App,
+    c: &Candidate,
+    selected: usize,
+    excluded: Option<&std::collections::HashSet<String>>,
+) {
+    let library = app.library_for(c).filter(|l| l.state == LibraryState::InLibrary);
+    let titles: Vec<String> =
+        library.map(|l| l.tracks.iter().map(|t| matching::title_key(&t.title)).collect()).unwrap_or_default();
+    let skipped = app.excluded_files(c, excluded);
+    let audio: Vec<_> = c.files.iter().filter(|f| f.audio).collect();
+    let picked = audio.iter().filter(|f| !skipped.contains(&f.path)).count();
+    let extras = c.files.len() - audio.len();
+    let artist = matching::artist_from_folder(c.parent.as_deref());
+
+    // Small terminals give the tracks the room; the cover shrinks first.
+    let head_height = if area.height < 18 { 4 } else { 8 };
+    let [head, list] = Layout::vertical([Constraint::Length(head_height), Constraint::Fill(1)]).spacing(1).areas(area);
+    let (cover, head) = picture_area(head, head_height);
+    picture(frame, cover, app, &App::cover_key(c));
+
+    let mut about = vec![c.quality_label.clone().unwrap_or_else(|| "unknown quality".into())];
+    about.push(format!("{} tracks", c.audio_files));
+    about.push(human_bytes(c.total_bytes));
+    if let Some(secs) = c.duration_secs {
+        about.push(duration(secs));
+    }
+    let mut from = vec![format!("from {}", c.username)];
+    from.push(if c.free_slot { "ready now".into() } else { format!("{} waiting", c.queue_length) });
+    if c.avg_speed > 0 {
+        from.push(human_speed(f64::from(c.avg_speed)));
+    }
+    let have = match library.and_then(|l| matching::ownership(c, l)) {
+        Some(o) if o.complete() => Span::styled("✓ You have every track", fg(OK)),
+        Some(o) => Span::styled(format!("◐ You have {} of {}; the rest are ticked", o.owned, o.total), fg(CD)),
+        None if library.is_some() => Span::styled("✓ In your library", fg(OK)),
+        None => Span::styled("Not in your library", fg(MUTED)),
+    };
+    let tick_line = if picked == audio.len() {
+        format!("All {picked} tracks ticked")
+    } else {
+        format!("{picked} of {} tracks ticked", audio.len())
+    };
+    let extras_note = if extras > 0 { format!(" · plus {extras} other files (covers, logs)") } else { String::new() };
+    let title = Line::from(vec![
+        Span::styled(c.title.clone(), bold(TEXT)),
+        Span::styled(artist.map(|a| format!("  {a}")).unwrap_or_default(), fg(MUTED)),
+    ]);
+    let quality = Line::from(Span::styled(about.join(" · "), fg(quality_color(c))));
+    let ticks = Line::from(vec![Span::styled(tick_line, fg(ACCENT)), Span::styled(extras_note, fg(FAINT))]);
+    let lines = if head_height < 8 {
+        vec![title, quality, Line::from(have), ticks]
+    } else {
+        vec![
+            Line::from(""),
+            title,
+            quality,
+            Line::from(Span::styled(from.join(" · "), fg(MUTED))),
+            Line::from(""),
+            Line::from(have),
+            ticks,
+        ]
+    };
+    frame.render_widget(Paragraph::new(lines), head);
+
+    let rows = audio.iter().map(|f| {
+        let ticked = !skipped.contains(&f.path);
+        let owned = library.is_some() && matching::owns(&titles, &f.name);
+        let name = matching::track_title(&f.name);
+        Row::new(vec![
+            Cell::from(Span::styled(if ticked { "[x]" } else { "[ ]" }, fg(if ticked { ACCENT } else { FAINT }))),
+            Cell::from(Span::styled(name, if ticked { fg(TEXT) } else { fg(MUTED) })),
+            Cell::from(if owned { Span::styled("have", fg(OK)) } else { Span::raw("") }),
+            Cell::from(Span::styled(f.quality_label.clone().unwrap_or_default(), fg(MUTED))),
+            Cell::from(Span::styled(f.duration_secs.map(duration).unwrap_or_default(), fg(MUTED))),
+            Cell::from(Span::styled(human_bytes(f.size), fg(MUTED))),
+        ])
+    });
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(3),
+            Constraint::Fill(1),
+            Constraint::Length(4),
+            Constraint::Length(14),
+            Constraint::Length(6),
+            Constraint::Length(7),
+        ],
+    )
+    .column_spacing(1)
+    .row_highlight_style(selected_style(app.focus == Focus::Page))
+    .highlight_symbol("▌");
+    let mut state = TableState::default().with_selected(Some(selected));
+    frame.render_stateful_widget(table, list, &mut state);
 }

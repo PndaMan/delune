@@ -156,11 +156,11 @@ const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "Everywhere",
         &[
-            ("1 2 3", "Search, Downloads, Review"),
+            ("F1 F2 F3", "Search, Downloads, Review (1 2 3 outside the box)"),
             ("/", "search"),
             ("j k  ↑ ↓", "move"),
             ("g G", "first, last"),
-            ("q  ctrl-c", "quit"),
+            ("q  ctrl-c", "quit (esc never quits)"),
         ],
     ),
     (
@@ -168,9 +168,11 @@ const HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("enter", "search Soulseek (links work too)"),
             ("tab", "move between the box and the lists"),
+            ("enter  o", "open a release: its files and cover"),
             ("d", "download a release (or ask an admin)"),
-            ("enter  o", "open the album and see what you have"),
+            ("i", "the album's tracklist"),
             ("a", "open the artist"),
+            ("space  t", "tick a track, or all of them"),
             ("s", "search Soulseek for the open album"),
             ("esc", "back"),
         ],
@@ -208,6 +210,42 @@ fn draw_help(frame: &mut Frame<'_>) {
         .title(Span::styled(" Keys ", bold(ACCENT)))
         .padding(Padding::horizontal(2));
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+/// A cover or picture filling `area`, or a quiet placeholder while there isn't one.
+fn picture(frame: &mut Frame<'_>, area: Rect, app: &App, key: &str) {
+    if area.width < 4 || area.height < 2 {
+        return;
+    }
+    let ready = match app.pictures.get(key) {
+        Some(crate::app::Picture::Ready(image)) => Some(image.clone()),
+        _ => None,
+    };
+    let mut canvas = app.canvas.borrow_mut();
+    let canvas = &mut *canvas;
+    if let (Some(image), Some(picker)) = (ready, canvas.picker.as_ref()) {
+        let fitted =
+            canvas.fitted.entry(key.to_owned()).or_insert_with(|| picker.new_resize_protocol((*image).clone()));
+        frame.render_stateful_widget(ratatui_image::StatefulImage::default(), area, fitted);
+        return;
+    }
+    let loading = matches!(app.pictures.get(key), Some(crate::app::Picture::Loading));
+    let block = Block::bordered().border_type(BorderType::Rounded).border_style(fg(FAINT));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mark = if loading { theme::spinner().to_string() } else { "♪".to_owned() };
+    let [_, middle, _] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(1), Constraint::Fill(1)]).areas(inner);
+    frame.render_widget(Paragraph::new(Span::styled(mark, fg(FAINT))).centered(), middle);
+}
+
+/// A picture's area: `height` rows, and about twice as many columns, since cells are tall.
+fn picture_area(area: Rect, height: u16) -> (Rect, Rect) {
+    let height = height.min(area.height);
+    let width = (height * 2 + 1).min(area.width / 3);
+    let [left, right] = Layout::horizontal([Constraint::Length(width), Constraint::Fill(1)]).spacing(2).areas(area);
+    let [left, _] = Layout::vertical([Constraint::Length(height), Constraint::Fill(1)]).areas(left);
+    (left, right)
 }
 
 /// A title and explanation in the middle of an empty area.

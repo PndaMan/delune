@@ -56,6 +56,19 @@ pub async fn get<T: DeserializeOwned>(http: &Client, url: &str) -> Outcome<T> {
     response.json().await.map_err(|e| format!("Unexpected answer from the server: {e}").into())
 }
 
+/// `GET` raw bytes, at most `limit` of them.
+pub async fn bytes(http: &Client, url: &str, limit: usize) -> Outcome<Vec<u8>> {
+    let response = http.get(url).send().await.map_err(|e| unreachable(&e))?;
+    if !response.status().is_success() {
+        return Err(failure(response).await);
+    }
+    let body = response.bytes().await.map_err(|e| unreachable(&e))?;
+    if body.len() > limit {
+        return Err("That picture is too big.".to_owned().into());
+    }
+    Ok(body.to_vec())
+}
+
 /// Send a request with an optional JSON body and decode the JSON answer.
 pub async fn call<T: DeserializeOwned>(
     http: &Client,

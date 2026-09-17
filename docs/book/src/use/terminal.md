@@ -38,8 +38,13 @@ that device from the web app), the client asks you to sign in again.
 - **Search** streams Soulseek releases, best quality first. Each is marked
   `✓ have`, `◐ 6/10` (some of its songs are in your library), `↓ 42%`, `… queued`,
   `● review`, or `↓ elsewhere` (another copy is downloading). Matching artists and albums
-  from the music catalogue appear beside the results. Open an album to see its tracks
-  with the ones you have ticked, or an artist to see their releases.
+  from the music catalogue appear beside the results. Opening a release shows that
+  person's files with the album cover: tick the tracks you want and download them, or
+  press `i` for the album's tracklist (which can still download that copy). An artist
+  opens with their picture and releases.
+
+Covers and pictures are real images in terminals that can show them (kitty, WezTerm,
+iTerm2, Ghostty, and others with Sixel support), and coloured blocks elsewhere.
 - **Downloads** groups everything by where it's got to: downloading, waiting, needs
   attention, ready for review, and (press `i`) imported. It shows speed and time left.
 - **Review** lists finished downloads with a verdict (clean, tracks to check, replaces
@@ -55,21 +60,29 @@ Press `?` for this list in the client.
 
 | Where | Key | |
 |---|---|---|
+| Anywhere | `F1` `F2` `F3`, `Alt+1` `Alt+2` `Alt+3` | Search, Downloads, Review |
+| | `Ctrl+C` | Quit |
 | Outside the search box | `1` `2` `3` | Search, Downloads, Review |
 | | `/` | Search box |
 | | `?` | Keys |
 | | `q` | Quit |
-| Anywhere | `Ctrl+C` | Quit |
-| Search box | type, `Enter` | Search (links work too) |
+| Search box | type, `Enter` | Search (links work too); the results take the keys |
 | | `Ctrl+W`, `Ctrl+U` | Delete a word, clear |
 | | `↓` or `Tab` | Into the lists |
-| | `Esc` | Clear, then quit |
+| | `Esc` | Clear, then back to the lists (it never quits) |
 | Lists | `↑` `↓` (or `k` `j`), `PgUp` `PgDn`, `g` `G` | Move |
 | | `Tab`, `←` `→` | Between artists and albums and releases |
-| Releases | `d` | Download (or ask an admin) |
-| | `Enter` or `o` | Open the album |
+| Releases | `Enter` or `o` | Open it: the person's files and the cover |
+| | `d` | Download (or ask an admin) |
+| | `i` | The album's tracklist |
 | | `a` | Open the artist |
+| An open release | `Space` | Tick or untick a track |
+| | `t` | Tick all, or none |
+| | `d` or `Enter` | Download the ticked tracks |
+| | `i`, `a`, `s` | Album tracklist, artist, search again |
+| | `Esc` | Back |
 | Album or artist | `Enter` | Open the selected album |
+| | `d` | Download the copy the album was opened from |
 | | `s` | Search Soulseek for the album |
 | | `a` | Open the album's artist |
 | | `Esc` | Back |

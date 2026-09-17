@@ -62,7 +62,12 @@ fn download_body(candidate: &Candidate) -> serde_json::Value {
 }
 
 /// Carry out an action; the result arrives as a message.
+#[allow(clippy::too_many_lines, reason = "one arm per action, each a single request")]
 pub fn perform(action: Action, cx: &Context) {
+    if matches!(action, Action::Cover { .. } | Action::Picture { .. }) {
+        tokio::spawn(fetch_picture(action, cx.clone()));
+        return;
+    }
     let cx = cx.clone();
     tokio::spawn(async move {
         let downloads = cx.url("/api/v1/downloads");
@@ -154,13 +159,51 @@ pub fn perform(action: Action, cx: &Context) {
                 let _ = cx.tx.send(Message::Album(key, found));
                 return;
             }
-            Action::None | Action::StartSearch(_) => return,
+            Action::Cover { .. } | Action::Picture { .. } | Action::None | Action::StartSearch(_) => return,
         };
         let notice = cx.settle(notice);
         let _ = cx.tx.send(Message::Notice(notice));
         // Show the change straight away.
         cx.jobs_changed.notify_one();
     });
+}
+
+/// A cover (looked up by album) or a picture (by address), sent back decoded.
+async fn fetch_picture(action: Action, cx: Context) {
+    let Ok(_permit) = cx.lookups.acquire().await else { return };
+    let (key, image) = match action {
+        Action::Cover { key, artist, album } => {
+            let mut params = vec![("album", album.as_str())];
+            if let Some(artist) = &artist {
+                params.push(("artist", artist.as_str()));
+            }
+            let url = api::url_with(&cx.base, "/api/v1/artwork", &params);
+            let found = api::get::<serde_json::Value>(&cx.http, &url).await.ok();
+            let thumb = found
+                .as_ref()
+                .and_then(|a| a.get("thumb").or_else(|| a.get("cover")))
+                .and_then(|t| t.as_str())
+                .map(str::to_owned);
+            let image = match thumb {
+                Some(path) => picture(&cx, &path).await,
+                None => None,
+            };
+            (key, image)
+        }
+        Action::Picture { key, url } => {
+            let image = picture(&cx, &url).await;
+            (key, image)
+        }
+        _ => return,
+    };
+    let _ = cx.tx.send(Message::Picture(key, image));
+}
+
+/// Fetch and decode a picture; `path` may be relative to the server.
+async fn picture(cx: &Context, path: &str) -> Option<image::DynamicImage> {
+    let url = if path.starts_with('/') { cx.url(path) } else { path.to_owned() };
+    let bytes = api::bytes(&cx.http, &url, 4 << 20).await.ok()?;
+    tokio::task::spawn_blocking(move || image::load_from_memory(&bytes).ok()).await.ok().flatten()
 }
 
 /// Start everything that keeps the screens current.

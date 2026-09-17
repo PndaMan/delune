@@ -3,7 +3,9 @@
 //! Pure state: key presses and background messages change it, and anything that needs
 //! the network comes back as an [`Action`] for the background tasks to carry out.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -53,17 +55,36 @@ pub enum Loadable<T> {
     Failed(String),
 }
 
-/// An artist or album opened from Search, stacked over the results.
+/// An artist, album or Soulseek release opened from Search, stacked over the results.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Page {
-    Artist { name: String, info: Loadable<Box<ArtistInfo>>, selected: usize },
-    Album { artist: Option<String>, title: String, info: Loadable<Box<AlbumInfo>>, selected: usize },
+    Artist {
+        name: String,
+        info: Loadable<Box<ArtistInfo>>,
+        selected: usize,
+    },
+    Album {
+        artist: Option<String>,
+        title: String,
+        info: Loadable<Box<AlbumInfo>>,
+        selected: usize,
+        /// The Soulseek copy this album was opened from, which `d` downloads.
+        source: Option<Box<Candidate>>,
+    },
+    /// One person's folder: its files, which of them to download, and what you have.
+    Release {
+        candidate: Box<Candidate>,
+        selected: usize,
+        /// Audio files left out of the download, by path. `None` until changed: then
+        /// everything is picked, except what the library has when it has only some.
+        excluded: Option<HashSet<String>>,
+    },
 }
 
 impl Page {
     fn selected_mut(&mut self) -> &mut usize {
         match self {
-            Self::Artist { selected, .. } | Self::Album { selected, .. } => selected,
+            Self::Artist { selected, .. } | Self::Album { selected, .. } | Self::Release { selected, .. } => selected,
         }
     }
 
@@ -71,8 +92,31 @@ impl Page {
         match self {
             Self::Artist { info: Loadable::Ready(info), .. } => info.albums.len(),
             Self::Album { info: Loadable::Ready(info), .. } => info.tracks.len(),
+            Self::Release { candidate, .. } => candidate.files.iter().filter(|f| f.audio).count(),
             _ => 0,
         }
+    }
+}
+
+/// Album covers and artist pictures, fetched once.
+#[derive(Debug, Clone)]
+pub enum Picture {
+    Loading,
+    Missing,
+    Ready(Arc<image::DynamicImage>),
+}
+
+/// Pictures ready to draw in this terminal. Drawing needs to change them (they
+/// remember the size they were fitted to), while the rest of the UI only reads `App`.
+#[derive(Default)]
+pub struct Canvas {
+    pub picker: Option<ratatui_image::picker::Picker>,
+    pub fitted: HashMap<String, ratatui_image::protocol::StatefulProtocol>,
+}
+
+impl std::fmt::Debug for Canvas {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Canvas").field("images", &self.picker.is_some()).field("fitted", &self.fitted.len()).finish()
     }
 }
 
@@ -161,6 +205,7 @@ pub enum Message {
     Album(String, Result<AlbumInfo, String>),
     Jobs(Vec<DownloadJob>),
     Report(String, Result<ReviewReport, String>),
+    Picture(String, Option<image::DynamicImage>),
     Notice(Result<String, String>),
     /// The server stopped accepting this session.
     SignedOut,
@@ -180,9 +225,29 @@ pub enum Action {
     Import(String),
     Prioritise(String),
     LoadReport(String),
-    Library { key: String, artist: Option<String>, album: String, context: String },
+    Library {
+        key: String,
+        artist: Option<String>,
+        album: String,
+        context: String,
+    },
     Artist(String),
-    Album { key: String, artist: Option<String>, title: String },
+    Album {
+        key: String,
+        artist: Option<String>,
+        title: String,
+    },
+    /// An album's cover, from its artist and title.
+    Cover {
+        key: String,
+        artist: Option<String>,
+        album: String,
+    },
+    /// A picture at a known address, like an artist's.
+    Picture {
+        key: String,
+        url: String,
+    },
 }
 
 /// All state the UI renders from.
@@ -222,6 +287,9 @@ pub struct App {
     pub signed_out: bool,
     /// Work to start that didn't come from a key press.
     pub effects: Vec<Action>,
+    /// Covers and pictures by [`library_key`] (or `artist:<name>`).
+    pub pictures: HashMap<String, Picture>,
+    pub canvas: RefCell<Canvas>,
     pub(crate) search_task: Option<JoinHandle<()>>,
 }
 
@@ -267,6 +335,8 @@ impl App {
             should_quit: false,
             signed_out: false,
             effects: Vec::new(),
+            pictures: HashMap::new(),
+            canvas: RefCell::new(Canvas::default()),
             search_task: None,
         }
     }
@@ -288,6 +358,48 @@ impl App {
     #[must_use]
     pub fn mark_for(&self, candidate: &Candidate) -> Option<Mark> {
         matching::mark(candidate, &self.jobs, self.library_for(candidate))
+    }
+
+    /// The audio files a release page leaves out: what was unticked, or by default what
+    /// the library already has when it has only part of the album.
+    #[must_use]
+    pub fn excluded_files(&self, candidate: &Candidate, excluded: Option<&HashSet<String>>) -> HashSet<String> {
+        if let Some(chosen) = excluded {
+            return chosen.clone();
+        }
+        let Some(library) = self.library_for(candidate) else { return HashSet::new() };
+        let partial = matching::ownership(candidate, library).is_some_and(|o| o.owned > 0 && !o.complete());
+        if !partial {
+            return HashSet::new();
+        }
+        let titles: Vec<String> = library.tracks.iter().map(|t| matching::title_key(&t.title)).collect();
+        candidate.files.iter().filter(|f| f.audio && matching::owns(&titles, &f.name)).map(|f| f.path.clone()).collect()
+    }
+
+    /// The key a cover is kept under.
+    #[must_use]
+    pub fn cover_key(candidate: &Candidate) -> String {
+        let artist = matching::artist_from_folder(candidate.parent.as_deref());
+        library_key(artist.as_deref(), &candidate.title)
+    }
+
+    /// Ask for a cover unless it's known or on its way.
+    pub fn want_cover(&mut self, artist: Option<String>, album: &str) {
+        let key = library_key(artist.as_deref(), album);
+        if self.pictures.contains_key(&key) {
+            return;
+        }
+        self.pictures.insert(key.clone(), Picture::Loading);
+        self.effects.push(Action::Cover { key, artist, album: album.to_owned() });
+    }
+
+    /// Ask for a picture at `url` unless it's known.
+    pub fn want_picture(&mut self, key: &str, url: &str) {
+        if self.pictures.contains_key(key) {
+            return;
+        }
+        self.pictures.insert(key.to_owned(), Picture::Loading);
+        self.effects.push(Action::Picture { key: key.to_owned(), url: url.to_owned() });
     }
 
     /// Whether this person may start downloads (unknown counts as yes; the server decides).
@@ -369,20 +481,21 @@ impl App {
             self.help = false;
             return Action::None;
         }
+        // F1–F3 and alt-1–3 switch screens even while typing.
+        let alt = modifiers.contains(KeyModifiers::ALT);
+        let jump = match code {
+            KeyCode::F(n @ 1..=3) => Some(n),
+            KeyCode::Char(c @ '1'..='3') if alt => c.to_digit(10).and_then(|d| u8::try_from(d).ok()),
+            _ => None,
+        };
+        if let Some(n) = jump {
+            return self.go_to(n);
+        }
         let typing = self.screen == Screen::Search && self.focus == Focus::Input;
         if !typing {
             match code {
-                KeyCode::Char('1') => {
-                    self.screen = Screen::Search;
-                    return Action::None;
-                }
-                KeyCode::Char('2') => {
-                    self.screen = Screen::Downloads;
-                    return Action::None;
-                }
-                KeyCode::Char('3') => {
-                    self.screen = Screen::Review;
-                    return self.report_to_load();
+                KeyCode::Char(c @ '1'..='3') => {
+                    return self.go_to(c.to_digit(10).and_then(|d| u8::try_from(d).ok()).unwrap_or(1));
                 }
                 KeyCode::Char('q') => {
                     self.should_quit = true;
@@ -407,6 +520,18 @@ impl App {
         }
     }
 
+    fn go_to(&mut self, screen: u8) -> Action {
+        match screen {
+            2 => self.screen = Screen::Downloads,
+            3 => {
+                self.screen = Screen::Review;
+                return self.report_to_load();
+            }
+            _ => self.screen = Screen::Search,
+        }
+        Action::None
+    }
+
     fn on_search_key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Action {
         match self.focus {
             Focus::Input => self.on_input_key(code, modifiers),
@@ -421,10 +546,10 @@ impl App {
         match code {
             KeyCode::Enter if !self.query.trim().is_empty() => return Action::StartSearch(self.query.trim().into()),
             KeyCode::Esc | KeyCode::Down | KeyCode::Tab if !self.pages.is_empty() => self.focus = Focus::Page,
-            KeyCode::Esc if self.query.is_empty() => self.should_quit = true,
-            KeyCode::Esc => self.query.clear(),
-            KeyCode::Down | KeyCode::Tab if !self.results.is_empty() => self.focus = Focus::Results,
-            KeyCode::Down | KeyCode::Tab if !self.catalog.is_empty() => self.focus = Focus::Catalog,
+            // Esc never quits (q does, outside the box): it clears, then leaves the box.
+            KeyCode::Esc if !self.query.is_empty() => self.query.clear(),
+            KeyCode::Esc | KeyCode::Down | KeyCode::Tab if !self.results.is_empty() => self.focus = Focus::Results,
+            KeyCode::Esc | KeyCode::Down | KeyCode::Tab if !self.catalog.is_empty() => self.focus = Focus::Catalog,
             KeyCode::Char('u') if ctrl => self.query.clear(),
             KeyCode::Char('w') if ctrl => {
                 let kept = self.query.trim_end().rsplit_once(' ').map_or("", |(head, _)| head).len();
@@ -444,10 +569,13 @@ impl App {
         match code {
             KeyCode::Char('d') => return self.download_selected(),
             KeyCode::Enter | KeyCode::Char('o') => {
-                if let Some(c) = self.selected_candidate() {
-                    let artist = matching::artist_from_folder(c.parent.as_deref());
-                    let title = c.title.clone();
-                    return self.open_album(artist, title);
+                if let Some(c) = self.selected_candidate().cloned() {
+                    self.open_release(c);
+                }
+            }
+            KeyCode::Char('i') => {
+                if let Some(c) = self.selected_candidate().cloned() {
+                    return self.album_info(&c);
                 }
             }
             KeyCode::Char('a') => {
@@ -463,6 +591,7 @@ impl App {
             }
             KeyCode::Esc | KeyCode::Tab => self.focus = Focus::Input,
             KeyCode::Up | KeyCode::Char('k') if self.selected == 0 => self.focus = Focus::Input,
+            KeyCode::Up | KeyCode::Char('k') if self.results.is_empty() => self.focus = Focus::Input,
             KeyCode::Up | KeyCode::Char('k') => self.selected -= 1,
             KeyCode::Down | KeyCode::Char('j') => self.selected = (self.selected + 1).min(last),
             KeyCode::PageDown => self.selected = (self.selected + 10).min(last),
@@ -495,6 +624,9 @@ impl App {
     }
 
     fn on_page_key(&mut self, code: KeyCode) -> Action {
+        if let Some(Page::Release { .. }) = self.pages.last() {
+            return self.on_release_key(code);
+        }
         let Some(page) = self.pages.last_mut() else {
             self.focus = Focus::Input;
             return Action::None;
@@ -511,16 +643,7 @@ impl App {
             }
             KeyCode::Home | KeyCode::Char('g') => *page.selected_mut() = 0,
             KeyCode::End | KeyCode::Char('G') => *page.selected_mut() = last,
-            KeyCode::Esc | KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => {
-                self.pages.pop();
-                if self.pages.is_empty() {
-                    self.focus = if self.results.is_empty() {
-                        if self.catalog.is_empty() { Focus::Input } else { Focus::Catalog }
-                    } else {
-                        Focus::Results
-                    };
-                }
-            }
+            KeyCode::Esc | KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => self.close_page(),
             KeyCode::Tab => self.focus = Focus::Input,
             KeyCode::Enter | KeyCode::Char('o') => {
                 if let Page::Artist { name, info: Loadable::Ready(info), selected } = page
@@ -533,7 +656,14 @@ impl App {
                     return self.search_page();
                 }
             }
-            KeyCode::Char('s' | 'd') => return self.search_page(),
+            KeyCode::Char('d') => {
+                if let Page::Album { source: Some(source), .. } = page {
+                    let source = (**source).clone();
+                    return self.download(source, None);
+                }
+                return self.search_page();
+            }
+            KeyCode::Char('s') => return self.search_page(),
             KeyCode::Char('a') => {
                 if let Page::Album { artist: Some(artist), .. } = page {
                     let artist = artist.clone();
@@ -543,6 +673,104 @@ impl App {
             _ => {}
         }
         Action::None
+    }
+
+    fn on_release_key(&mut self, code: KeyCode) -> Action {
+        let Some(Page::Release { candidate, selected, excluded }) = self.pages.last() else { return Action::None };
+        let candidate = (**candidate).clone();
+        let audio: Vec<String> = candidate.files.iter().filter(|f| f.audio).map(|f| f.path.clone()).collect();
+        let last = audio.len().saturating_sub(1);
+        let current = *selected;
+        let mut chosen = self.excluded_files(&candidate, excluded.as_ref());
+        match code {
+            KeyCode::Up | KeyCode::Char('k') => self.set_release_selected(current.saturating_sub(1)),
+            KeyCode::Down | KeyCode::Char('j') => self.set_release_selected((current + 1).min(last)),
+            KeyCode::Home | KeyCode::Char('g') => self.set_release_selected(0),
+            KeyCode::End | KeyCode::Char('G') => self.set_release_selected(last),
+            KeyCode::PageDown => self.set_release_selected((current + 10).min(last)),
+            KeyCode::PageUp => self.set_release_selected(current.saturating_sub(10)),
+            KeyCode::Char(' ') => {
+                if let Some(path) = audio.get(current) {
+                    if !chosen.remove(path) {
+                        chosen.insert(path.clone());
+                    }
+                    self.set_release_excluded(chosen);
+                    self.set_release_selected((current + 1).min(last));
+                }
+            }
+            // Every track, or none.
+            KeyCode::Char('t') => {
+                let all_picked = chosen.is_empty();
+                self.set_release_excluded(if all_picked { audio.iter().cloned().collect() } else { HashSet::new() });
+            }
+            KeyCode::Char('d') | KeyCode::Enter => {
+                let picked: Vec<String> = audio.iter().filter(|p| !chosen.contains(*p)).cloned().collect();
+                if picked.is_empty() {
+                    self.say("Nothing is ticked. Space ticks a track, t ticks them all.", true);
+                    return Action::None;
+                }
+                let narrowed = (picked.len() < audio.len()).then_some(picked.as_slice());
+                return self.download(candidate, narrowed);
+            }
+            KeyCode::Char('i') => return self.album_info(&candidate),
+            KeyCode::Char('a') => {
+                if let Some(artist) = matching::artist_from_folder(candidate.parent.as_deref()) {
+                    return self.open_artist(artist);
+                }
+                self.say("This folder doesn't say who the artist is.", true);
+            }
+            KeyCode::Char('s') => {
+                let artist = matching::artist_from_folder(candidate.parent.as_deref());
+                let query = artist.map_or_else(|| candidate.title.clone(), |a| format!("{a} {}", candidate.title));
+                self.query.clone_from(&query);
+                return Action::StartSearch(query);
+            }
+            KeyCode::Esc | KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => self.close_page(),
+            KeyCode::Tab => self.focus = Focus::Input,
+            _ => {}
+        }
+        Action::None
+    }
+
+    fn set_release_selected(&mut self, value: usize) {
+        if let Some(Page::Release { selected, .. }) = self.pages.last_mut() {
+            *selected = value;
+        }
+    }
+
+    fn set_release_excluded(&mut self, value: HashSet<String>) {
+        if let Some(Page::Release { excluded, .. }) = self.pages.last_mut() {
+            *excluded = Some(value);
+        }
+    }
+
+    fn close_page(&mut self) {
+        self.pages.pop();
+        if self.pages.is_empty() {
+            self.focus = if self.results.is_empty() {
+                if self.catalog.is_empty() { Focus::Input } else { Focus::Catalog }
+            } else {
+                Focus::Results
+            };
+        }
+    }
+
+    /// One person's folder, to look through and download from.
+    fn open_release(&mut self, candidate: Candidate) {
+        let artist = matching::artist_from_folder(candidate.parent.as_deref());
+        self.want_cover(artist, &candidate.title);
+        self.pages.push(Page::Release { candidate: Box::new(candidate), selected: 0, excluded: None });
+        self.focus = Focus::Page;
+    }
+
+    /// The catalogue's page for a release's album, still able to download that copy.
+    fn album_info(&mut self, candidate: &Candidate) -> Action {
+        let artist = matching::artist_from_folder(candidate.parent.as_deref());
+        let action = self.open_album(artist, candidate.title.clone());
+        if let Some(Page::Album { source, .. }) = self.pages.last_mut() {
+            *source = Some(Box::new(candidate.clone()));
+        }
+        action
     }
 
     /// Search Soulseek for what the open page shows.
@@ -569,11 +797,13 @@ impl App {
     }
 
     fn open_album(&mut self, artist: Option<String>, title: String) -> Action {
+        self.want_cover(artist.clone(), &title);
         self.pages.push(Page::Album {
             artist: artist.clone(),
             title: title.clone(),
             info: Loadable::Loading,
             selected: 0,
+            source: None,
         });
         self.focus = Focus::Page;
         Action::Album { key: page_key(artist.as_deref(), &title), artist, title }
@@ -581,7 +811,17 @@ impl App {
 
     fn download_selected(&mut self) -> Action {
         let Some(candidate) = self.selected_candidate().cloned() else { return Action::None };
+        self.download(candidate, None)
+    }
+
+    /// Download a release, or only `picked` of its audio files (with its artwork and
+    /// other extras), checking first what you already have.
+    fn download(&mut self, mut candidate: Candidate, picked: Option<&[String]>) -> Action {
         let title = candidate.title.clone();
+        if let Some(picked) = picked {
+            candidate.files.retain(|f| !f.audio || picked.contains(&f.path));
+            candidate.audio_files = u32::try_from(picked.len()).unwrap_or(u32::MAX);
+        }
         if !self.can_download() {
             if self.me.as_ref().is_some_and(|me| me.permissions.request) {
                 self.ask(format!("Ask an admin for “{title}”?"), Action::Request(Box::new(candidate)));
@@ -591,6 +831,16 @@ impl App {
             return Action::None;
         }
         let download = Action::Download(Box::new(candidate.clone()));
+        if picked.is_some() {
+            // Chosen by hand: no second-guessing which tracks.
+            return match self.mark_for(&candidate) {
+                Some(Mark::Downloading(_) | Mark::Queued) => {
+                    self.say("Already downloading this copy. Press 2 to watch it.", false);
+                    Action::None
+                }
+                _ => download,
+            };
+        }
         match self.mark_for(&candidate) {
             Some(Mark::Downloading(_) | Mark::Queued) => {
                 self.say("Already downloading this copy. Press 2 to watch it.", false);
@@ -790,6 +1040,17 @@ impl App {
         Action::None
     }
 
+    /// The selected result's cover, for the panel under the results.
+    pub fn want_selected_cover(&mut self) {
+        if self.screen != Screen::Search || !self.pages.is_empty() {
+            return;
+        }
+        if let Some(c) = self.selected_candidate() {
+            let (artist, title) = (matching::artist_from_folder(c.parent.as_deref()), c.title.clone());
+            self.want_cover(artist, &title);
+        }
+    }
+
     /// Library lookups for results near the selection that haven't been looked up.
     pub fn lookups_wanted(&mut self) -> Vec<Action> {
         if self.results.is_empty() {
@@ -849,6 +1110,9 @@ impl App {
                 self.library.insert(key, Some(found));
             }
             Message::Artist(name, result) => {
+                if let Ok(Some(url)) = result.as_ref().map(|a| a.picture.clone()) {
+                    self.want_picture(&format!("artist:{name}"), &url);
+                }
                 for page in &mut self.pages {
                     if let Page::Artist { name: n, info, .. } = page
                         && *n == name
@@ -876,6 +1140,10 @@ impl App {
             Message::Report(id, result) => {
                 let report = result.map_or_else(Loadable::Failed, |r| Loadable::Ready(Box::new(r)));
                 self.reports.insert(id, report);
+            }
+            Message::Picture(key, image) => {
+                self.canvas.borrow_mut().fitted.remove(&key);
+                self.pictures.insert(key, image.map_or(Picture::Missing, |i| Picture::Ready(Arc::new(i))));
             }
             Message::Notice(Ok(text)) => self.say(text, false),
             Message::Notice(Err(text)) => self.say(text, true),
@@ -976,7 +1244,8 @@ impl App {
         self.resolved = None;
         self.selected = 0;
         self.screen = Screen::Search;
-        self.focus = Focus::Input;
+        // Results take the keys once searching, so 1 2 3 and the letters work straight away.
+        self.focus = Focus::Results;
         self.search = SearchState::Running {
             query: query.to_owned(),
             started: Instant::now(),

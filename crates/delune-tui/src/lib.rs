@@ -52,6 +52,11 @@ pub fn run(server_url: String, http: &reqwest::Client) -> Result<Exit> {
 
     let mut terminal = ratatui::init();
     let mut app = App::new(server_url);
+    // Real images where the terminal can show them (kitty, iTerm2, sixel), blocks elsewhere.
+    app.canvas.get_mut().picker = Some(
+        ratatui_image::picker::Picker::from_query_stdio()
+            .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks()),
+    );
     let result = loop {
         if let Err(e) = terminal.draw(|frame| ui::draw(frame, &app)) {
             break Err(e.into());
@@ -62,6 +67,7 @@ pub fn run(server_url: String, http: &reqwest::Client) -> Result<Exit> {
         if app.signed_out {
             break Ok(Exit::SignedOut);
         }
+        app.want_selected_cover();
         let mut actions = std::mem::take(&mut app.effects);
         actions.extend(app.lookups_wanted());
         if app.screen == app::Screen::Review {
@@ -211,7 +217,21 @@ mod tests {
         assert!(app.query.is_empty() && !app.should_quit, "first Esc clears the query");
         assert_eq!(press(&mut app, KeyCode::Enter), Action::None, "empty query doesn't search");
         press(&mut app, KeyCode::Esc);
-        assert!(app.should_quit, "second Esc quits");
+        assert!(!app.should_quit, "Esc never quits");
+        // Screens switch even while typing.
+        press(&mut app, KeyCode::F(2));
+        assert_eq!(app.screen, app::Screen::Downloads);
+        app.on_key(KeyCode::Char('3'), KeyModifiers::ALT);
+        assert_eq!(app.screen, app::Screen::Review);
+        press(&mut app, KeyCode::Char('1'));
+        assert_eq!(app.screen, app::Screen::Search);
+        // Searching hands the keys to the results, so 2 switches screens straight away.
+        app.begin_search("ok computer");
+        assert_eq!(app.focus, Focus::Results);
+        press(&mut app, KeyCode::Char('2'));
+        assert_eq!(app.screen, app::Screen::Downloads);
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.should_quit, "q quits");
     }
 
     #[test]
@@ -265,9 +285,18 @@ mod tests {
             items: vec![candidate("Twoism", Quality::lossless(Codec::Flac, 16, 44_100))],
         });
         app.focus = Focus::Results;
-        let Action::Album { key, artist, title } = press(&mut app, KeyCode::Enter) else { panic!("opens the album") };
+        // Enter opens that person's folder: its tracks, ticked, ready to download.
+        assert_eq!(press(&mut app, KeyCode::Enter), Action::None);
+        assert!(matches!(app.pages.last(), Some(Page::Release { .. })));
+        assert!(matches!(app.effects.as_slice(), [Action::Cover { album, .. }] if album == "Twoism"));
+        assert!(matches!(press(&mut app, KeyCode::Char('d')), Action::Download(c) if c.id == "Twoism"));
+        // i shows the album's catalogue page, which can still download that copy.
+        let Action::Album { key, artist, title } = press(&mut app, KeyCode::Char('i')) else {
+            panic!("opens the album")
+        };
         assert_eq!((artist.as_deref(), title.as_str()), (Some("Boards of Canada"), "Twoism"));
         assert_eq!(app.focus, Focus::Page);
+        assert!(matches!(press(&mut app, KeyCode::Char('d')), Action::Download(c) if c.id == "Twoism"));
         app.on_message(Message::Album(
             key,
             Ok(AlbumInfo {
@@ -288,13 +317,15 @@ mod tests {
         ));
         assert!(matches!(app.pages.last(), Some(Page::Album { info: Loadable::Ready(_), .. })));
         assert_eq!(press(&mut app, KeyCode::Char('a')), Action::Artist("Boards of Canada".into()));
-        assert_eq!(app.pages.len(), 2);
+        assert_eq!(app.pages.len(), 3, "folder, album, artist");
         press(&mut app, KeyCode::Esc);
         assert_eq!(
             press(&mut app, KeyCode::Char('s')),
             Action::StartSearch("Boards of Canada Twoism".into()),
             "s searches Soulseek for the album"
         );
+        press(&mut app, KeyCode::Esc);
+        assert!(matches!(app.pages.last(), Some(Page::Release { .. })), "back to the folder");
         press(&mut app, KeyCode::Esc);
         assert!(app.pages.is_empty());
         assert_eq!(app.focus, Focus::Results, "closing the last page returns to the results");
@@ -428,5 +459,28 @@ mod tests {
             }
         }
         assert!(matches!(app.search, SearchState::Running { .. }));
+
+        // A release page, with its cover drawn in blocks.
+        app.canvas.get_mut().picker = Some(ratatui_image::picker::Picker::halfblocks());
+        app.screen = Screen::Search;
+        app.help = false;
+        app.focus = Focus::Results;
+        press(&mut app, KeyCode::Enter);
+        let key = App::cover_key(&app.results[0]);
+        let cover = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(8, 8, image::Rgb([200, 40, 90])));
+        app.on_message(Message::Picture(key, Some(cover)));
+        for (width, height) in [(120, 36), (60, 16)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| ui::draw(frame, &app)).unwrap();
+            let text: String =
+                terminal.backend().buffer().content().iter().map(ratatui::buffer::Cell::symbol).collect();
+            if std::env::var_os("DELUNE_PRINT_SCREENS").is_some() {
+                for row in text.chars().collect::<Vec<_>>().chunks(usize::from(width)) {
+                    println!("{}", row.iter().collect::<String>());
+                }
+            }
+            assert!(text.contains("[x]"), "tracks are ticked at {width}x{height}: {text}");
+            assert!(text.contains('▀') || text.contains('▄'), "the cover is drawn at {width}x{height}");
+        }
     }
 }
