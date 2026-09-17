@@ -383,6 +383,10 @@ export type HealthFinding = {
    * Changes whenever the files involved do; a fix needs the current one.
    */
   id: string
+  /**
+   * Stays the same for the same folders; ignoring a finding uses this.
+   */
+  key: string
   kind: HealthKind
   /**
    * Library-relative folders; for a split album, the one kept comes first.
@@ -408,6 +412,8 @@ export type HealthFixed = {
    */
   batch: string
 }
+
+export type HealthIgnoreRequest = { key: string }
 
 export type HealthKind = "split-album" | "duplicate-tracks"
 
@@ -436,6 +442,10 @@ export type LibraryHealth = {
    * Batches in the trash are emptied after this many days.
    */
   trash_days: number
+  /**
+   * Findings left out because someone chose to ignore them.
+   */
+  ignored: number
 }
 
 export type LibraryMatch = {

@@ -36,6 +36,9 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finding {
     pub id: String,
+    /// Stays the same while the same folders are involved, whatever happens to the
+    /// files in them, so a finding can be ignored for good.
+    pub key: String,
     pub kind: Kind,
     /// Library-relative folders involved; for a split album, the one kept comes first.
     pub folders: Vec<String>,
@@ -143,6 +146,12 @@ fn fingerprint(kind: Kind, folders: &[PathBuf]) -> String {
     hex::encode(&hash.finalize()[..12])
 }
 
+fn key_of(kind: Kind, folders: &[String]) -> String {
+    let mut sorted = folders.to_vec();
+    sorted.sort();
+    format!("{kind:?}:{}", sorted.join("\u{1f}"))
+}
+
 /// Groups of copies of the same track in one folder.
 fn duplicates_in(dir: &Path) -> Vec<Vec<PathBuf>> {
     let mut by_key: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
@@ -175,10 +184,12 @@ pub fn scan(root: &Path) -> Scan {
         let duplicates = duplicates_in(dir);
         if !duplicates.is_empty() {
             let folders = vec![dir.clone()];
+            let relative_folders = vec![relative(root, dir)];
             result.findings.push(Finding {
                 id: fingerprint(Kind::DuplicateTracks, &folders),
+                key: key_of(Kind::DuplicateTracks, &relative_folders),
                 kind: Kind::DuplicateTracks,
-                folders: vec![relative(root, dir)],
+                folders: relative_folders,
                 files: duplicates.iter().map(|d| d.len() - 1).sum(),
                 duplicates: duplicates.iter().map(|d| d.iter().map(|p| relative(root, p)).collect()).collect(),
             });
@@ -190,10 +201,12 @@ pub fn scan(root: &Path) -> Scan {
     }
     splits.sort();
     for group in splits {
+        let folders: Vec<String> = group.iter().map(|d| relative(root, d)).collect();
         result.findings.push(Finding {
             id: fingerprint(Kind::SplitAlbum, &group),
+            key: key_of(Kind::SplitAlbum, &folders),
             kind: Kind::SplitAlbum,
-            folders: group.iter().map(|d| relative(root, d)).collect(),
+            folders,
             duplicates: Vec::new(),
             files: group.iter().skip(1).map(|d| audio_files(d).len()).sum(),
         });
@@ -433,6 +446,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let finding = Finding {
             id: String::new(),
+            key: String::new(),
             kind: Kind::DuplicateTracks,
             folders: vec!["../elsewhere".into()],
             duplicates: Vec::new(),

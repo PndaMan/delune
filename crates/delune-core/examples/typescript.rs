@@ -146,6 +146,7 @@ fn main() {
         TrashBatch,
         LibraryHealth,
         HealthFixRequest,
+        HealthIgnoreRequest,
         HealthFixed,
         TrashRestored,
         UploadReceived,

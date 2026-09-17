@@ -1600,6 +1600,8 @@ pub enum HealthKind {
 pub struct HealthFinding {
     /// Changes whenever the files involved do; a fix needs the current one.
     pub id: String,
+    /// Stays the same for the same folders; ignoring a finding uses this.
+    pub key: String,
     pub kind: HealthKind,
     /// Library-relative folders; for a split album, the one kept comes first.
     pub folders: Vec<String>,
@@ -1631,6 +1633,16 @@ pub struct LibraryHealth {
     pub trash: Vec<TrashBatch>,
     /// Batches in the trash are emptied after this many days.
     pub trash_days: u32,
+    /// Findings left out because someone chose to ignore them.
+    pub ignored: u32,
+}
+
+/// `POST /api/v1/library/health/ignore`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct HealthIgnoreRequest {
+    pub key: String,
 }
 
 /// `POST /api/v1/library/health/fix`

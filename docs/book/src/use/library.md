@@ -67,5 +67,8 @@ These fixes never delete anything:
 - A fix that touches more than 20 files needs a second tap. One that would touch more
   than 400 files is refused.
 
+**Ignore** hides a finding for good: the same folders won't come up again, even as
+their files change. **Show again**, below the list, brings every ignored finding back.
+
 New tracks go into an album's existing folder even when that folder is spelled
 differently, so new splits shouldn't appear.

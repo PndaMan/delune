@@ -371,6 +371,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/library/recent", get(stats::recent))
         .route("/api/v1/library/health", get(library_health::check))
         .route("/api/v1/library/health/fix", post(library_health::fix))
+        .route("/api/v1/library/health/ignore", post(library_health::ignore).delete(library_health::unignore))
         .route("/api/v1/library/trash/{id}/restore", post(library_health::restore))
         .route("/api/v1/library/cover/{id}", get(stats::cover))
         .route("/api/v1/stats", get(stats::stats))

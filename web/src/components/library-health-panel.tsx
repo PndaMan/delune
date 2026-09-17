@@ -12,6 +12,15 @@ import { cn } from "@/lib/utils"
 /** A fix that touches more files than this asks for a second tap. */
 const CONFIRM_OVER = 20
 
+async function call(method: string, path: string, body?: unknown) {
+  const res = await fetch(`/api/v1${path}`, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) throw await toApiError(res)
+}
+
 async function send<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api/v1${path}`, {
     method: "POST",
@@ -118,6 +127,8 @@ export function LibraryHealthPanel() {
         it's emptied after {data.trash_days} days. Before a fix, delune checks the files are still as they were.
       </p>
 
+      {data.ignored > 0 && <IgnoredNote count={data.ignored} onDone={refresh} />}
+
       <TrashList batches={data.trash} onDone={refresh} />
     </div>
   )
@@ -141,6 +152,14 @@ function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () =>
       toast(e.message, "error")
       onDone()
     },
+  })
+  const ignore = useMutation({
+    mutationFn: () => call("POST", "/library/health/ignore", { key: finding.key }),
+    onSuccess: () => {
+      toast("Ignored. It won't come up again.")
+      onDone()
+    },
+    onError: (e) => toast(e.message, "error"),
   })
   const split = finding.kind === "split-album"
   const { artist, album } = parts(finding.folders[0])
@@ -193,16 +212,42 @@ function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () =>
             : "Keeps the best copy of each."}
         </p>
       </div>
-      <Button
-        variant={confirming ? "default" : "outline"}
-        onClick={act}
-        disabled={fix.isPending}
-        className="shrink-0 max-sm:w-full"
-      >
-        {fix.isPending && <LoaderCircle className="animate-spin" />}
-        {confirming ? `Tap again: ${plural(finding.files, "file")}` : split ? "Merge" : "Keep the best"}
-      </Button>
+      <div className="flex shrink-0 gap-2 max-sm:w-full">
+        <Button
+          variant="ghost"
+          onClick={() => ignore.mutate()}
+          disabled={ignore.isPending || fix.isPending}
+          className="max-sm:flex-1"
+        >
+          Ignore
+        </Button>
+        <Button
+          variant={confirming ? "default" : "outline"}
+          onClick={act}
+          disabled={fix.isPending}
+          className="max-sm:flex-1"
+        >
+          {fix.isPending && <LoaderCircle className="animate-spin" />}
+          {confirming ? `Tap again: ${plural(finding.files, "file")}` : split ? "Merge" : "Keep the best"}
+        </Button>
+      </div>
     </li>
+  )
+}
+
+function IgnoredNote({ count, onDone }: { count: number; onDone: () => void }) {
+  const unignore = useMutation({
+    mutationFn: () => call("DELETE", "/library/health/ignore"),
+    onSuccess: onDone,
+    onError: (e) => toast(e.message, "error"),
+  })
+  return (
+    <p className="flex items-center gap-3 border-b px-5 py-3 text-[13px] text-muted-foreground">
+      <span className="min-w-0 flex-1">{plural(count, "ignored finding")} not shown</span>
+      <Button variant="ghost" size="sm" onClick={() => unignore.mutate()} disabled={unignore.isPending}>
+        Show again
+      </Button>
+    </p>
   )
 }
 

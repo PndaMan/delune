@@ -66,6 +66,8 @@ use utoipa::OpenApi;
         crate::uploads::finish,
         crate::library_health::check,
         crate::library_health::fix,
+        crate::library_health::ignore,
+        crate::library_health::unignore,
         crate::library_health::restore,
         crate::alerts::update,
         crate::alerts::add_device,

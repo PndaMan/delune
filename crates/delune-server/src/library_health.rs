@@ -10,7 +10,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use delune_core::api::{
-    ApiError, HealthFinding, HealthFixRequest, HealthFixed, HealthKind, LibraryHealth, TrashBatch, TrashRestored,
+    ApiError, HealthFinding, HealthFixRequest, HealthFixed, HealthIgnoreRequest, HealthKind, LibraryHealth, TrashBatch,
+    TrashRestored,
 };
 use delune_library::health;
 
@@ -43,9 +44,17 @@ fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
+/// Where ignored findings are kept.
+const IGNORED: &str = "library-ignored";
+
+fn ignored(app: &AppState) -> std::collections::BTreeSet<String> {
+    app.db.load(IGNORED).unwrap_or_default()
+}
+
 fn finding(f: &health::Finding) -> HealthFinding {
     HealthFinding {
         id: f.id.clone(),
+        key: f.key.clone(),
         kind: match f.kind {
             health::Kind::SplitAlbum => HealthKind::SplitAlbum,
             health::Kind::DuplicateTracks => HealthKind::DuplicateTracks,
@@ -91,10 +100,13 @@ pub async fn check(State(app): State<AppState>, user: CurrentUser) -> Response {
     let Ok((scan, trash)) = scanned else {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "check-failed", "The check stopped unexpectedly.");
     };
+    let skip = ignored(&app);
+    let shown: Vec<HealthFinding> = scan.findings.iter().filter(|f| !skip.contains(&f.key)).map(finding).collect();
     let report = LibraryHealth {
         albums: count(scan.albums),
         tracks: count(scan.tracks),
-        findings: scan.findings.iter().map(finding).collect(),
+        ignored: count(scan.findings.len() - shown.len()),
+        findings: shown,
         trash,
         trash_days: TRASH_DAYS,
     };
@@ -144,6 +156,53 @@ pub async fn fix(State(app): State<AppState>, user: CurrentUser, Json(request): 
     tracing::info!(by = %user.username, moved = fixed.moved, trashed = fixed.trashed, batch = %fixed.batch, "tidied the library");
     after_change(&app);
     Json(HealthFixed { moved: count(fixed.moved), trashed: count(fixed.trashed), batch: fixed.batch }).into_response()
+}
+
+/// `POST /api/v1/library/health/ignore`: stop showing a finding, for good.
+#[utoipa::path(
+    post,
+    operation_id = "library_health_ignore",
+    path = "/api/v1/library/health/ignore",
+    tag = "library",
+    request_body = HealthIgnoreRequest,
+    responses(
+        (status = 204, description = "Ignored"),
+        (status = 403, description = "Not allowed", body = ApiError),
+    ),
+)]
+pub async fn ignore(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Json(request): Json<HealthIgnoreRequest>,
+) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.manage, "tidy the library") {
+        return denied;
+    }
+    let mut keys = ignored(&app);
+    if !request.key.is_empty() && keys.len() < 10_000 {
+        keys.insert(request.key);
+    }
+    app.db.save(IGNORED, &keys);
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// `DELETE /api/v1/library/health/ignore`: show every ignored finding again.
+#[utoipa::path(
+    delete,
+    operation_id = "library_health_unignore",
+    path = "/api/v1/library/health/ignore",
+    tag = "library",
+    responses(
+        (status = 204, description = "Nothing is ignored now"),
+        (status = 403, description = "Not allowed", body = ApiError),
+    ),
+)]
+pub async fn unignore(State(app): State<AppState>, user: CurrentUser) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.manage, "tidy the library") {
+        return denied;
+    }
+    app.db.save(IGNORED, &std::collections::BTreeSet::<String>::new());
+    StatusCode::NO_CONTENT.into_response()
 }
 
 /// `POST /api/v1/library/trash/{id}/restore`: put a batch back.
