@@ -201,7 +201,15 @@ async fn fetch_picture(action: Action, cx: Context) {
 
 /// Fetch and decode a picture; `path` may be relative to the server.
 async fn picture(cx: &Context, path: &str) -> Option<image::DynamicImage> {
-    let url = if path.starts_with('/') { cx.url(path) } else { path.to_owned() };
+    // Only from delune itself: the client sends the session token with every request,
+    // and that must never reach another host.
+    let url = if path.starts_with('/') && !path.starts_with("//") {
+        cx.url(path)
+    } else if path.starts_with(&format!("{}/", cx.base)) {
+        path.to_owned()
+    } else {
+        return None;
+    };
     let bytes = api::bytes(&cx.http, &url, 4 << 20).await.ok()?;
     tokio::task::spawn_blocking(move || image::load_from_memory(&bytes).ok()).await.ok().flatten()
 }

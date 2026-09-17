@@ -1111,7 +1111,9 @@ impl App {
             }
             Message::Artist(name, result) => {
                 if let Ok(Some(url)) = result.as_ref().map(|a| a.picture.clone()) {
-                    self.want_picture(&format!("artist:{name}"), &url);
+                    // Through delune's image proxy, which only fetches from known hosts.
+                    let src: String = url::form_urlencoded::byte_serialize(url.as_bytes()).collect();
+                    self.want_picture(&format!("artist:{name}"), &format!("/api/v1/artwork/image?src={src}"));
                 }
                 for page in &mut self.pages {
                     if let Page::Artist { name: n, info, .. } = page
