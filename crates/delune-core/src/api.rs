@@ -341,6 +341,13 @@ pub struct ReviewTrack {
     pub suspect_transcode: bool,
     /// What's wrong with this file, if anything, in plain language.
     pub problem: Option<String>,
+    /// The quality of the library's copy this track replaces (which goes to the
+    /// library's trash).
+    #[serde(default)]
+    pub replaces: Option<String>,
+    /// The library already has this track at least as good; it won't be imported.
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 /// `GET /api/v1/downloads/{id}/review`

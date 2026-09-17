@@ -56,6 +56,12 @@ Settings → Automation → **Quality upgrades** (off by default) slowly walks t
 library, a few dozen albums an hour, and puts every lossy album on the wishlist with the
 quality you choose. Upgrades download like anything else and still go through review.
 
+When an import brings a better copy of a track the album already has, the new copy
+takes its place and the old one (with its lyrics file) moves to `.delune-trash` in your
+library folder. Navidrome doesn't show that folder, and delune empties anything in it
+after 30 days. A copy that isn't better than what you have is left out, and Review says
+so.
+
 ## Downloading what it finds
 
 Settings → Automation → **Download what it finds** (on by default) lets items that

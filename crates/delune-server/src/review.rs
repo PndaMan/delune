@@ -116,6 +116,11 @@ pub fn check(staging: &Path, context: &ReleaseContext, settings: &LibrarySetting
             cutoff_hz: verification.as_ref().and_then(|v| v.cutoff_hz),
             suspect_transcode: verification.as_ref().is_some_and(|v| v.suspect_transcode),
             problem: problem.clone(),
+            replaces: planned
+                .replaces
+                .as_ref()
+                .map(|r| r.quality.map_or_else(|| "an unknown quality".to_owned(), |q| q.to_string())),
+            skipped: planned.skip,
         })
         .collect();
 
@@ -161,8 +166,10 @@ fn examine(path: &Path) -> Result<(StagedTrack, Option<verify::Verification>, Op
 }
 
 fn blocked_reason(settings: &LibrarySettings, tracks: &[ReviewTrack], conflicts: &[String]) -> Option<String> {
-    let unplayable =
-        tracks.iter().filter(|t| t.problem.as_deref().is_some_and(|p| p.starts_with("Won't play"))).count();
+    let unplayable = tracks
+        .iter()
+        .filter(|t| !t.skipped && t.problem.as_deref().is_some_and(|p| p.starts_with("Won't play")))
+        .count();
     if settings.library_dir.is_none() {
         Some(
             "No library folder is configured. Start the server with DELUNE_LIBRARY_DIR set to your music folder."
@@ -170,6 +177,8 @@ fn blocked_reason(settings: &LibrarySettings, tracks: &[ReviewTrack], conflicts:
         )
     } else if tracks.is_empty() {
         Some("There are no playable audio files to import.".into())
+    } else if tracks.iter().all(|t| t.skipped) {
+        Some("Your library already has all of these in the same or better quality.".into())
     } else if !conflicts.is_empty() {
         Some(format!("{} of these files already exist in your library.", conflicts.len()))
     } else if unplayable > 0 {
@@ -287,7 +296,8 @@ async fn import_job(app: &AppState, id: &str, actor: &str, owner: Option<&str>) 
     let folder = checked
         .plan
         .tracks
-        .first()
+        .iter()
+        .find(|t| !t.skip)
         .and_then(|t| t.destination.rsplit_once('/').map(|(dir, _)| dir.to_owned()))
         .unwrap_or_default();
     app.downloads.mark_imported(id, &folder);
@@ -307,6 +317,7 @@ async fn import_job(app: &AppState, id: &str, actor: &str, owner: Option<&str>) 
         .plan
         .tracks
         .iter()
+        .filter(|t| !t.skip)
         .map(|t| crate::finishing::Imported {
             path: root.join(&t.destination),
             title: t.fields.title.clone(),

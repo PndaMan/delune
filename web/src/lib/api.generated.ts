@@ -848,6 +848,15 @@ export type ReviewTrack = {
    * What's wrong with this file, if anything, in plain language.
    */
   problem: string | null
+  /**
+   * The quality of the library's copy this track replaces (which goes to the
+   * library's trash).
+   */
+  replaces: string | null
+  /**
+   * The library already has this track at least as good; it won't be imported.
+   */
+  skipped: boolean
 }
 
 export type RoomPerson = {

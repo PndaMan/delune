@@ -46,6 +46,21 @@ pub struct PlannedFile {
     /// Relative to the library root, `/`-separated.
     pub destination: String,
     pub fields: TrackFields,
+    /// The library's copy of this track, in lower quality, which this one replaces.
+    /// It goes to the library's trash, not away.
+    #[serde(default)]
+    pub replaces: Option<Replaced>,
+    /// The library already has this track in the same or better quality, so it isn't
+    /// imported.
+    #[serde(default)]
+    pub skip: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Replaced {
+    /// Relative to the library root, `/`-separated.
+    pub file: String,
+    pub quality: Option<delune_core::Quality>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +80,7 @@ pub struct Plan {
 
 /// Decide where every file goes.
 #[must_use]
+#[allow(clippy::too_many_lines, reason = "one pass that decides every field of every file")]
 pub fn plan(
     tracks: &[StagedTrack],
     images: &[PathBuf],
@@ -98,6 +114,8 @@ pub fn plan(
     for disc in &discs {
         *per_disc.entry(*disc).or_default() += 1;
     }
+
+    let matches = already_there(tracks, existing);
 
     let mut used = HashSet::new();
     let planned: Vec<PlannedFile> = tracks
@@ -147,9 +165,33 @@ pub fn plan(
                 destination = format!("{stem} ({n}).{extension}");
                 n += 1;
             }
-            PlannedFile { source: track.path.clone(), destination, fields }
+            let (replaces, skip) = match (existing, matches[index]) {
+                (Some(e), Some(i)) => {
+                    let old = &e.tracks[i];
+                    if old.quality.is_none_or(|q| quality.rank() > q.rank()) {
+                        (Some(Replaced { file: format!("{}/{}", e.folder, old.file), quality: old.quality }), false)
+                    } else {
+                        (None, true)
+                    }
+                }
+                _ => (None, false),
+            };
+            PlannedFile { source: track.path.clone(), destination, fields, replaces, skip }
         })
         .collect();
+
+    let skipped = planned.iter().filter(|p| p.skip).count();
+    if skipped > 0 {
+        warnings.push(format!(
+            "{skipped} track(s) are already in your library in the same or better quality and won't be imported."
+        ));
+    }
+    let replacing = planned.iter().filter(|p| p.replaces.is_some()).count();
+    if replacing > 0 {
+        warnings.push(format!(
+            "{replacing} track(s) replace lower-quality copies in your library; those go to the library's trash."
+        ));
+    }
 
     if used.len() < planned.len() || planned.iter().any(|p| p.destination.contains(" (2).")) {
         warnings.push("Two tracks would get the same name; a number was added to keep both.".into());
@@ -161,8 +203,13 @@ pub fn plan(
         Some((image, format!("{folder}/cover.{extension}")))
     });
 
+    let leaving: HashSet<String> =
+        planned.iter().filter_map(|p| p.replaces.as_ref()).map(|r| r.file.to_lowercase()).collect();
     let renumber = match (existing, tracklist) {
-        (Some(e), Some(list)) => renumbered(e, list, template, options, &album_artist, &album),
+        (Some(e), Some(list)) => renumbered(e, list, template, options, &album_artist, &album)
+            .into_iter()
+            .filter(|r| !leaving.contains(&r.from.to_lowercase()))
+            .collect(),
         _ => Vec::new(),
     };
     if !renumber.is_empty() {
@@ -173,6 +220,33 @@ pub fn plan(
     }
 
     Plan { tracks: planned, cover, warnings, renumber, retag: existing.is_some() }
+}
+
+/// For each staged track, the existing track it duplicates, if any. Each existing
+/// track is matched once, exact titles first.
+fn already_there(tracks: &[StagedTrack], existing: Option<&ExistingAlbum>) -> Vec<Option<usize>> {
+    let mut claimed: HashSet<usize> = HashSet::new();
+    tracks
+        .iter()
+        .map(|track| {
+            let existing = existing?;
+            let title = track.info.tags.title.clone().unwrap_or_else(|| parse_file_name(&track.path).1);
+            let key = merge::title_key(&title);
+            let candidates = || existing.tracks.iter().enumerate().filter(|(i, _)| !claimed.contains(i));
+            let found = candidates()
+                .find(|(_, t)| merge::title_key(&t.title) == key)
+                .or_else(|| {
+                    let mut loose = candidates().filter(|(_, t)| merge::same_song(&merge::title_key(&t.title), &key));
+                    let first = loose.next()?;
+                    loose.next().is_none().then_some(first)
+                })
+                .map(|(i, _)| i);
+            if let Some(i) = found {
+                claimed.insert(i);
+            }
+            found
+        })
+        .collect()
 }
 
 /// Existing tracks whose number no longer matches the tracklist, and their new names.
@@ -341,11 +415,17 @@ fn resolve(root: &Path, relative: &str) -> Result<PathBuf, ImportError> {
 /// Files in `plan` whose destination already exists under `root`, not counting files
 /// the plan moves out of the way first.
 pub fn conflicts(plan: &Plan, root: &Path) -> Result<Vec<PathBuf>, ImportError> {
-    let vacated: HashSet<String> = plan.renumber.iter().map(|r| r.from.to_lowercase()).collect();
+    let vacated: HashSet<String> = plan
+        .renumber
+        .iter()
+        .map(|r| r.from.to_lowercase())
+        .chain(plan.tracks.iter().filter_map(|t| t.replaces.as_ref()).map(|r| r.file.to_lowercase()))
+        .collect();
     let taken: HashSet<String> = plan.renumber.iter().map(|r| r.to.to_lowercase()).collect();
     let mut existing = Vec::new();
     let renames = plan.renumber.iter().map(|r| (r.to.as_str(), true));
-    for (destination, renaming) in plan.tracks.iter().map(|t| (t.destination.as_str(), false)).chain(renames) {
+    let arriving = plan.tracks.iter().filter(|t| !t.skip).map(|t| (t.destination.as_str(), false));
+    for (destination, renaming) in arriving.chain(renames) {
         let path = resolve(root, destination)?;
         let key = destination.to_lowercase();
         let freed = vacated.contains(&key) && (renaming || !taken.contains(&key));
@@ -371,6 +451,7 @@ fn album_tags(fields: &TrackFields) -> crate::extras::AlbumTags {
 /// Move every planned file into `root`, renumbering existing tracks first when the
 /// plan says so. Nothing moves if any destination is taken, and a failure part way
 /// puts everything back. Returns the final paths of the new tracks.
+#[allow(clippy::too_many_lines, reason = "each step pairs with its own undo")]
 pub fn execute(plan: &Plan, root: &Path) -> Result<Vec<PathBuf>, ImportError> {
     let existing = conflicts(plan, root)?;
     if !existing.is_empty() {
@@ -436,8 +517,24 @@ pub fn execute(plan: &Plan, root: &Path) -> Result<Vec<PathBuf>, ImportError> {
         }
     }
 
+    // Lower-quality copies step aside into the trash before their replacements arrive.
+    let batch = crate::trash::batch_name();
+    let trashed = match trash_replaced(plan, root, &batch) {
+        Ok(trashed) => trashed,
+        Err(error) => {
+            undo_renames(&[], &renamed);
+            return Err(error);
+        }
+    };
+    let undo_trash = |trashed: bool| {
+        if trashed && let Err(undo) = crate::trash::restore(root, &batch) {
+            tracing::warn!(%undo, "couldn't put replaced tracks back");
+        }
+    };
+
     let mut imported = Vec::with_capacity(plan.tracks.len());
-    for track in &plan.tracks {
+    let mut arrived: Vec<(&PlannedFile, PathBuf)> = Vec::new();
+    for track in plan.tracks.iter().filter(|t| !t.skip) {
         let moved = resolve(root, &track.destination).and_then(|destination| {
             move_file(&track.source, &destination)?;
             Ok(destination)
@@ -449,16 +546,18 @@ pub fn execute(plan: &Plan, root: &Path) -> Result<Vec<PathBuf>, ImportError> {
                 {
                     tracing::warn!(%error, path = %destination.display(), "couldn't tag an added track");
                 }
-                imported.push(destination);
+                imported.push(destination.clone());
+                arrived.push((track, destination));
             }
             Err(error) => {
                 // Half an album in the library would block importing it again; put back
                 // what already moved so the next try starts clean.
-                for (track, destination) in plan.tracks.iter().zip(&imported) {
+                for (track, destination) in &arrived {
                     if let Err(undo) = move_file(destination, &track.source) {
                         tracing::warn!(%undo, path = %destination.display(), "couldn't undo part of an import");
                     }
                 }
+                undo_trash(trashed);
                 undo_renames(&[], &renamed);
                 return Err(error);
             }
@@ -471,6 +570,23 @@ pub fn execute(plan: &Plan, root: &Path) -> Result<Vec<PathBuf>, ImportError> {
         }
     }
     Ok(imported)
+}
+
+/// Move the files `plan` replaces into trash batch `batch`. Whether anything moved; on
+/// failure, what moved is put back.
+fn trash_replaced(plan: &Plan, root: &Path, batch: &str) -> Result<bool, ImportError> {
+    let mut trashed = false;
+    for replaced in plan.tracks.iter().filter(|t| !t.skip).filter_map(|t| t.replaces.as_ref()) {
+        if !resolve(root, &replaced.file)?.exists() {
+            continue;
+        }
+        trashed = true;
+        if let Err(source) = crate::trash::put(root, &replaced.file, batch) {
+            let _ = crate::trash::restore(root, batch);
+            return Err(ImportError::Io { path: root.join(&replaced.file), source });
+        }
+    }
+    Ok(trashed)
 }
 
 fn move_file(from: &Path, to: &Path) -> Result<(), ImportError> {
@@ -681,6 +797,8 @@ mod tests {
             source: root.path().join("missing.flac"),
             destination: "A/B/02 - New.flac".into(),
             fields: TrackFields::default(),
+            replaces: None,
+            skip: false,
         }];
         assert!(execute(&plan, root.path()).is_err());
         assert_eq!(fs::read_to_string(dir.join("02 - One.flac")).unwrap(), "one", "put back");
@@ -766,6 +884,8 @@ mod tests {
             source,
             destination: destination.into(),
             fields: TrackFields::default(),
+            replaces: None,
+            skip: false,
         };
         let plan = Plan {
             tracks: vec![
@@ -791,6 +911,8 @@ mod tests {
                 source: PathBuf::from("x"),
                 destination: "../escape.flac".into(),
                 fields: TrackFields::default(),
+                replaces: None,
+                skip: false,
             }],
             cover: None,
             warnings: vec![],
@@ -801,5 +923,58 @@ mod tests {
         let absolute =
             Plan { tracks: vec![PlannedFile { destination: "/etc/passwd".into(), ..evil.tracks[0].clone() }], ..evil };
         assert!(matches!(execute(&absolute, library.path()), Err(ImportError::UnsafeDestination(_))));
+    }
+
+    #[test]
+    fn better_copies_replace_old_ones_and_others_stay_out() {
+        let root = tempfile::tempdir().unwrap();
+        let staging = tempfile::tempdir().unwrap();
+        let album_dir = root.path().join("Fred again..").join("USB");
+        fs::create_dir_all(&album_dir).unwrap();
+        fs::write(album_dir.join("01 - Kyle.mp3"), "old kyle").unwrap();
+        fs::write(album_dir.join("01 - Kyle.lrc"), "lyrics").unwrap();
+        fs::write(album_dir.join("02 - Jungle.flac"), "good jungle").unwrap();
+        let template = Template::parse("{album_artist}/{album}/{track} - {title}").unwrap();
+        let mut existing =
+            merge::find_existing(root.path(), &template, &NamingOptions::default(), "Fred again..", "USB", None)
+                .unwrap();
+        // inspect() can't read these stand-in files; give them their qualities.
+        for t in &mut existing.tracks {
+            t.quality = Some(if Path::new(&t.file).extension().is_some_and(|e| e.eq_ignore_ascii_case("mp3")) {
+                Quality::lossy(Codec::Mp3, 320)
+            } else {
+                Quality::lossless(Codec::Flac, 24, 96_000)
+            });
+        }
+        let tracks = [
+            track(staging.path(), "01 Kyle.flac", tags("Fred again..", "USB", "Kyle", 1, None)),
+            track(staging.path(), "02 Jungle.flac", tags("Fred again..", "USB", "Jungle", 2, None)),
+        ];
+        let context = ReleaseContext {
+            artist: Some("Fred again..".into()),
+            album: "USB".into(),
+            source: "Soulseek".into(),
+            existing: Some(existing),
+            tracklist: Vec::new(),
+        };
+        let plan = plan(&tracks, &[], &context, &template, &NamingOptions::default());
+        assert_eq!(plan.tracks[0].replaces.as_ref().map(|r| r.file.as_str()), Some("Fred again../USB/01 - Kyle.mp3"));
+        assert!(!plan.tracks[0].skip);
+        assert!(plan.tracks[1].skip, "the library's copy is as good");
+        assert!(
+            conflicts(&plan, root.path()).unwrap().is_empty(),
+            "the skipped track's name is taken, but it doesn't matter"
+        );
+
+        let imported = execute(&plan, root.path()).unwrap();
+        assert_eq!(imported, [root.path().join("Fred again../USB/01 - Kyle.flac")]);
+        assert!(!album_dir.join("01 - Kyle.mp3").exists() && !album_dir.join("01 - Kyle.lrc").exists());
+        assert_eq!(fs::read_to_string(album_dir.join("02 - Jungle.flac")).unwrap(), "good jungle");
+        let trash = root.path().join(crate::trash::DIR);
+        let batch = fs::read_dir(&trash).unwrap().flatten().find(|e| e.path().is_dir()).unwrap().file_name();
+        let mut kept = crate::trash::contents(root.path(), &batch.to_string_lossy());
+        kept.sort();
+        assert_eq!(kept, ["Fred again../USB/01 - Kyle.lrc", "Fred again../USB/01 - Kyle.mp3"]);
+        assert!(tracks[1].path.exists(), "a skipped file stays in staging");
     }
 }

@@ -16,6 +16,7 @@ pub mod layout;
 pub mod merge;
 pub mod naming;
 pub mod spectrogram;
+pub mod trash;
 pub mod verify;
 
 pub use naming::{MultiDisc, NamingOptions, Template, TemplateError, TrackFields, Whitespace};

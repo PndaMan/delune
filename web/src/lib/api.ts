@@ -113,6 +113,8 @@ export type ReviewTrack = {
   cutoff_hz: number | null
   suspect_transcode: boolean
   problem: string | null
+  replaces: string | null
+  skipped: boolean
 }
 
 export type ReviewReport = {

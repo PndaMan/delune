@@ -462,6 +462,7 @@ function TrackRow({ track, jobId, album }: { track: ReviewTrack; jobId: string; 
       className={cn(
         "grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-x-3 rounded-xl px-2 py-2",
         active && "bg-primary/10",
+        track.skipped && "opacity-55",
       )}
       title={`From ${track.file}`}
     >
@@ -471,6 +472,15 @@ function TrackRow({ track, jobId, album }: { track: ReviewTrack; jobId: string; 
       <span className="min-w-0">
         <span className="block truncate text-[14.5px]">{track.title}</span>
         <span className="block truncate text-[12px] text-muted-foreground/70">{name}</span>
+        {track.skipped ? (
+          <span className="mt-0.5 block text-[12.5px] text-muted-foreground">
+            Already in your library at least this good; left out
+          </span>
+        ) : track.replaces ? (
+          <span className="mt-0.5 block text-[12.5px] text-q-lossless">
+            Replaces your {track.replaces} copy (kept in the library's trash)
+          </span>
+        ) : null}
         {track.problem && (
           <span
             className={cn("mt-0.5 block text-[12.5px]", track.suspect_transcode ? "text-q-hires" : "text-destructive")}

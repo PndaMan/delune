@@ -244,6 +244,7 @@ impl AppState {
             db,
             ..Self::default()
         };
+        purge_trash(&state);
         if let Some(slsk) = config.soulseek {
             state.soulseek_username = Some(slsk.username.clone());
             state.soulseek_port = slsk.listen_port;
@@ -566,6 +567,21 @@ pub(crate) fn soulseek_status_of(app: &AppState) -> SoulseekStatus {
         reachable: client.incoming_connections() > 0,
         port_mapping: app.nat.status(),
     }
+}
+
+/// What imports replaced waits in the library's trash for a month.
+fn purge_trash(state: &AppState) {
+    let Some(root) = state.library.library_dir.clone() else { return };
+    tokio::spawn(async move {
+        loop {
+            let root = root.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                delune_library::trash::purge(&root, Duration::from_secs(30 * 24 * 60 * 60));
+            })
+            .await;
+            tokio::time::sleep(Duration::from_secs(6 * 60 * 60)).await;
+        }
+    });
 }
 
 /// Bind and serve until the process receives Ctrl+C / SIGTERM.
