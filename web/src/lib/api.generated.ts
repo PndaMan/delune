@@ -397,9 +397,22 @@ export type HealthFinding = {
    */
   duplicates: Array<Array<string>>
   /**
-   * How many audio files a fix moves or puts in the trash.
+   * How many audio files a fix moves, retags or puts in the trash.
    */
   files: number
+  /**
+   * For a mixed album: the album every track will say it's on.
+   */
+  album: string | null
+  album_artist: string | null
+  /**
+   * For a mixed album: how many tracks get their album tags corrected.
+   */
+  retag: number
+  /**
+   * For a mixed album: tracks of other albums, which move to those albums' folders.
+   */
+  strays: Array<string>
 }
 
 export type HealthFixRequest = { id: string }
@@ -407,6 +420,7 @@ export type HealthFixRequest = { id: string }
 export type HealthFixed = {
   moved: number
   trashed: number
+  retagged: number
   /**
    * Restore this batch to undo the fix.
    */
@@ -415,7 +429,7 @@ export type HealthFixed = {
 
 export type HealthIgnoreRequest = { key: string }
 
-export type HealthKind = "split-album" | "duplicate-tracks"
+export type HealthKind = "split-album" | "duplicate-tracks" | "mixed-album"
 
 export type HealthStatus = "ok" | "degraded"
 
@@ -1267,7 +1281,26 @@ export type TrashBatch = {
    * Unix seconds.
    */
   created_at: number
-  files: number
+  /**
+   * What it was, e.g. "Merged 2 folders into Fred again../USB".
+   */
+  label: string | null
+  changes: Array<TrashChange>
+}
+
+export type TrashChange = {
+  /**
+   * `removed` (now in the trash), `moved` or `retagged`.
+   */
+  kind: string
+  /**
+   * Library-relative.
+   */
+  path: string
+  /**
+   * Where a moved file went.
+   */
+  to: string | null
 }
 
 export type TrashRestored = {

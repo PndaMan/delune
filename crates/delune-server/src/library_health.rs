@@ -58,17 +58,31 @@ fn finding(f: &health::Finding) -> HealthFinding {
         kind: match f.kind {
             health::Kind::SplitAlbum => HealthKind::SplitAlbum,
             health::Kind::DuplicateTracks => HealthKind::DuplicateTracks,
+            health::Kind::MixedAlbum => HealthKind::MixedAlbum,
         },
         folders: f.folders.clone(),
         duplicates: f.duplicates.clone(),
         files: count(f.files),
+        album: f.album.as_ref().map(|a| a.album.clone()),
+        album_artist: f.album.as_ref().and_then(|a| a.album_artist.clone()),
+        retag: f.album.as_ref().map_or(0, |a| count(a.retag.len())),
+        strays: f.album.as_ref().map(|a| a.strays.clone()).unwrap_or_default(),
     }
 }
 
 fn trash(root: &std::path::Path) -> Vec<TrashBatch> {
     delune_library::trash::batches(root)
         .into_iter()
-        .map(|(id, created_at, files)| TrashBatch { id, created_at, files: count(files) })
+        .map(|b| TrashBatch {
+            id: b.id,
+            created_at: b.created_at,
+            label: b.label,
+            changes: b
+                .changes
+                .into_iter()
+                .map(|c| delune_core::api::TrashChange { kind: c.kind, path: c.path, to: c.to })
+                .collect(),
+        })
         .collect()
 }
 
@@ -140,6 +154,7 @@ pub async fn fix(State(app): State<AppState>, user: CurrentUser, Json(request): 
     let Some(found) = found else {
         return error(StatusCode::CONFLICT, "changed", "That's not in the latest check. Check again first.");
     };
+    let kept = root.join(&found.folders[0]);
     let result = tokio::task::spawn_blocking(move || health::fix(&root, &found)).await;
     let fixed = match result {
         Ok(Ok(fixed)) => fixed,
@@ -154,8 +169,19 @@ pub async fn fix(State(app): State<AppState>, user: CurrentUser, Json(request): 
         scan.findings.retain(|f| f.id != request.id);
     }
     tracing::info!(by = %user.username, moved = fixed.moved, trashed = fixed.trashed, batch = %fixed.batch, "tidied the library");
-    after_change(&app);
-    Json(HealthFixed { moved: count(fixed.moved), trashed: count(fixed.trashed), batch: fixed.batch }).into_response()
+    // The album that's left gets artwork, whichever copy had it.
+    let app2 = app.clone();
+    tokio::spawn(async move {
+        crate::finishing::cover_folder(&app2, &kept).await;
+        after_change(&app2);
+    });
+    Json(HealthFixed {
+        moved: count(fixed.moved),
+        trashed: count(fixed.trashed),
+        retagged: count(fixed.retagged),
+        batch: fixed.batch,
+    })
+    .into_response()
 }
 
 /// `POST /api/v1/library/health/ignore`: stop showing a finding, for good.
@@ -224,7 +250,7 @@ pub async fn restore(State(app): State<AppState>, user: CurrentUser, UrlPath(id)
     let Some(root) = app.library.library_dir.clone() else {
         return error(StatusCode::CONFLICT, "no-library", "No library folder is configured.");
     };
-    let result = tokio::task::spawn_blocking(move || delune_library::trash::restore(&root, &id)).await;
+    let result = tokio::task::spawn_blocking(move || delune_library::tidy::undo(&root, &id)).await;
     match result {
         Ok(Ok(left)) => {
             *app.library_health.lock() = None;

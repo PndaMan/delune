@@ -1592,6 +1592,9 @@ pub enum HealthKind {
     SplitAlbum,
     /// The same track more than once in one folder.
     DuplicateTracks,
+    /// Tracks in one folder that players show as several albums, or that belong to
+    /// another album.
+    MixedAlbum,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1607,8 +1610,19 @@ pub struct HealthFinding {
     pub folders: Vec<String>,
     /// For duplicate tracks: the copies of each track, library-relative.
     pub duplicates: Vec<Vec<String>>,
-    /// How many audio files a fix moves or puts in the trash.
+    /// How many audio files a fix moves, retags or puts in the trash.
     pub files: u32,
+    /// For a mixed album: the album every track will say it's on.
+    #[serde(default)]
+    pub album: Option<String>,
+    #[serde(default)]
+    pub album_artist: Option<String>,
+    /// For a mixed album: how many tracks get their album tags corrected.
+    #[serde(default)]
+    pub retag: u32,
+    /// For a mixed album: tracks of other albums, which move to those albums' folders.
+    #[serde(default)]
+    pub strays: Vec<String>,
 }
 
 /// A set of files a fix or an import took out of the library, which can be put back.
@@ -1619,7 +1633,22 @@ pub struct TrashBatch {
     pub id: String,
     /// Unix seconds.
     pub created_at: u64,
-    pub files: u32,
+    /// What it was, e.g. "Merged 2 folders into Fred again../USB".
+    pub label: Option<String>,
+    pub changes: Vec<TrashChange>,
+}
+
+/// One thing a fix or import changed, which putting the batch back undoes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TrashChange {
+    /// `removed` (now in the trash), `moved` or `retagged`.
+    pub kind: String,
+    /// Library-relative.
+    pub path: String,
+    /// Where a moved file went.
+    pub to: Option<String>,
 }
 
 /// `GET /api/v1/library/health`
@@ -1659,6 +1688,7 @@ pub struct HealthFixRequest {
 pub struct HealthFixed {
     pub moved: u32,
     pub trashed: u32,
+    pub retagged: u32,
     /// Restore this batch to undo the fix.
     pub batch: String,
 }

@@ -86,7 +86,7 @@ const GROUPS = [
   {
     id: "tidy",
     title: "Library check",
-    blurb: "Albums split over folders, tracks in an album twice, and what's in the trash.",
+    blurb: "Albums split over folders or showing up twice, doubled tracks, and recent changes to undo.",
     icon: FolderSearch,
     manage: true,
     panel: () => <LibraryHealthPanel />,

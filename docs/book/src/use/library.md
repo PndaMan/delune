@@ -48,20 +48,30 @@ Each has its own address (`/album/<artist>/<title>`, `/artist/<name>`,
 ## Checking the library
 
 **Settings → Library check** (for people who manage delune) looks through the music
-folder for two things:
+folder for three things:
 
 - **An album in several folders.** This happens when the artist's folder is spelled in
   different ways (`Fred again..`, `Fred again._`) or the folder names carry different
-  years. **Merge** moves the tracks into the fullest folder. Where both folders have a
-  track, the better copy stays.
+  years. **Merge** moves the tracks into the fullest folder, keeping the better copy
+  where both folders have a track. It then makes the album one album, as below.
+- **An album that shows up more than once.** Players group tracks by their tags, not
+  their folder. Tracks from different sources often disagree on the album artist (or
+  list it twice), the release date or the MusicBrainz release, and each variant shows as
+  its own album. **Make it one album** gives every track the album title, album artist
+  and date most of them already have, and drops release ids the tracks don't share.
+  Tracks tagged for a different album move to that album's folder. The album gets a
+  cover from Deezer if it has none.
 - **A track twice in one folder**, such as an MP3 beside the FLAC. **Keep the best**
   keeps the highest-quality copy of each track.
+
+Tracks imported into an album you already have get the same treatment automatically.
 
 These fixes never delete anything:
 
 - Whatever a fix takes out goes to `.delune-trash` in the music folder, which Navidrome
   doesn't show. Anything in the trash is emptied after 30 days.
-- **Put back** undoes a whole fix, including the moves.
+- **Recent changes** lists each fix and upgrade: what it was, and every file it moved,
+  retagged or put away. **Undo** reverses all of it, tags included.
 - Before each fix, delune checks that the files are still exactly as they were when you
   looked. If anything changed, it asks you to check again.
 - A fix that touches more than 20 files needs a second tap. One that would touch more

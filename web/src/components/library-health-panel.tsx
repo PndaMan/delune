@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CircleCheck, Copy, FolderInput, LoaderCircle, RefreshCw, RotateCcw, TriangleAlert } from "lucide-react"
+import { CircleCheck, Copy, Disc3, FolderInput, LoaderCircle, RefreshCw, RotateCcw, TriangleAlert } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -134,6 +134,43 @@ export function LibraryHealthPanel() {
   )
 }
 
+const file = (path: string) => path.split("/").at(-1) ?? path
+
+/** How each kind of finding reads, and what fixing it does. */
+function wording(finding: HealthFinding) {
+  const { artist, album } = parts(finding.folders[0])
+  switch (finding.kind) {
+    case "split-album":
+      return {
+        icon: FolderInput,
+        title: `${finding.album ?? album} by ${finding.album_artist ?? artist} is in ${finding.folders.length} folders`,
+        action: "Merge",
+        effect: `Moves ${plural(finding.files, "track")} into the first folder, keeps the better copy where both have a track, then makes every track say the same album so players show it once.`,
+      }
+    case "mixed-album":
+      return {
+        icon: Disc3,
+        title: `${finding.album ?? album} shows up as more than one album`,
+        action: "Make it one album",
+        effect: [
+          finding.retag &&
+            `Sets ${plural(finding.retag, "track")} to ${finding.album ?? album}${finding.album_artist ? ` by ${finding.album_artist}` : ""}, with one date and no clashing release ids.`,
+          finding.strays.length &&
+            `Moves ${plural(finding.strays.length, "track")} from other albums to their own album's folder.`,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      }
+    default:
+      return {
+        icon: Copy,
+        title: `${plural(finding.duplicates.length, "track")} twice in ${album || artist}`,
+        action: "Keep the best",
+        effect: "Keeps the best copy of each.",
+      }
+  }
+}
+
 function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () => void }) {
   const [confirming, setConfirming] = useState(false)
   const fix = useMutation({
@@ -141,11 +178,12 @@ function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () =>
     onSuccess: (fixed) => {
       const done = [
         fixed.moved && `moved ${plural(fixed.moved, "track")}`,
+        fixed.retagged && `retagged ${plural(fixed.retagged, "track")}`,
         fixed.trashed && `${fixed.trashed} to the trash`,
       ]
         .filter(Boolean)
         .join(", ")
-      toast(`Tidied: ${done}. You can put it back below.`)
+      toast(done ? `Done: ${done}. You can undo it below.` : "Nothing needed changing.")
       onDone()
     },
     onError: (e) => {
@@ -161,8 +199,8 @@ function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () =>
     },
     onError: (e) => toast(e.message, "error"),
   })
-  const split = finding.kind === "split-album"
-  const { artist, album } = parts(finding.folders[0])
+  const words = wording(finding)
+  const Icon = words.icon
   const act = () => {
     if (finding.files > CONFIRM_OVER && !confirming) {
       setConfirming(true)
@@ -176,15 +214,11 @@ function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () =>
   return (
     <li className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent max-sm:hidden">
-        {split ? <FolderInput className="size-[18px]" /> : <Copy className="size-[18px]" />}
+        <Icon className="size-[18px]" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-medium text-pretty">
-          {split
-            ? `${album} by ${artist} is in ${finding.folders.length} folders`
-            : `${plural(finding.duplicates.length, "track")} twice in ${album || artist}`}
-        </p>
-        {split ? (
+        <p className="text-[15px] font-medium text-pretty">{words.title}</p>
+        {finding.kind === "split-album" && (
           <ul className="mt-1.5 space-y-0.5 text-[13px]">
             {finding.folders.map((folder, i) => (
               <li key={folder} className="flex min-w-0 gap-2">
@@ -197,20 +231,31 @@ function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () =>
               </li>
             ))}
           </ul>
-        ) : (
-          <ul className="mt-1.5 space-y-0.5 text-[13px] text-muted-foreground">
-            {finding.duplicates.map((copies) => (
-              <li key={copies[0]} className="truncate" title={copies.join("\n")}>
-                {copies.map((c) => c.split("/").at(-1)).join(" · ")}
+        )}
+        {finding.kind === "mixed-album" && (
+          <p className="mt-1 truncate text-[13px] text-muted-foreground" title={finding.folders[0]}>
+            {finding.folders[0]}
+          </p>
+        )}
+        {finding.kind === "mixed-album" && finding.strays.length > 0 && (
+          <ul className="mt-1 space-y-0.5 text-[13px] text-muted-foreground">
+            {finding.strays.map((stray) => (
+              <li key={stray} className="truncate" title={stray}>
+                Belongs elsewhere: {file(stray)}
               </li>
             ))}
           </ul>
         )}
-        <p className="mt-1.5 text-[13px] text-pretty text-muted-foreground">
-          {split
-            ? `Moves ${plural(finding.files, "track")} into the first folder. Where both have a track, the better copy stays.`
-            : "Keeps the best copy of each."}
-        </p>
+        {finding.kind === "duplicate-tracks" && (
+          <ul className="mt-1.5 space-y-0.5 text-[13px] text-muted-foreground">
+            {finding.duplicates.map((copies) => (
+              <li key={copies[0]} className="truncate" title={copies.join("\n")}>
+                {copies.map(file).join(" · ")}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-1.5 text-[13px] text-pretty text-muted-foreground">{words.effect}</p>
       </div>
       <div className="flex shrink-0 gap-2 max-sm:w-full">
         <Button
@@ -228,7 +273,7 @@ function FindingRow({ finding, onDone }: { finding: HealthFinding; onDone: () =>
           className="max-sm:flex-1"
         >
           {fix.isPending && <LoaderCircle className="animate-spin" />}
-          {confirming ? `Tap again: ${plural(finding.files, "file")}` : split ? "Merge" : "Keep the best"}
+          {confirming ? `Tap again: ${plural(finding.files, "file")}` : words.action}
         </Button>
       </div>
     </li>
@@ -251,14 +296,16 @@ function IgnoredNote({ count, onDone }: { count: number; onDone: () => void }) {
   )
 }
 
+const CHANGE_WORDS: Record<string, string> = { removed: "In the trash", moved: "Moved", retagged: "Tags changed" }
+
 function TrashList({ batches, onDone }: { batches: TrashBatch[]; onDone: () => void }) {
   const restore = useMutation({
     mutationFn: (id: string) => send<TrashRestored>(`/library/trash/${encodeURIComponent(id)}/restore`),
     onSuccess: (result) => {
       toast(
         result.left.length
-          ? `Put back, except ${plural(result.left.length, "file")} whose place is taken again`
-          : "Put back where it was",
+          ? `Undone, except ${plural(result.left.length, "file")} whose place is taken again`
+          : "Undone: everything is back as it was",
       )
       onDone()
     },
@@ -267,20 +314,52 @@ function TrashList({ batches, onDone }: { batches: TrashBatch[]; onDone: () => v
   if (!batches.length) return null
   return (
     <section className="px-5 py-4">
-      <h3 className="text-[12.5px] font-semibold tracking-wide text-muted-foreground uppercase">In the trash</h3>
+      <h3 className="text-[12.5px] font-semibold tracking-wide text-muted-foreground uppercase">Recent changes</h3>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        Fixes and upgrades, newest first. Undo puts back everything one of them did.
+      </p>
       <ul className="mt-2 space-y-1">
         {batches.map((batch) => (
-          <li key={batch.id} className="flex items-center gap-3 rounded-xl px-2 py-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-[14.5px]">{plural(batch.files, "file")}</p>
-              <p className="text-[13px] text-muted-foreground">Taken out {formatAgo(batch.created_at)}</p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => restore.mutate(batch.id)} disabled={restore.isPending}>
-              <RotateCcw /> Put back
-            </Button>
-          </li>
+          <TrashRow key={batch.id} batch={batch} onUndo={() => restore.mutate(batch.id)} busy={restore.isPending} />
         ))}
       </ul>
     </section>
+  )
+}
+
+function TrashRow({ batch, onUndo, busy }: { batch: TrashBatch; onUndo: () => void; busy: boolean }) {
+  const counts = Object.entries(
+    batch.changes.reduce<Record<string, number>>((n, c) => ({ ...n, [c.kind]: (n[c.kind] ?? 0) + 1 }), {}),
+  )
+    .map(([kind, n]) => `${n} ${(CHANGE_WORDS[kind] ?? kind).toLowerCase()}`)
+    .join(" · ")
+  return (
+    <li className="rounded-xl px-2 py-2">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[14.5px] text-pretty">{batch.label ?? "Changes to your library"}</p>
+          <p className="text-[13px] text-muted-foreground">
+            {formatAgo(batch.created_at)} · {counts}
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onUndo} disabled={busy} className="shrink-0">
+          <RotateCcw /> Undo
+        </Button>
+      </div>
+      <details className="mt-1 text-[13px]">
+        <summary className="cursor-pointer text-muted-foreground select-none hover:text-foreground">
+          Show {plural(batch.changes.length, "file")}
+        </summary>
+        <ul className="mt-1.5 space-y-1 border-l pl-3">
+          {batch.changes.map((change) => (
+            <li key={`${change.kind}:${change.path}`} className="min-w-0">
+              <span className="text-muted-foreground">{CHANGE_WORDS[change.kind] ?? change.kind}: </span>
+              <span className="break-words">{change.path}</span>
+              {change.to && <span className="block break-words text-muted-foreground">→ {change.to}</span>}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </li>
   )
 }

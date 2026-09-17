@@ -120,6 +120,11 @@ fn moves(root: &Path, batch: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// A batch's own notes (moves, tag changes) live beside its files as hidden files.
+fn is_record(path: &Path) -> bool {
+    path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(".delune-"))
+}
+
 /// Library-relative paths of everything in a batch.
 #[must_use]
 pub fn contents(root: &Path, batch: &str) -> Vec<String> {
@@ -132,7 +137,7 @@ pub fn contents(root: &Path, batch: &str) -> Vec<String> {
             let p = entry.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if p != base.join(MOVES)
+            } else if !(p.parent() == Some(base.as_path()) && is_record(&p))
                 && let Ok(inside) = p.strip_prefix(&base)
             {
                 out.push(inside.to_string_lossy().replace('\\', "/"));
@@ -190,21 +195,75 @@ pub fn restore(root: &Path, batch: &str) -> io::Result<Vec<String>> {
     Ok(left)
 }
 
-/// The batches in the trash, newest first, with how many files each holds.
+/// What a batch did, in a sentence.
+const ABOUT: &str = ".delune-about";
+
+/// Say what batch `batch` is for, so the trash can show it.
+pub fn describe(root: &Path, batch: &str, label: &str) {
+    let Ok(dir) = prepare(root).map(|t| t.join(batch)) else { return };
+    let _ = fs::create_dir_all(&dir).and_then(|()| fs::write(dir.join(ABOUT), label));
+}
+
+/// One thing a batch changed.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Change {
+    /// `removed` (in the trash), `moved` or `retagged`.
+    pub kind: String,
+    /// Library-relative.
+    pub path: String,
+    /// Where a moved file went.
+    pub to: Option<String>,
+}
+
+/// A batch in the trash.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Batch {
+    pub id: String,
+    /// Unix seconds.
+    pub created_at: u64,
+    pub label: Option<String>,
+    pub changes: Vec<Change>,
+}
+
+fn changes(root: &Path, batch: &str) -> Vec<Change> {
+    let base = root.join(DIR).join(batch);
+    let mut out: Vec<Change> =
+        contents(root, batch).into_iter().map(|path| Change { kind: "removed".into(), path, to: None }).collect();
+    out.extend(moves(root, batch).into_iter().map(|(from, to)| Change {
+        kind: "moved".into(),
+        path: from,
+        to: Some(to),
+    }));
+    let tags = fs::read_to_string(base.join(".delune-tags")).unwrap_or_default();
+    let mut retagged: Vec<String> = tags
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| v.get("file").and_then(|f| f.as_str()).map(str::to_owned))
+        .collect();
+    retagged.dedup();
+    out.extend(retagged.into_iter().map(|path| Change { kind: "retagged".into(), path, to: None }));
+    out
+}
+
+/// The batches in the trash that changed anything, newest first.
 #[must_use]
-pub fn batches(root: &Path) -> Vec<(String, u64, usize)> {
+pub fn batches(root: &Path) -> Vec<Batch> {
     let Ok(entries) = fs::read_dir(root.join(DIR)) else { return Vec::new() };
-    let mut out: Vec<(String, u64, usize)> = entries
+    let mut out: Vec<Batch> = entries
         .flatten()
         .filter(|e| e.path().is_dir())
         .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let secs = name.split('-').next()?.parse::<u64>().ok()?;
-            let files = contents(root, &name).len();
-            Some((name, secs, files))
+            let id = e.file_name().to_string_lossy().into_owned();
+            let created_at = id.split('-').next()?.parse::<u64>().ok()?;
+            let changes = changes(root, &id);
+            if changes.is_empty() {
+                return None;
+            }
+            let label = fs::read_to_string(e.path().join(ABOUT)).ok().map(|l| l.trim().to_owned());
+            Some(Batch { id, created_at, label, changes })
         })
         .collect();
-    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
+    out.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.id.cmp(&a.id)));
     out
 }
 

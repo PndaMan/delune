@@ -580,6 +580,10 @@ fn trash_replaced(plan: &Plan, root: &Path, batch: &str) -> Result<bool, ImportE
         if !resolve(root, &replaced.file)?.exists() {
             continue;
         }
+        if !trashed {
+            let folder = replaced.file.rsplit_once('/').map_or(replaced.file.as_str(), |(d, _)| d);
+            crate::trash::describe(root, batch, &format!("Replaced by better copies in {folder}"));
+        }
         trashed = true;
         if let Err(source) = crate::trash::put(root, &replaced.file, batch) {
             let _ = crate::trash::restore(root, batch);

@@ -107,6 +107,43 @@ async fn ensure_cover(app: &AppState, folder: &Path, album: &AlbumName, brought:
     }
 }
 
+/// Make sure an album folder in the library has a cover, and that its tracks carry it.
+/// The album's name comes from its tracks' tags, or the folder names.
+pub(crate) async fn cover_folder(app: &AppState, folder: &Path) {
+    let dir = folder.to_path_buf();
+    let found = tokio::task::spawn_blocking(move || {
+        let tracks: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .map(|entries| {
+                entries.flatten().map(|e| e.path()).filter(|p| delune_library::inspect::inspect(p).is_ok()).collect()
+            })
+            .unwrap_or_default();
+        let identity = tracks.first().and_then(|t| delune_library::tidy::identity(t).ok());
+        (tracks, identity)
+    })
+    .await;
+    let Ok((tracks, identity)) = found else { return };
+    if tracks.is_empty() {
+        return;
+    }
+    let folder_name = |p: &Path| p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+    let album = AlbumName {
+        artist: identity
+            .as_ref()
+            .and_then(|i| i.album_artists.first().cloned().or_else(|| i.artist.clone()))
+            .unwrap_or_else(|| folder.parent().map(folder_name).unwrap_or_default()),
+        title: identity.and_then(|i| i.album).unwrap_or_else(|| folder_name(folder)),
+    };
+    let Some(cover) = ensure_cover(app, folder, &album, None).await else { return };
+    let _ = tokio::task::spawn_blocking(move || {
+        for track in tracks {
+            if let Err(error) = extras::embed_cover(&track, &cover) {
+                tracing::debug!(%error, path = %track.display(), "couldn't embed artwork");
+            }
+        }
+    })
+    .await;
+}
+
 /// The album imported tracks belong to.
 #[derive(Debug, Clone)]
 pub struct AlbumName {

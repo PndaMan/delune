@@ -287,6 +287,30 @@ async fn import_job(app: &AppState, id: &str, actor: &str, owner: Option<&str>) 
         Err(_) => return Err(fail(StatusCode::INTERNAL_SERVER_ERROR, "import-failed", "Import stopped unexpectedly.")),
     };
 
+    // Tracks added to an album the library had must agree with it on every album tag,
+    // or players show them as a second album.
+    if checked.plan.retag
+        && let Some(folder) = checked.plan.tracks.iter().find(|t| !t.skip).and_then(|t| t.destination.rsplit_once('/'))
+    {
+        let (root, folder) = (root.clone(), folder.0.to_owned());
+        let tidied = tokio::task::spawn_blocking(move || {
+            let batch = delune_library::trash::batch_name();
+            delune_library::trash::describe(
+                &root,
+                &batch,
+                &format!("Matched the album tags in {folder} after an import"),
+            );
+            delune_library::tidy::tidy(&root, &root.join(&folder), &batch)
+        })
+        .await;
+        match tidied {
+            Ok(Ok(done)) if done.retagged + done.moved_out > 0 => {
+                tracing::info!(%id, retagged = done.retagged, moved_out = done.moved_out, "made the album's tags agree");
+            }
+            Ok(Err(error)) => tracing::warn!(%id, %error, "couldn't make the album's tags agree"),
+            _ => {}
+        }
+    }
     app.library_cache.clear();
     // Share what just arrived.
     crate::sharing::refresh(app);

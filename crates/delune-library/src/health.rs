@@ -31,6 +31,9 @@ pub enum Kind {
     SplitAlbum,
     /// The same track more than once in one folder.
     DuplicateTracks,
+    /// One folder whose tracks disagree on which album they're on, or hold another
+    /// album's tracks, so players show it as several albums.
+    MixedAlbum,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,8 +47,11 @@ pub struct Finding {
     pub folders: Vec<String>,
     /// For duplicate tracks: the copies, grouped by track.
     pub duplicates: Vec<Vec<String>>,
-    /// How many audio files a fix would move or put in the trash.
+    /// How many audio files a fix would move, retag or put in the trash.
     pub files: usize,
+    /// For a mixed album: the album its tracks are made to agree on.
+    #[serde(default)]
+    pub album: Option<crate::tidy::Look>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +67,9 @@ pub struct Fixed {
     pub moved: usize,
     /// Files put in the trash.
     pub trashed: usize,
+    /// Files whose album tags were made to agree.
+    #[serde(default)]
+    pub retagged: usize,
     /// The trash batch that undoes this fix.
     pub batch: String,
 }
@@ -170,6 +179,8 @@ pub fn scan(root: &Path) -> Scan {
     let dirs = album_dirs(root);
     let mut result = Scan::default();
     let mut groups: HashMap<(String, String), Vec<PathBuf>> = HashMap::new();
+    let mut looks: Vec<(PathBuf, crate::tidy::Look)> = Vec::new();
+    let mut doubles: Vec<Finding> = Vec::new();
     for (artist, album, dir) in &dirs {
         let files = audio_files(dir);
         if files.is_empty() {
@@ -181,36 +192,63 @@ pub fn scan(root: &Path) -> Scan {
         if !key.0.is_empty() && !key.1.is_empty() {
             groups.entry(key).or_default().push(dir.clone());
         }
+        if let Some(look) = crate::tidy::look(root, dir) {
+            looks.push((dir.clone(), look));
+        }
         let duplicates = duplicates_in(dir);
         if !duplicates.is_empty() {
             let folders = vec![dir.clone()];
             let relative_folders = vec![relative(root, dir)];
-            result.findings.push(Finding {
+            doubles.push(Finding {
                 id: fingerprint(Kind::DuplicateTracks, &folders),
                 key: key_of(Kind::DuplicateTracks, &relative_folders),
                 kind: Kind::DuplicateTracks,
                 folders: relative_folders,
                 files: duplicates.iter().map(|d| d.len() - 1).sum(),
                 duplicates: duplicates.iter().map(|d| d.iter().map(|p| relative(root, p)).collect()).collect(),
+                album: None,
             });
         }
     }
+    let look_of = |dir: &Path| looks.iter().find(|(d, _)| d == dir).map(|(_, l)| l.clone());
+
+    // Split albums first: merging one also makes its tracks agree, so its folders
+    // aren't listed again as mixed.
     let mut splits: Vec<Vec<PathBuf>> = groups.into_values().filter(|g| g.len() > 1).collect();
     for group in &mut splits {
         order_split(group);
     }
     splits.sort();
-    for group in splits {
+    for group in &splits {
         let folders: Vec<String> = group.iter().map(|d| relative(root, d)).collect();
         result.findings.push(Finding {
-            id: fingerprint(Kind::SplitAlbum, &group),
+            id: fingerprint(Kind::SplitAlbum, group),
             key: key_of(Kind::SplitAlbum, &folders),
             kind: Kind::SplitAlbum,
             folders,
             duplicates: Vec::new(),
             files: group.iter().skip(1).map(|d| audio_files(d).len()).sum(),
+            album: look_of(&group[0]),
         });
     }
+    let merging: Vec<&PathBuf> = splits.iter().flatten().collect();
+    for (dir, look) in &looks {
+        if look.is_tidy() || merging.contains(&dir) {
+            continue;
+        }
+        let folders = vec![dir.clone()];
+        let relative_folders = vec![relative(root, dir)];
+        result.findings.push(Finding {
+            id: fingerprint(Kind::MixedAlbum, &folders),
+            key: key_of(Kind::MixedAlbum, &relative_folders),
+            kind: Kind::MixedAlbum,
+            folders: relative_folders,
+            duplicates: Vec::new(),
+            files: look.retag.len() + look.strays.len(),
+            album: Some(look.clone()),
+        });
+    }
+    result.findings.extend(doubles);
     result
 }
 
@@ -247,14 +285,41 @@ pub fn fix(root: &Path, finding: &Finding) -> Result<Fixed, FixError> {
         return Err(FixError::TooBig(finding.files));
     }
     let batch = trash::batch_name();
+    let name = finding.album.as_ref().map_or_else(
+        || finding.folders[0].clone(),
+        |a| match &a.album_artist {
+            Some(artist) => format!("{} by {artist}", a.album),
+            None => a.album.clone(),
+        },
+    );
+    let label = match finding.kind {
+        Kind::SplitAlbum => format!("Merged {name}: {} folders into one", folders.len()),
+        Kind::DuplicateTracks => format!("Kept the best copy of each track in {name}"),
+        Kind::MixedAlbum => format!("Made {name} one album"),
+    };
+    trash::describe(root, &batch, &label);
     let result = match finding.kind {
-        Kind::DuplicateTracks => {
-            keep_best(root, &folders[0], &batch).map(|trashed| Fixed { moved: 0, trashed, batch: batch.clone() })
-        }
-        Kind::SplitAlbum => merge_into(root, &folders, &batch),
+        Kind::DuplicateTracks => keep_best(root, &folders[0], &batch).map(|trashed| Fixed {
+            trashed,
+            batch: batch.clone(),
+            ..Fixed::default()
+        }),
+        // After a merge the folder holds tracks from several sources: make them one album.
+        Kind::SplitAlbum => merge_into(root, &folders, &batch).and_then(|mut fixed| {
+            let tidied = crate::tidy::tidy(root, &folders[0], &batch)?;
+            fixed.retagged = tidied.retagged;
+            fixed.moved += tidied.moved_out;
+            Ok(fixed)
+        }),
+        Kind::MixedAlbum => crate::tidy::tidy(root, &folders[0], &batch).map(|tidied| Fixed {
+            moved: tidied.moved_out,
+            retagged: tidied.retagged,
+            batch: batch.clone(),
+            ..Fixed::default()
+        }),
     };
     if result.is_err() {
-        let _ = trash::restore(root, &batch);
+        let _ = crate::tidy::undo(root, &batch);
     }
     result.map_err(FixError::from)
 }
@@ -316,7 +381,7 @@ fn merge_into(root: &Path, folders: &[PathBuf], batch: &str) -> io::Result<Fixed
 
 /// Move `file` (and files sharing its name, like lyrics) into `target` without
 /// replacing anything, tagging it as the kept album's.
-fn move_in(
+pub(crate) fn move_in(
     root: &Path,
     file: &Path,
     target: &Path,
@@ -451,6 +516,7 @@ mod tests {
             folders: vec!["../elsewhere".into()],
             duplicates: Vec::new(),
             files: 1,
+            album: None,
         };
         assert!(matches!(fix(tmp.path(), &finding), Err(FixError::Changed)));
     }

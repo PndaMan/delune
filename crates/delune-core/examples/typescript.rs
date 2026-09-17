@@ -144,6 +144,7 @@ fn main() {
         HealthKind,
         HealthFinding,
         TrashBatch,
+        TrashChange,
         LibraryHealth,
         HealthFixRequest,
         HealthIgnoreRequest,

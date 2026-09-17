@@ -17,6 +17,7 @@ pub mod layout;
 pub mod merge;
 pub mod naming;
 pub mod spectrogram;
+pub mod tidy;
 pub mod trash;
 pub mod verify;
 
