@@ -268,6 +268,8 @@ pub struct App {
     pub selected: usize,
     /// The person moved through the results; until then the best result stays selected.
     pub browsed: bool,
+    /// Keys are arriving quickly: covers wait until they stop, so scrolling stays smooth.
+    pub moving: bool,
     pub catalog: Vec<CatalogItem>,
     pub catalog_selected: usize,
     /// Library matches by [`library_key`]; `None` while being looked up.
@@ -320,6 +322,7 @@ impl App {
             resolved: None,
             selected: 0,
             browsed: false,
+            moving: false,
             catalog: Vec::new(),
             catalog_selected: 0,
             library: HashMap::new(),
@@ -1056,7 +1059,7 @@ impl App {
 
     /// The selected result's cover, for the panel under the results.
     pub fn want_selected_cover(&mut self) {
-        if self.screen != Screen::Search || !self.pages.is_empty() {
+        if self.moving || self.screen != Screen::Search || !self.pages.is_empty() {
             return;
         }
         if let Some(c) = self.selected_candidate() {

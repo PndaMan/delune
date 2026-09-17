@@ -19,7 +19,7 @@ mod sse;
 mod tasks;
 mod ui;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyEventKind};
@@ -65,6 +65,23 @@ fn picker() -> Option<ratatui_image::picker::Picker> {
     }
 }
 
+/// How long keys must stop before covers load and show.
+const SETTLE: Duration = Duration::from_millis(150);
+
+fn perform(app: &mut App, cx: &tasks::Context, action: Action) {
+    match action {
+        Action::None => {}
+        Action::StartSearch(query) => {
+            app.begin_search(&query);
+            if !is_link(&query) && query.chars().count() >= 2 {
+                tasks::perform(Action::Catalog(query.clone()), cx);
+            }
+            app.search_task = Some(tokio::spawn(tasks::stream_search(cx.clone(), query)));
+        }
+        action => tasks::perform(action, cx),
+    }
+}
+
 /// Run the TUI against `server_url` until the user quits or the session ends.
 ///
 /// Blocks the calling thread on the terminal event loop, and must be called from
@@ -82,6 +99,7 @@ pub fn run(server_url: String, http: &reqwest::Client) -> Result<Exit> {
     let mut terminal = ratatui::init();
     let mut app = App::new(server_url);
     app.canvas.get_mut().picker = picker();
+    let mut last_key: Option<Instant> = None;
     let result = loop {
         if let Err(e) = terminal.draw(|frame| ui::draw(frame, &app)) {
             break Err(e.into());
@@ -98,36 +116,45 @@ pub fn run(server_url: String, http: &reqwest::Client) -> Result<Exit> {
         if app.screen == app::Screen::Review {
             actions.push(app.report_to_load());
         }
-        // Poll briefly so background messages and progress repaint promptly
-        // without busy-looping.
-        match event::poll(Duration::from_millis(80)) {
-            Ok(true) => match event::read() {
-                Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
-                    let action = app.on_key(key.code, key.modifiers);
-                    if !matches!(action, Action::None) {
-                        app.notice = None;
-                    }
-                    actions.push(action);
-                }
-                Ok(_) => {}
-                Err(e) => break Err(e.into()),
-            },
-            Ok(false) => {}
-            Err(e) => break Err(e.into()),
-        }
         for action in actions {
-            match action {
-                Action::None => {}
-                Action::StartSearch(query) => {
-                    app.begin_search(&query);
-                    if !is_link(&query) && query.chars().count() >= 2 {
-                        tasks::perform(Action::Catalog(query.clone()), &cx);
-                    }
-                    app.search_task = Some(tokio::spawn(tasks::stream_search(cx.clone(), query)));
-                }
-                action => tasks::perform(action, &cx),
-            }
+            perform(&mut app, &cx, action);
         }
+        // Wait briefly for input, then take everything already queued before drawing
+        // again, so held keys don't pile up and keep the screen moving once let go.
+        let mut timeout = Duration::from_millis(80);
+        let mut failed = None;
+        for _ in 0..256 {
+            match event::poll(timeout) {
+                Ok(true) => match event::read() {
+                    Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+                        last_key = Some(Instant::now());
+                        let action = app.on_key(key.code, key.modifiers);
+                        if !matches!(action, Action::None) {
+                            app.notice = None;
+                        }
+                        perform(&mut app, &cx, action);
+                        if app.should_quit {
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        failed = Some(e);
+                        break;
+                    }
+                },
+                Ok(false) => break,
+                Err(e) => {
+                    failed = Some(e);
+                    break;
+                }
+            }
+            timeout = Duration::ZERO;
+        }
+        if let Some(e) = failed {
+            break Err(e.into());
+        }
+        app.moving = last_key.is_some_and(|at| at.elapsed() < SETTLE);
         if app.should_quit {
             break Ok(Exit::Quit);
         }
@@ -463,6 +490,22 @@ mod tests {
         let mut app = App::new("x");
         app.on_message(Message::SignedOut);
         assert!(app.signed_out);
+    }
+
+    #[test]
+    fn covers_wait_until_scrolling_stops() {
+        let mut app = App::new(String::new());
+        app.screen = app::Screen::Search;
+        app.begin_search("twoism");
+        app.on_search_event(SearchEvent::Candidates {
+            items: vec![candidate("Twoism", Quality::lossless(Codec::Flac, 16, 44_100))],
+        });
+        app.moving = true;
+        app.want_selected_cover();
+        assert!(app.effects.is_empty(), "nothing is fetched mid-scroll");
+        app.moving = false;
+        app.want_selected_cover();
+        assert!(matches!(app.effects.as_slice(), [Action::Cover { .. }]));
     }
 
     #[test]

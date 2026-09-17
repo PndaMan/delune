@@ -223,7 +223,11 @@ fn picture(frame: &mut Frame<'_>, area: Rect, app: &App, key: &str) {
     };
     let mut canvas = app.canvas.borrow_mut();
     let canvas = &mut *canvas;
-    if let (Some(image), Some(picker)) = (ready, canvas.picker.as_ref()) {
+    if let (Some(image), Some(picker), false) = (ready, canvas.picker.as_ref(), app.moving) {
+        if !canvas.fitted.contains_key(key) && canvas.fitted.len() >= 12 {
+            // Each keeps its scaled pixels; a picture seen again is simply sent again.
+            canvas.fitted.clear();
+        }
         let fitted =
             canvas.fitted.entry(key.to_owned()).or_insert_with(|| picker.new_resize_protocol((*image).clone()));
         frame.render_stateful_widget(ratatui_image::StatefulImage::default(), area, fitted);

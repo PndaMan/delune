@@ -220,7 +220,14 @@ async fn picture(cx: &Context, path: &str) -> Option<image::DynamicImage> {
         return None;
     };
     let bytes = api::bytes(&cx.http, &url, 4 << 20).await.ok()?;
-    tokio::task::spawn_blocking(move || image::load_from_memory(&bytes).ok()).await.ok().flatten()
+    tokio::task::spawn_blocking(move || {
+        let image = image::load_from_memory(&bytes).ok()?;
+        // Plenty for a few terminal rows, and much less to scale and send each time.
+        Some(if image.width().max(image.height()) > 480 { image.thumbnail(480, 480) } else { image })
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Start everything that keeps the screens current.
