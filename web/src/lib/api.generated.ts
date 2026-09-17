@@ -349,6 +349,15 @@ export type FavouriteUser = {
 export type FileStatus =
   "waiting" | "connecting" | "queued" | "starting" | "transferring" | "done" | "failed" | "cancelled"
 
+export type FinishUpload = {
+  title: string | null
+  artist: string | null
+  /**
+   * Keep the album complete from now on.
+   */
+  follow: boolean
+}
+
 export type Follow = {
   artist: string
   deezer_id: number
@@ -1239,6 +1248,8 @@ export type UploadPerson = {
   last_at: number
 }
 
+export type UploadReceived = { received: number }
+
 export type UploadRecord = {
   username: string
   /**
@@ -1257,6 +1268,14 @@ export type UploadRecord = {
    * Unix seconds.
    */
   finished_at: number
+}
+
+export type UploadSession = {
+  id: string
+  /**
+   * The largest piece one request may carry, in bytes.
+   */
+  max_chunk: number
 }
 
 export type UploadStatus = "queued" | "connecting" | "transferring" | "completed" | "failed" | "cancelled"

@@ -133,6 +133,8 @@ pub struct AppState {
     pub nat: Arc<nat::Nat>,
     /// Nudged when the port-mapping setting changes.
     pub nat_wake: Arc<tokio::sync::watch::Sender<u64>>,
+    /// Uploads arriving in pieces.
+    pub upload_sessions: Arc<uploads::Sessions>,
 }
 
 impl Default for AppState {
@@ -172,6 +174,7 @@ impl Default for AppState {
             music_http: music::http_client(),
             nat: Arc::default(),
             nat_wake: Arc::new(tokio::sync::watch::channel(0).0),
+            upload_sessions: Arc::default(),
         }
     }
 }
@@ -212,6 +215,8 @@ impl AppState {
                     None
                 }
             });
+        // Upload sessions live in memory; pieces an earlier run was sent are unusable.
+        uploads::clear_sessions(&config.data_dir);
         let downloads = Arc::new(downloads::Downloads::open(&db));
         downloads.set_slots(sharing.settings().downloads_at_once);
         let mut state = Self {
@@ -340,6 +345,14 @@ pub fn router(state: AppState) -> Router {
             post(uploads::create).layer(axum::extract::DefaultBodyLimit::max(
                 usize::try_from(uploads::MAX_UPLOAD).unwrap_or(usize::MAX),
             )),
+        )
+        .route("/api/v1/uploads/sessions", post(uploads::start))
+        .route("/api/v1/uploads/sessions/{id}", delete(uploads::abandon))
+        .route("/api/v1/uploads/sessions/{id}/finish", post(uploads::finish))
+        .route(
+            "/api/v1/uploads/sessions/{id}/files/{index}",
+            put(uploads::piece)
+                .layer(axum::extract::DefaultBodyLimit::max(usize::try_from(uploads::MAX_CHUNK).unwrap_or(usize::MAX))),
         )
         .route("/api/v1/downloads/{id}", delete(downloads::remove))
         .route("/api/v1/downloads/{id}/stop", post(downloads::stop))

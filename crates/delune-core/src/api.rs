@@ -1575,6 +1575,39 @@ pub struct FollowAlbumRequest {
     pub album: String,
 }
 
+/// `POST /api/v1/uploads/sessions`: an upload sent in pieces, so no single request is
+/// large (proxies such as Cloudflare refuse big bodies, and time out slow ones).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UploadSession {
+    pub id: String,
+    /// The largest piece one request may carry, in bytes.
+    pub max_chunk: u64,
+}
+
+/// How much of one file in an upload session has arrived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UploadReceived {
+    pub received: u64,
+}
+
+/// `POST /api/v1/uploads/sessions/{id}/finish`
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FinishUpload {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub artist: Option<String>,
+    /// Keep the album complete from now on.
+    #[serde(default)]
+    pub follow: bool,
+}
+
 /// A release from an artist someone follows, for the radar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools, reason = "independent facts shown as badges")]

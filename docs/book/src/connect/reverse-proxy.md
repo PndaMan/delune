@@ -57,12 +57,15 @@ server {
 
 ## Uploads
 
-**Add music** on the Downloads page uploads whole albums, often hundreds of megabytes,
-and delune accepts up to 20 GB in one go. nginx refuses anything over 1 MB by default, so
-raise its limit and let the upload stream through:
+**Add music** on the Downloads page uploads whole albums, up to 20 GB at a time. The
+browser sends them in pieces of at most 64 MB, each sized to take about ten seconds, and
+a piece that fails is sent again from where it stopped. That keeps uploads working behind
+Cloudflare (which refuses requests over 100 MB) and proxies that time out slow requests.
+
+nginx refuses anything over 1 MB by default, so raise its limit to fit a piece:
 
 ```nginx
-client_max_body_size 20g;
+client_max_body_size 64m;
 proxy_request_buffering off;
 ```
 

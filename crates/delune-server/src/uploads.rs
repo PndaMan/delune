@@ -4,17 +4,20 @@
 //! (do they play, are they really lossless), are named from their tags, join an album
 //! already in the library, and wait for review unless the uploader may import directly.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use axum::{
     Json,
-    extract::{Multipart, State},
+    body::Body,
+    extract::{Multipart, Path as UrlPath, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use delune_core::api::ApiError;
+use delune_core::api::{ApiError, FinishUpload, UploadReceived, UploadSession};
+use futures_util::StreamExt as _;
 use tokio::io::AsyncWriteExt as _;
 
 use crate::AppState;
@@ -22,6 +25,14 @@ use crate::accounts::CurrentUser;
 
 /// The most one upload may add up to, unpacked.
 pub const MAX_UPLOAD: u64 = 20 * 1024 * 1024 * 1024;
+
+/// The most one piece of a session upload may carry. Well under Cloudflare's 100 MB.
+pub const MAX_CHUNK: u64 = 64 * 1024 * 1024;
+
+/// Sessions nobody has touched for this long are thrown away.
+const SESSION_IDLE: Duration = Duration::from_secs(24 * 60 * 60);
+
+const MAX_SESSION_FILES: usize = 10_000;
 
 const AUDIO: &[&str] = &["flac", "alac", "wav", "aif", "aiff", "mp3", "m4a", "aac", "opus", "ogg", "oga", "wv", "ape"];
 const IMAGES: &[&str] = &["jpg", "jpeg", "png", "webp"];
@@ -257,6 +268,336 @@ async fn write_field(mut field: axum::extract::multipart::Field<'_>, path: &Path
     file.flush().await.map_err(|e| e.to_string())
 }
 
+/// Uploads arriving in pieces: one request per piece of each file, then a finish.
+#[derive(Debug, Default)]
+pub struct Sessions {
+    inner: std::sync::Mutex<HashMap<String, Session>>,
+}
+
+#[derive(Debug)]
+struct Session {
+    owner: String,
+    dir: PathBuf,
+    /// Each file's name and how much of it has arrived, by index.
+    files: Vec<(String, u64)>,
+    touched: Instant,
+    /// A piece is being written; another for the same session waits its turn.
+    busy: bool,
+}
+
+impl Session {
+    fn total(&self) -> u64 {
+        self.files.iter().map(|(_, n)| n).sum()
+    }
+}
+
+fn sessions_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("upload-sessions")
+}
+
+impl Sessions {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Session>> {
+        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Forget sessions left idle, and their files.
+    fn sweep(&self) {
+        let stale: Vec<PathBuf> = {
+            let mut sessions = self.lock();
+            let old: Vec<String> = sessions
+                .iter()
+                .filter(|(_, s)| !s.busy && s.touched.elapsed() > SESSION_IDLE)
+                .map(|(id, _)| id.clone())
+                .collect();
+            old.iter().filter_map(|id| sessions.remove(id)).map(|s| s.dir).collect()
+        };
+        for dir in stale {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// Remove what an earlier run left in the sessions folder; sessions don't outlive it.
+pub fn clear_sessions(data_dir: &Path) {
+    let _ = std::fs::remove_dir_all(sessions_dir(data_dir));
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct ChunkQuery {
+    /// The file's name, as the person has it.
+    name: String,
+    /// Where this piece starts in the file.
+    offset: u64,
+}
+
+/// `POST /api/v1/uploads/sessions`: start an upload sent in pieces.
+#[utoipa::path(
+    post,
+    operation_id = "uploads_start",
+    path = "/api/v1/uploads/sessions",
+    tag = "downloads",
+    responses(
+        (status = 200, description = "Send pieces to this session", body = UploadSession),
+        (status = 403, description = "Not allowed", body = ApiError),
+        (status = 401, description = "Signed out", body = ApiError),
+    ),
+)]
+pub async fn start(State(app): State<AppState>, user: CurrentUser) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.download, "add music") {
+        return denied;
+    }
+    app.upload_sessions.sweep();
+    let mut raw = [0u8; 16];
+    if getrandom::fill(&mut raw).is_err() {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "store-failed", "Couldn't start the upload.");
+    }
+    let id = hex::encode(raw);
+    let dir = sessions_dir(&app.data_dir).join(&id);
+    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+        tracing::warn!(error = %e, "couldn't start an upload");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "store-failed", "Couldn't store the upload.");
+    }
+    app.upload_sessions.lock().insert(
+        id.clone(),
+        Session { owner: user.username.clone(), dir, files: Vec::new(), touched: Instant::now(), busy: false },
+    );
+    Json(UploadSession { id, max_chunk: MAX_CHUNK }).into_response()
+}
+
+/// Clears a session's busy mark however the piece's request ends.
+struct Busy<'a> {
+    app: &'a AppState,
+    id: &'a str,
+}
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        if let Some(session) = self.app.upload_sessions.lock().get_mut(self.id) {
+            session.busy = false;
+            session.touched = Instant::now();
+        }
+    }
+}
+
+/// `PUT /api/v1/uploads/sessions/{id}/files/{index}`: one piece of file `index`,
+/// starting at `offset`. A piece that doesn't start where the file ends is refused with
+/// how much has arrived, so a retry can carry on from there.
+#[utoipa::path(
+    put,
+    operation_id = "uploads_piece",
+    path = "/api/v1/uploads/sessions/{id}/files/{index}",
+    tag = "downloads",
+    params(("id" = String, Path), ("index" = usize, Path), ChunkQuery),
+    request_body(content_type = "application/octet-stream", description = "The bytes"),
+    responses(
+        (status = 200, description = "Stored", body = UploadReceived),
+        (status = 409, description = "Not where the file ends; carry on from `received`", body = UploadReceived),
+        (status = 404, description = "No such upload", body = ApiError),
+        (status = 413, description = "Too big", body = ApiError),
+    ),
+)]
+pub async fn piece(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    UrlPath((id, index)): UrlPath<(String, usize)>,
+    Query(query): Query<ChunkQuery>,
+    body: Body,
+) -> Response {
+    let (path, received, total) = {
+        let mut sessions = app.upload_sessions.lock();
+        let Some(session) = sessions.get_mut(&id).filter(|s| s.owner == user.username) else {
+            return error(StatusCode::NOT_FOUND, "no-upload", "That upload has ended. Start it again.");
+        };
+        if session.busy {
+            return error(StatusCode::CONFLICT, "busy", "Another piece of this upload is still arriving.");
+        }
+        if index > session.files.len() || index >= MAX_SESSION_FILES {
+            return error(StatusCode::BAD_REQUEST, "bad-index", "Files have to be sent in order.");
+        }
+        if index == session.files.len() {
+            session.files.push((query.name.clone(), 0));
+        }
+        let received = session.files[index].1;
+        if query.offset != received {
+            return (StatusCode::CONFLICT, Json(UploadReceived { received })).into_response();
+        }
+        session.busy = true;
+        (session.dir.join(index.to_string()), received, session.total())
+    };
+    let _busy = Busy { app: &app, id: &id };
+
+    let file = tokio::fs::OpenOptions::new().create(true).append(true).open(&path).await;
+    let mut file = match file {
+        Ok(file) => file,
+        Err(e) => {
+            tracing::warn!(error = %e, "couldn't store an upload piece");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "store-failed", "Couldn't store the upload.");
+        }
+    };
+    // What's on disk is the truth: a piece cut off halfway still counts for what arrived.
+    if file.metadata().await.map_or(0, |m| m.len()) != received {
+        let _ = file.set_len(received).await;
+    }
+    let mut written = 0u64;
+    let mut stream = body.into_data_stream();
+    let mut failure = None;
+    while let Some(chunk) = stream.next().await {
+        let Ok(chunk) = chunk else {
+            failure = Some(error(StatusCode::BAD_REQUEST, "interrupted", "The piece was cut off."));
+            break;
+        };
+        written += chunk.len() as u64;
+        if written > MAX_CHUNK || total + written > MAX_UPLOAD {
+            failure = Some(error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "too-big",
+                "That's more than delune takes in one upload (20 GB).",
+            ));
+            break;
+        }
+        if let Err(e) = file.write_all(&chunk).await {
+            tracing::warn!(error = %e, "couldn't store an upload piece");
+            failure = Some(error(StatusCode::INTERNAL_SERVER_ERROR, "store-failed", "Couldn't store the upload."));
+            break;
+        }
+    }
+    let _ = file.flush().await;
+    let on_disk = file.metadata().await.map_or(received, |m| m.len());
+    // Past the limit nothing is kept of the piece.
+    let kept = if failure.as_ref().is_some_and(|r| r.status() == StatusCode::PAYLOAD_TOO_LARGE) {
+        let _ = file.set_len(received).await;
+        received
+    } else {
+        on_disk
+    };
+    if let Some(entry) = app.upload_sessions.lock().get_mut(&id).and_then(|s| s.files.get_mut(index)) {
+        entry.1 = kept;
+    }
+    failure.unwrap_or_else(|| Json(UploadReceived { received: kept }).into_response())
+}
+
+/// `DELETE /api/v1/uploads/sessions/{id}`: give up on an upload.
+#[utoipa::path(
+    delete,
+    operation_id = "uploads_abandon",
+    path = "/api/v1/uploads/sessions/{id}",
+    tag = "downloads",
+    params(("id" = String, Path)),
+    responses((status = 204, description = "Gone")),
+)]
+pub async fn abandon(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> StatusCode {
+    let removed = {
+        let mut sessions = app.upload_sessions.lock();
+        match sessions.get(&id) {
+            Some(s) if s.owner == user.username && !s.busy => sessions.remove(&id),
+            _ => None,
+        }
+    };
+    if let Some(session) = removed {
+        let _ = tokio::fs::remove_dir_all(session.dir).await;
+    }
+    StatusCode::NO_CONTENT
+}
+
+/// `POST /api/v1/uploads/sessions/{id}/finish`: everything has arrived. The upload
+/// becomes a download straight away and is checked in the background, so this answers
+/// quickly however big it was.
+#[utoipa::path(
+    post,
+    operation_id = "uploads_finish",
+    path = "/api/v1/uploads/sessions/{id}/finish",
+    tag = "downloads",
+    params(("id" = String, Path)),
+    request_body = FinishUpload,
+    responses(
+        (status = 200, description = "Added, and being checked", body = delune_core::api::DownloadJob),
+        (status = 400, description = "Nothing usable was uploaded", body = ApiError),
+        (status = 404, description = "No such upload", body = ApiError),
+    ),
+)]
+pub async fn finish(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    UrlPath(id): UrlPath<String>,
+    Json(request): Json<FinishUpload>,
+) -> Response {
+    let session = {
+        let mut sessions = app.upload_sessions.lock();
+        match sessions.get(&id) {
+            Some(s) if s.owner == user.username && !s.busy => sessions.remove(&id),
+            Some(s) if s.owner == user.username => {
+                return error(StatusCode::CONFLICT, "busy", "A piece of this upload is still arriving.");
+            }
+            _ => None,
+        }
+    };
+    let Some(session) = session else {
+        return error(StatusCode::NOT_FOUND, "no-upload", "That upload has ended. Start it again.");
+    };
+    let usable = session.files.iter().any(|(name, n)| *n > 0 && (wanted(name) || extension(name) == "zip"));
+    if !usable {
+        let _ = tokio::fs::remove_dir_all(&session.dir).await;
+        return error(
+            StatusCode::BAD_REQUEST,
+            "upload-failed",
+            "No music was in the upload. delune takes audio files, pictures and zips of them.",
+        );
+    }
+
+    let clean = |t: Option<String>| t.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+    let (title, artist) = (clean(request.title), clean(request.artist));
+    let (job, _cancel) = crate::downloads::begin_external(
+        &app,
+        "upload",
+        title.as_deref().unwrap_or("Upload"),
+        artist.as_deref(),
+        &user.username,
+    );
+    let follower = request.follow.then(|| user.username.clone());
+    let (app2, job_id) = (app.clone(), job.id.clone());
+    tokio::spawn(async move {
+        let staging = crate::downloads::staging_dir(&app2.data_dir, &job_id);
+        let dir = session.dir.clone();
+        let files = session.files;
+        let outcome = tokio::task::spawn_blocking({
+            let staging = staging.clone();
+            move || gather(&dir, &files, &staging)
+        })
+        .await
+        .unwrap_or_else(|_| Err("Couldn't unpack the upload.".into()));
+        let _ = tokio::fs::remove_dir_all(&session.dir).await;
+        if outcome.is_ok() {
+            name_and_follow(&app2, &job_id, &staging, (title, artist), follower.as_deref()).await;
+        }
+        crate::downloads::finish_external(&app2, &job_id, outcome).await;
+    });
+    Json(job).into_response()
+}
+
+/// Move a session's files into `staging`, unpacking zips. Pictures and music only.
+fn gather(dir: &Path, files: &[(String, u64)], staging: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(staging).map_err(|e| format!("Couldn't store the upload: {e}"))?;
+    let mut taken = HashSet::new();
+    let mut total = 0u64;
+    for (index, (name, size)) in files.iter().enumerate() {
+        let source = dir.join(index.to_string());
+        if *size == 0 {
+            continue;
+        }
+        if extension(name) == "zip" {
+            total += unzip(&source, staging, &mut taken, MAX_UPLOAD.saturating_sub(total))?;
+        } else if wanted(name) {
+            let Some(target) = slot(staging, &mut taken, name) else { continue };
+            std::fs::rename(&source, &target).map_err(|e| format!("Couldn't store the upload: {e}"))?;
+            total += size;
+        }
+    }
+    if taken.is_empty() {
+        return Err("No music was in the upload. delune takes audio files, pictures and zips of them.".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
@@ -364,6 +705,79 @@ mod tests {
             .body(Body::from(empty))
             .unwrap();
         assert_eq!(router.oneshot(request).await.unwrap().status(), StatusCode::BAD_REQUEST);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn uploads_in_pieces_resume_and_finish() {
+        let root = std::env::temp_dir().join(format!("delune-upload-pieces-{}", std::process::id()));
+        let accounts =
+            std::sync::Arc::new(crate::accounts::Accounts::in_memory(Some("http://navidrome.invalid".into())));
+        let (token, _) = accounts.signed_in("sam", false);
+        let (other, _) = accounts.signed_in("kim", false);
+        let app = AppState { accounts, data_dir: root.join("data"), ..AppState::default() };
+        let router = crate::router(app.clone());
+        let call = |method: &str, uri: String, token: &str, body: Vec<u8>, json: bool| {
+            let mut request = axum::http::Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("authorization", format!("Bearer {token}"));
+            if json {
+                request = request.header("content-type", "application/json");
+            }
+            let request = request.body(Body::from(body)).unwrap();
+            let router = router.clone();
+            async move {
+                let response = router.oneshot(request).await.unwrap();
+                let status = response.status();
+                let bytes = response.into_body().collect().await.unwrap().to_bytes();
+                (status, serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or_default())
+            }
+        };
+
+        let (status, session) = call("POST", "/api/v1/uploads/sessions".into(), &token, Vec::new(), false).await;
+        assert_eq!(status, StatusCode::OK);
+        let id = session["id"].as_str().unwrap().to_owned();
+        let audio = wav();
+        let (first, rest) = audio.split_at(1000);
+        let url =
+            |offset: usize| format!("/api/v1/uploads/sessions/{id}/files/0?name=01%20-%20First.wav&offset={offset}");
+
+        let (status, got) = call("PUT", url(0), &token, first.to_vec(), false).await;
+        assert_eq!((status, got["received"].as_u64()), (StatusCode::OK, Some(1000)));
+        // A retry of the first piece is told where to carry on from.
+        let (status, got) = call("PUT", url(0), &token, first.to_vec(), false).await;
+        assert_eq!((status, got["received"].as_u64()), (StatusCode::CONFLICT, Some(1000)));
+        // Someone else can't add to it.
+        let (status, _) = call("PUT", url(1000), &other, rest.to_vec(), false).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, got) = call("PUT", url(1000), &token, rest.to_vec(), false).await;
+        assert_eq!((status, got["received"].as_u64()), (StatusCode::OK, Some(audio.len() as u64)));
+        // Files go in order.
+        let skip = format!("/api/v1/uploads/sessions/{id}/files/5?name=x.flac&offset=0");
+        assert_eq!(call("PUT", skip, &token, b"x".to_vec(), false).await.0, StatusCode::BAD_REQUEST);
+
+        let finish = format!("/api/v1/uploads/sessions/{id}/finish");
+        let body = br#"{"title":"Twoism","artist":"Boards of Canada"}"#.to_vec();
+        let (status, job) = call("POST", finish.clone(), &token, body.clone(), true).await;
+        assert_eq!(status, StatusCode::OK, "{job}");
+        assert_eq!(job["title"], "Twoism");
+        let id_of_job = job["id"].as_str().unwrap().to_owned();
+        let mut ready = None;
+        for _ in 0..100 {
+            let found = app.downloads.list().into_iter().find(|j| j.id == id_of_job);
+            if found.as_ref().is_some_and(|j| j.status != delune_core::api::JobStatus::Downloading) {
+                ready = found;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let job = ready.expect("the upload was checked");
+        assert_eq!(job.status, delune_core::api::JobStatus::Ready);
+        assert_eq!(job.files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["01 - First.wav"]);
+        // A finished session is gone.
+        assert_eq!(call("POST", finish, &token, body, true).await.0, StatusCode::NOT_FOUND);
+        assert!(!sessions_dir(&app.data_dir).join(&id).exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 }
