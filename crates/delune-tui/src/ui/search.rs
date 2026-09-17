@@ -239,7 +239,12 @@ fn quality_color(candidate: &Candidate) -> ratatui::style::Color {
 fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let focused = app.focus == Focus::Results;
     let wide = area.width >= 96;
-    let rows = app.results.iter().map(|c| {
+    // Only the rows on screen are built: hundreds of results each checked against the
+    // library and downloads, several times a second, is what made it lag.
+    let visible = usize::from(area.height.saturating_sub(1)).max(1);
+    let start = (app.selected + 1).saturating_sub(visible);
+    let end = (start + visible).min(app.results.len());
+    let rows = app.results[start..end].iter().map(|c| {
         let mark = app.mark_for(c);
         let mut quality = c.quality_label.clone().unwrap_or_else(|| "unknown".into());
         if c.mixed_quality {
@@ -287,7 +292,7 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .column_spacing(1)
         .row_highlight_style(selected_style(focused))
         .highlight_symbol(if focused { "▌" } else { " " });
-    let mut state = TableState::default().with_selected(Some(app.selected));
+    let mut state = TableState::default().with_selected(Some(app.selected - start));
     frame.render_stateful_widget(table, area, &mut state);
 
     if app.results.len() < usize::from(area.height) {

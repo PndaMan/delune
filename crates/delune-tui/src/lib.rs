@@ -357,6 +357,24 @@ mod tests {
     }
 
     #[test]
+    fn the_best_result_stays_selected_until_you_move() {
+        let mut app = App::new("x");
+        app.begin_search("twoism");
+        let lossy = Quality::lossy(Codec::Mp3, 320);
+        let lossless = Quality::lossless(Codec::Flac, 16, 44_100);
+        app.on_search_event(SearchEvent::Candidates { items: vec![candidate("mp3", lossy)] });
+        app.on_search_event(SearchEvent::Candidates { items: vec![candidate("flac", lossless)] });
+        assert_eq!((app.selected, app.results[0].id.as_str()), (0, "flac"), "the list stays at the top");
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.selected_candidate().unwrap().id, "mp3");
+        let hires = Quality::lossless(Codec::Flac, 24, 96_000);
+        app.on_search_event(SearchEvent::Candidates { items: vec![candidate("hires", hires)] });
+        assert_eq!(app.selected_candidate().unwrap().id, "mp3", "a chosen row stays chosen");
+        app.begin_search("again");
+        assert!(!app.browsed);
+    }
+
+    #[test]
     fn downloads_group_and_act() {
         let mut app = App::new("x");
         let mut waiting = job("w", JobStatus::Queued);

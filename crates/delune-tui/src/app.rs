@@ -266,6 +266,8 @@ pub struct App {
     /// What a pasted link turned out to be.
     pub resolved: Option<ResolvedLink>,
     pub selected: usize,
+    /// The person moved through the results; until then the best result stays selected.
+    pub browsed: bool,
     pub catalog: Vec<CatalogItem>,
     pub catalog_selected: usize,
     /// Library matches by [`library_key`]; `None` while being looked up.
@@ -317,6 +319,7 @@ impl App {
             results: Vec::new(),
             resolved: None,
             selected: 0,
+            browsed: false,
             catalog: Vec::new(),
             catalog_selected: 0,
             library: HashMap::new(),
@@ -566,6 +569,17 @@ impl App {
 
     fn on_results_key(&mut self, code: KeyCode) -> Action {
         let last = self.results.len().saturating_sub(1);
+        if matches!(
+            code,
+            KeyCode::Down
+                | KeyCode::Up
+                | KeyCode::PageDown
+                | KeyCode::PageUp
+                | KeyCode::End
+                | KeyCode::Char('j' | 'k' | 'G')
+        ) {
+            self.browsed = true;
+        }
         match code {
             KeyCode::Char('d') => return self.download_selected(),
             KeyCode::Enter | KeyCode::Char('o') => {
@@ -1214,13 +1228,12 @@ impl App {
                 if let SearchState::Running { peers, .. } = &mut self.search {
                     *peers += 1;
                 }
-                // Keep the same candidate selected while new results slot in around it.
-                let selected_id = self.selected_candidate().map(|c| c.id.clone());
+                // Until the person moves, the best result stays selected and the list stays at
+                // the top; after that, their choice stays selected as results slot in.
+                let selected_id = self.browsed.then(|| self.selected_candidate().map(|c| c.id.clone())).flatten();
                 self.results.extend(items);
                 Candidate::rank(&mut self.results);
-                if let Some(id) = selected_id {
-                    self.selected = self.results.iter().position(|c| c.id == id).unwrap_or(0);
-                }
+                self.selected = selected_id.and_then(|id| self.results.iter().position(|c| c.id == id)).unwrap_or(0);
             }
             SearchEvent::Finished { peers, .. } => {
                 let query = match &self.search {
@@ -1245,6 +1258,7 @@ impl App {
         self.pages.clear();
         self.resolved = None;
         self.selected = 0;
+        self.browsed = false;
         self.screen = Screen::Search;
         // Results take the keys once searching, so 1 2 3 and the letters work straight away.
         self.focus = Focus::Results;
