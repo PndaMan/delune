@@ -32,6 +32,9 @@ pub struct Identity {
     pub artist: Option<String>,
     pub date: Option<String>,
     pub release_date: Option<String>,
+    /// The separate year tag; players read it as a date too.
+    #[serde(default)]
+    pub year: Option<String>,
     /// Every original-date value, in order: players read the first, so the order counts.
     #[serde(default)]
     pub original_dates: Vec<String>,
@@ -76,6 +79,7 @@ pub fn identity(path: &Path) -> Result<Identity, String> {
         artist: clean(tag.artist().as_deref()),
         date: clean(tag.get_string(ItemKey::RecordingDate)),
         release_date: clean(tag.get_string(ItemKey::ReleaseDate)),
+        year: clean(tag.get_string(ItemKey::Year)),
         original_dates: tag
             .get_strings(ItemKey::OriginalReleaseDate)
             .flat_map(|v| v.split(';'))
@@ -120,6 +124,8 @@ pub struct Look {
     pub date: Option<String>,
     #[serde(default)]
     pub release_date: Option<String>,
+    #[serde(default)]
+    pub year: Option<String>,
     #[serde(default)]
     pub original_dates: Vec<String>,
     /// Kept only when every track that has one agrees.
@@ -184,6 +190,7 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
     let main_artist = most_common(artists.iter().map(String::as_str));
     let date = most_common(members.iter().filter_map(|(_, id)| id.date.as_deref()));
     let release_date = most_common(members.iter().filter_map(|(_, id)| id.release_date.as_deref()));
+    let year = most_common(members.iter().filter_map(|(_, id)| id.year.as_deref()));
     let joined: Vec<String> = members
         .iter()
         .filter(|(_, id)| !id.original_dates.is_empty())
@@ -213,6 +220,7 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
                 || album_artist(id) != main_artist
                 || (date.is_some() && id.date != date)
                 || (release_date.is_some() && id.release_date != release_date)
+                || (year.is_some() && id.year != year)
                 || (!original_dates.is_empty() && id.original_dates != original_dates)
                 || id.release_id != release_id
                 || (release_id.is_none() && id.release_group_id.is_some())
@@ -226,6 +234,7 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
         album_artist: main_artist,
         date,
         release_date,
+        year,
         original_dates,
         release_id,
         release_artist_id,
@@ -256,6 +265,9 @@ fn folder_name(album: &str) -> String {
 struct Before {
     file: String,
     identity: Identity,
+    /// Older records didn't keep the year, so undoing them leaves it alone.
+    #[serde(default)]
+    with_year: bool,
 }
 
 const TAGS: &str = ".delune-tags";
@@ -275,7 +287,7 @@ fn set(tag: &mut Tag, key: ItemKey, value: Option<&str>) {
     }
 }
 
-fn write(path: &Path, id: &Identity) -> Result<(), String> {
+fn write(path: &Path, id: &Identity, with_year: bool) -> Result<(), String> {
     let mut file = lofty::read_from_path(path).map_err(|e| e.to_string())?;
     let tag = primary(&mut file);
     set(tag, ItemKey::AlbumTitle, id.album.as_deref());
@@ -285,6 +297,9 @@ fn write(path: &Path, id: &Identity) -> Result<(), String> {
     }
     set(tag, ItemKey::RecordingDate, id.date.as_deref());
     set(tag, ItemKey::ReleaseDate, id.release_date.as_deref());
+    if with_year {
+        set(tag, ItemKey::Year, id.year.as_deref());
+    }
     tag.remove_key(ItemKey::OriginalReleaseDate);
     for date in &id.original_dates {
         tag.push(lofty::tag::TagItem::new(ItemKey::OriginalReleaseDate, lofty::tag::ItemValue::Text(date.clone())));
@@ -347,6 +362,7 @@ pub fn tidy(root: &Path, dir: &Path, batch: &str) -> io::Result<Tidied> {
             artist: before.artist.clone(),
             date: look.date.clone().or_else(|| before.date.clone()),
             release_date: look.release_date.clone().or_else(|| before.release_date.clone()),
+            year: look.year.clone().or_else(|| before.year.clone()),
             original_dates: if look.original_dates.is_empty() {
                 before.original_dates.clone()
             } else {
@@ -359,8 +375,8 @@ pub fn tidy(root: &Path, dir: &Path, batch: &str) -> io::Result<Tidied> {
         if wanted == before {
             continue;
         }
-        record(root, batch, &Before { file: file.clone(), identity: before })?;
-        write(&path, &wanted).map_err(io::Error::other)?;
+        record(root, batch, &Before { file: file.clone(), identity: before, with_year: true })?;
+        write(&path, &wanted, true).map_err(io::Error::other)?;
         done.retagged += 1;
     }
     if done.retagged + done.moved_out > 0 {
@@ -388,7 +404,7 @@ pub fn undo_tags(root: &Path, batch: &str) {
         let path = root.join(&before.file);
         if path.starts_with(root)
             && path.is_file()
-            && let Err(error) = write(&path, &before.identity)
+            && let Err(error) = write(&path, &before.identity, before.with_year)
         {
             tracing::warn!(%error, path = %path.display(), "couldn't put tags back");
         }
@@ -448,7 +464,7 @@ mod tests {
             release_id: release_id.map(str::to_owned),
             ..Identity::default()
         };
-        write(path, &id).unwrap();
+        write(path, &id, true).unwrap();
     }
 
     #[test]
@@ -545,7 +561,7 @@ mod tests {
                 original_dates: dates.iter().map(|d| (*d).to_owned()).collect(),
                 ..identity(&path).unwrap()
             };
-            write(&path, &id).unwrap();
+            write(&path, &id, true).unwrap();
         };
         dated("01 - A.flac", &["2022", "2022-01-18"]);
         dated("02 - B.flac", &["2022", "2022-01-18"]);
@@ -558,6 +574,41 @@ mod tests {
         tidy(root, &dir, &trash::batch_name()).unwrap();
         assert!(look_of(root, &dir).is_tidy());
         assert!(fs::metadata(&dir).unwrap().modified().unwrap() > before, "the folder shows it changed");
+    }
+
+    #[test]
+    fn the_year_tag_must_match_and_old_undos_leave_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join("Fred again../USB");
+        let yeared = |name: &str, year: Option<&str>| {
+            let path = dir.join(name);
+            flac(&path, "USB", &["Fred again.."], "2025-12-12", None);
+            let id = Identity { year: year.map(str::to_owned), ..identity(&path).unwrap() };
+            write(&path, &id, true).unwrap();
+        };
+        yeared("01 - A.flac", Some("2025"));
+        yeared("02 - B.flac", Some("2025"));
+        yeared("03 - C.flac", Some("2022"));
+        yeared("04 - D.flac", None);
+        let look = look_of(root, &dir);
+        assert_eq!(look.year.as_deref(), Some("2025"));
+        assert_eq!(look.retag, ["Fred again../USB/03 - C.flac", "Fred again../USB/04 - D.flac"]);
+        let batch = trash::batch_name();
+        tidy(root, &dir, &batch).unwrap();
+        assert!(look_of(root, &dir).is_tidy());
+        undo_tags(root, &batch);
+        assert_eq!(identity(&dir.join("03 - C.flac")).unwrap().year.as_deref(), Some("2022"));
+        assert_eq!(identity(&dir.join("04 - D.flac")).unwrap().year, None);
+
+        // A record from before years were kept doesn't touch the year.
+        let path = dir.join("01 - A.flac");
+        let old = r#"{"file":"Fred again../USB/01 - A.flac","identity":{"album":"USB","album_artists":["Fred again.."],"artist":null,"date":"2025-12-12","release_date":null,"release_id":null,"release_group_id":null,"release_artist_id":null}}"#;
+        let old_batch = trash::batch_name();
+        fs::create_dir_all(root.join(trash::DIR).join(&old_batch)).unwrap();
+        fs::write(root.join(trash::DIR).join(&old_batch).join(TAGS), old).unwrap();
+        undo_tags(root, &old_batch);
+        assert_eq!(identity(&path).unwrap().year.as_deref(), Some("2025"));
     }
 
     fn look_of(root: &Path, dir: &Path) -> Look {
