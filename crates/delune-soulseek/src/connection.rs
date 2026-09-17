@@ -109,6 +109,8 @@ pub(crate) struct Shared {
     /// What we share, who's downloading it, and who's waiting.
     pub uploads: Uploads,
     pub upload_cap: Arc<crate::pacing::SpeedCap>,
+    /// What people see when they look at our profile.
+    pub description: Mutex<String>,
     pub download_cap: Arc<crate::pacing::SpeedCap>,
     /// Private messages and room activity, for whoever is listening.
     pub chat: broadcast::Sender<ChatEvent>,
@@ -170,6 +172,7 @@ impl Shared {
             presences: Waiters::default(),
             uploads: Uploads::default(),
             upload_cap: Arc::default(),
+            description: Mutex::new("Sharing with delune".into()),
             download_cap: Arc::default(),
             chat: broadcast::channel(512).0,
             finished_uploads: broadcast::channel(256).0,
@@ -187,6 +190,12 @@ impl Shared {
 
     pub(crate) fn branch(&self) -> std::sync::MutexGuard<'_, crate::distributed::Branch> {
         lock(&self.branch)
+    }
+
+    /// Our profile, as others see it.
+    pub fn profile(&self) -> UserInfo {
+        let (slots_free, queue_size) = self.uploads.availability();
+        UserInfo { description: lock(&self.description).clone(), slots_free, queue_size, ..UserInfo::default() }
     }
 
     pub fn next_token(&self) -> u32 {
@@ -512,10 +521,7 @@ fn answer_browse_request(shared: &Shared, message: &PeerMessage, reply: &PeerSen
                 ours.directories.iter().filter(|d| d.path == *folder || d.path.starts_with(&prefix)).cloned().collect();
             FolderContents { token: *token, folder: folder.clone(), directories }.encode()
         }
-        PeerMessage::UserInfoRequest => {
-            let (slots_free, queue_size) = shared.uploads.availability();
-            UserInfo { description: "delune".into(), slots_free, queue_size, ..UserInfo::default() }.encode()
-        }
+        PeerMessage::UserInfoRequest => shared.profile().encode(),
         _ => return,
     };
     let _ = reply.try_send(response);

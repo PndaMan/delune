@@ -251,6 +251,20 @@ export function SharingSettingsPanel() {
             </span>
           </span>
         </label>
+        <Field
+          label="Profile"
+          hint="What other Soulseek users read when they look at you. A line about what you share helps."
+          wide
+        >
+          <textarea
+            rows={3}
+            maxLength={1000}
+            placeholder="Sharing with delune"
+            value={settings.description ?? ""}
+            onChange={(e) => edit({ description: e.target.value || null })}
+            className={cn(input, "h-auto py-2")}
+          />
+        </Field>
         <Field label="Blocked people" hint="One Soulseek username per line. They can't download from you." wide>
           <textarea
             rows={3}

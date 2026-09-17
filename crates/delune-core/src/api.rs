@@ -1068,6 +1068,9 @@ pub struct SharingSettings {
     /// Different speed limits for part of each day.
     #[serde(default)]
     pub schedule: Option<SpeedSchedule>,
+    /// What other Soulseek users read on our profile.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// Speed limits that replace the usual ones between two times of day, for
@@ -1115,6 +1118,7 @@ impl Default for SharingSettings {
             distributed_children: 0,
             banned: Vec::new(),
             schedule: None,
+            description: None,
         }
     }
 }

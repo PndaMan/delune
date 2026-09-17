@@ -555,12 +555,13 @@ async fn send_file(
         }
     }
     stream.flush().await.map_err(|e| e.to_string())?;
+    // Timed now: waiting below for the other side to hang up isn't sending.
+    let elapsed = started.elapsed().as_secs_f64().max(0.001);
 
     // The downloader closes the connection once it has everything.
     let mut rest = [0u8; 64];
     let _ = timeout(Duration::from_secs(30), stream.read(&mut rest)).await;
 
-    let elapsed = started.elapsed().as_secs_f64().max(0.001);
     let speed = ((sent - offset) as f64 / elapsed) as u32;
     if let Some(server) = shared.server() {
         let _ = server.try_send(ServerRequest::SendUploadSpeed { speed });

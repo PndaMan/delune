@@ -141,6 +141,11 @@ fn limits(settings: &SharingSettings, upload_cap: Option<u64>) -> UploadLimits {
     }
 }
 
+/// The profile description other users see.
+fn profile_text(settings: &SharingSettings) -> &str {
+    settings.description.as_deref().map(str::trim).filter(|d| !d.is_empty()).unwrap_or("Sharing with delune")
+}
+
 /// Apply the speed limits in force now, and the limit on downloads at once.
 fn apply_speeds(app: &AppState, settings: &SharingSettings) {
     app.downloads.set_slots(settings.downloads_at_once);
@@ -148,6 +153,7 @@ fn apply_speeds(app: &AppState, settings: &SharingSettings) {
     app.sharing.lock().scheduled = scheduled;
     let Some(client) = &app.soulseek else { return };
     let (upload, download) = speed_caps(settings, scheduled);
+    client.set_description(profile_text(settings));
     client.set_upload_limits(limits(settings, upload));
     client.set_download_limit(download);
 }

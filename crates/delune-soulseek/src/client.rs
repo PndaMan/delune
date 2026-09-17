@@ -333,8 +333,7 @@ impl Client {
     pub async fn user_info(&self, username: &str) -> Result<UserInfo, PeerError> {
         let shared = &self.inner.shared;
         if self.is_us(username) {
-            let (slots_free, queue_size) = shared.uploads.availability();
-            return Ok(UserInfo { description: "delune".into(), slots_free, queue_size, ..UserInfo::default() });
+            return Ok(shared.profile());
         }
         let answer = shared.user_infos.register(username.to_owned());
         let peer = connection::connect_peer(shared, username).await?;
@@ -469,6 +468,12 @@ impl Client {
                 files: u32::try_from(files).unwrap_or(u32::MAX),
             });
         }
+    }
+
+    /// The description other people see on our profile.
+    pub fn set_description(&self, description: &str) {
+        description
+            .clone_into(&mut self.inner.shared.description.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
     }
 
     /// Change upload slots, per-person queue size and speed cap.

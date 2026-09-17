@@ -18,6 +18,7 @@ export type SharingSettings = {
   distributed_children: number
   banned: string[]
   schedule: SpeedSchedule | null
+  description: string | null
 }
 
 /** Speed limits that replace the usual ones between two times of day. */

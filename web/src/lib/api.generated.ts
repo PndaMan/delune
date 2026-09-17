@@ -1042,6 +1042,10 @@ export type SharingSettings = {
    * Different speed limits for part of each day.
    */
   schedule: SpeedSchedule | null
+  /**
+   * What other Soulseek users read on our profile.
+   */
+  description: string | null
 }
 
 export type SharingStatus = {
