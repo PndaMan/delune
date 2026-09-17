@@ -576,7 +576,28 @@ pub async fn serve(addr: SocketAddr, config: ServerConfig) -> std::io::Result<()
         tracing::warn!("no Soulseek account configured; search is disabled");
     }
     let state = AppState::start(config)?;
-    axum::serve(listener, router(state)).with_graceful_shutdown(shutdown_signal()).await
+    let (stopping, stopped) = tokio::sync::oneshot::channel();
+    let server = axum::serve(listener, router(state)).with_graceful_shutdown(async {
+        shutdown_signal().await;
+        let _ = stopping.send(());
+    });
+    // Live streams (events, searches) never end by themselves, so waiting for every
+    // connection would hang until the service manager kills delune. Requests get a
+    // few seconds to finish instead.
+    let deadline = async {
+        if stopped.await.is_ok() {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    };
+    tokio::select! {
+        result = std::future::IntoFuture::into_future(server) => result,
+        () = deadline => {
+            tracing::info!("stopped with connections still open");
+            Ok(())
+        }
+    }
 }
 
 async fn shutdown_signal() {

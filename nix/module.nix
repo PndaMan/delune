@@ -27,6 +27,11 @@ self:
 
 let
   cfg = config.services.delune;
+  containerCli =
+    if config.virtualisation.oci-containers.backend == "podman" then
+      "${config.virtualisation.podman.package}/bin/podman"
+    else
+      "${config.virtualisation.docker.package}/bin/docker";
   imageTag = "${cfg.package.version}-${
     builtins.substring 0 12 (builtins.hashString "sha256" (builtins.unsafeDiscardStringContext cfg.package.outPath))
   }";
@@ -251,9 +256,18 @@ in
             Restart = lib.mkOverride 90 "always";
             RestartSec = lib.mkOverride 90 "30s";
           };
+          # Each build is its own image; once one is running, drop the ones before it.
+          # An image still in use is refused by the engine and stays.
+          postStart = ''
+            ${containerCli} images --format '{{.Repository}} {{.Tag}}' \
+              | ${pkgs.gawk}/bin/awk '($1 == "delune" || $1 == "localhost/delune") && $2 != "${imageTag}" { print $1 ":" $2 }' \
+              | while read -r old; do ${containerCli} rmi "$old" >/dev/null 2>&1 || true; done
+          '';
         };
-        # ...and comes back whenever the VPN container does, however it was restarted.
-        systemd.services."${config.virtualisation.oci-containers.backend}-${cfg.vpn.container}".unitConfig.Upholds = [
+        # ...and comes back whenever the VPN container starts, however it was restarted.
+        # Wants, not Upholds: Upholds restarted delune the moment an upgrade stopped it,
+        # still from the old unit, so the old image came back instead of the new one.
+        systemd.services."${config.virtualisation.oci-containers.backend}-${cfg.vpn.container}".wants = [
           "${config.virtualisation.oci-containers.backend}-delune.service"
         ];
       })
