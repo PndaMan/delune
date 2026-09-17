@@ -46,6 +46,7 @@ const HOUR = 60 * 60 * 1000
 export function useArtist(name: string) {
   return useQuery({
     queryKey: ["music", "artist", name],
+    enabled: name.length > 0,
     queryFn: ({ signal }) => get<ArtistInfo>(`/music/artist?name=${encodeURIComponent(name)}`, signal),
     staleTime: HOUR,
     retry: false,

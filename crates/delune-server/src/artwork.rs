@@ -558,9 +558,20 @@ pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>,
             ]
             .contains(&n.as_str())
     };
-    let is_year = |s: &str| s.trim().len() == 4 && s.trim().chars().all(|c| c.is_ascii_digit());
-    let mut artist =
-        artist.filter(|a| !generic(a) && !is_year(a) && !is_disc_label(a)).map(|a| uninvert(strip_brackets(a).trim()));
+    // Folders named by date ("199302") say nothing about the artist.
+    let all_digits = |s: &str| !s.trim().is_empty() && s.trim().chars().all(|c| c.is_ascii_digit());
+    let mut artist = artist
+        .filter(|a| !generic(a) && !all_digits(a) && !is_disc_label(a))
+        .map(|a| uninvert(strip_brackets(a).trim()));
+
+    // Scene releases: "Hum-Youd_Prefer_An_Astronaut-1995-FLAC".
+    if let Some((scene_artist, scene_album)) = scene_name(album) {
+        let parent_agrees = artist.as_deref().is_none_or(|a| names_match(&normalize(a), &normalize(&scene_artist)));
+        if parent_agrees || artist.is_none() {
+            return (Some(artist.unwrap_or(scene_artist)), scene_album);
+        }
+        return (artist, scene_album);
+    }
     let mut album = strip_brackets(album);
 
     // "CD1 - Kid A" / "Disc 2 - Amnesiac"
@@ -610,6 +621,89 @@ pub(crate) fn clean_names(artist: Option<&str>, album: &str) -> (Option<String>,
     }
 
     (artist, album.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// Tags scene releases add after the title.
+const SCENE_TAGS: &[&str] = &[
+    "flac",
+    "mp3",
+    "web",
+    "cd",
+    "cds",
+    "cdm",
+    "cdr",
+    "ep",
+    "lp",
+    "vinyl",
+    "vls",
+    "2cd",
+    "3cd",
+    "4cd",
+    "dvd",
+    "24bit",
+    "16bit",
+    "320",
+    "v0",
+    "v2",
+    "proper",
+    "repack",
+    "retail",
+    "readnfo",
+    "promo",
+    "bootleg",
+    "remastered",
+    "remaster",
+    "reissue",
+    "limited",
+    "edition",
+    "deluxe",
+    "advance",
+    "dirfix",
+    "nfofix",
+    "internal",
+    "dab",
+    "sat",
+    "fm",
+    "live",
+    "bd",
+    "hdtracks",
+    "hr",
+    "hires",
+];
+
+/// Split a scene release name, "Artist-Title_Words-(CDM)-1995-FLAC-GROUP", into its
+/// artist and title. `None` when the name doesn't look like one.
+fn scene_name(folder: &str) -> Option<(String, String)> {
+    let folder = folder.trim();
+    if folder.contains(' ') || !folder.contains('-') || !folder.contains('_') && folder.matches('-').count() < 3 {
+        return None;
+    }
+    let tokens: Vec<&str> = folder.split('-').filter(|t| !t.is_empty()).collect();
+    let is_year = |t: &str| t.len() == 4 && t.parse::<u16>().is_ok_and(|y| (1900..=2099).contains(&y));
+    // Everything from the release year on is year, format and group.
+    let tag = |t: &str| SCENE_TAGS.contains(&t.to_lowercase().as_str());
+    let end = tokens.iter().rposition(|t| is_year(t)).unwrap_or_else(|| {
+        // No year: drop a group name, if tags come before it, then the tags.
+        let mut end = tokens.len();
+        if end > 3 && !tag(tokens[end - 1]) && tag(tokens[end - 2]) {
+            end -= 1;
+        }
+        while end > 2 && tag(tokens[end - 1]) {
+            end -= 1;
+        }
+        end
+    });
+    let words: Vec<String> = tokens[..end]
+        .iter()
+        .filter(|t| !(t.starts_with('(') && t.ends_with(')')))
+        .filter(|t| !tag(t))
+        .map(|t| t.replace('_', " ").trim().to_owned())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if words.len() < 2 {
+        return None;
+    }
+    Some((words[0].clone(), words[1..].join(" - ")))
 }
 
 /// "Flaming Lips, The" → "The Flaming Lips", as libraries sort them.
@@ -727,6 +821,26 @@ mod tests {
             clean(Some("Radiohead"), "Radiohead - OK Computer"),
             (Some("Radiohead".into()), "OK Computer".into())
         );
+    }
+
+    #[test]
+    fn reads_scene_release_names() {
+        assert_eq!(
+            clean(Some("Hum"), "Hum-Youd_Prefer_An_Astronaut-1995-FLAC"),
+            (Some("Hum".into()), "Youd Prefer An Astronaut".into())
+        );
+        assert_eq!(
+            clean(Some("199302"), "Radiohead-Pablo_Honey-(Remastered)-1993-FLAC-GRP"),
+            (Some("Radiohead".into()), "Pablo Honey".into())
+        );
+        assert_eq!(
+            clean(None, "Radiohead-Creep-(CDM)-WEB-FLAC-2009-FATHEAD"),
+            (Some("Radiohead".into()), "Creep".into())
+        );
+        assert_eq!(clean(Some("Music"), "Burial-Untrue-WEB-FLAC-GRP"), (Some("Burial".into()), "Untrue".into()));
+        // Ordinary names aren't scene names.
+        assert_eq!(clean(Some("Jay-Z"), "Reasonable Doubt"), (Some("Jay-Z".into()), "Reasonable Doubt".into()));
+        assert_eq!(clean(Some("Gorillaz"), "Plastic-Beach"), (Some("Gorillaz".into()), "Plastic-Beach".into()));
     }
 
     #[test]

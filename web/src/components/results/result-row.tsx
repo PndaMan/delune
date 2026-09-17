@@ -7,6 +7,7 @@ import { jobForAlbum, jobForCandidate, useDownloads } from "@/lib/downloads"
 import { coverStatus, type Ownership, ownership, useLibraryAlbum } from "@/lib/library"
 import { formatBytes, formatRuntime, formatSpeed, plural } from "@/lib/format"
 import { describeQuality, TIER_BG, TIER_TEXT, tierOf } from "@/lib/quality"
+import { isSceneName } from "@/lib/track-name"
 import { type LinkMatch, matchLink, useResolved } from "@/lib/tracklist"
 import { cn } from "@/lib/utils"
 
@@ -24,6 +25,10 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
   const tier = tierOf(c.quality)
   const speed = formatSpeed(c.avg_speed)
   const artwork = useArtwork(c.parent, c.title)
+  // Scene folder names are for machines; show the album they turned out to be.
+  const resolved = isSceneName(c.title) ? artwork.data : undefined
+  const title = resolved?.album ?? c.title
+  const artist = resolved?.artist ?? c.parent
   const downloads = useDownloads()
   const jobs = downloads.data ?? []
   const exact = jobForCandidate(jobs, c)
@@ -57,8 +62,8 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
       <span className="flex h-full items-center gap-3.5 pr-3 pl-3.5 md:hidden">
         <Cover src={artwork.data?.thumb} pending={artwork.isPending} status={status} alt="" className="size-[68px] rounded-xl" />
         <span className="min-w-0 flex-1">
-          <span className="line-clamp-2 text-[15px] leading-snug font-medium">{c.title}</span>
-          <span className="block truncate text-[13px] text-muted-foreground">{c.parent ?? c.username}</span>
+          <span className="line-clamp-2 text-[15px] leading-snug font-medium">{title}</span>
+          <span className="block truncate text-[13px] text-muted-foreground">{artist ?? c.username}</span>
           <span className="mt-1 flex items-center gap-2.5 text-[12.5px] whitespace-nowrap">
             <span className={cn("font-semibold", TIER_TEXT[tier])}>{c.quality_label ?? "Unknown"}</span>
             <span className="text-muted-foreground">
@@ -88,11 +93,11 @@ export const ResultRow = memo(function ResultRow({ candidate: c, selected, onOpe
         </span>
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-[15px] font-medium">{c.title}</span>
+            <span className="truncate text-[15px] font-medium">{title}</span>
             {badge}
           </span>
           <span className="flex min-w-0 gap-3 text-[13px] text-muted-foreground">
-            {c.parent && <span className="truncate">{c.parent}</span>}
+            {artist && <span className="truncate">{artist}</span>}
             <span className="hidden shrink-0 truncate text-muted-foreground/60 lg:inline">shared by {c.username}</span>
           </span>
         </span>

@@ -22,7 +22,16 @@ export function parseTrackName(fileName: string): TrackName {
   const extension = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : ""
   if (!AUDIO.has(extension)) return { title: fileName, extension }
 
-  const stem = fileName.slice(0, dot).replace(/_/g, " ").trim()
+  const raw = fileName.slice(0, dot).trim()
+  // Scene releases: "01-radiohead-creep_(original_version).flac".
+  const scene = !raw.includes(" ") ? raw.match(/^(\d{1,3})-([^-].*)$/) : null
+  if (scene) {
+    const parts = scene[2].split("-").map((p) => p.replace(/_/g, " ").trim()).filter(Boolean)
+    const title = parts.length > 1 ? parts.slice(1).join(" - ") : parts[0]
+    if (title) return { position: String(Number(scene[1])), title: tidyCase(title), extension }
+  }
+
+  const stem = raw.replace(/_/g, " ").trim()
 
   // "Artist - Album - 03 - Title": the segment that is just a number.
   const parts = stem.split(/\s+-\s+/)
@@ -41,6 +50,17 @@ export function parseTrackName(fileName: string): TrackName {
   }
 
   return { title: parts.at(-1) ?? stem, extension }
+}
+
+/** Scene file names are all lower case; "creep (original version)" reads as "Creep (Original Version)". */
+function tidyCase(title: string): string {
+  if (title !== title.toLowerCase()) return title
+  return title.replace(/(^|[\s([])(\p{L})/gu, (_, before: string, letter: string) => before + letter.toUpperCase())
+}
+
+/** A scene release folder: "Hum-Youd_Prefer_An_Astronaut-1995-FLAC". Its name is for machines. */
+export function isSceneName(folder: string): boolean {
+  return !folder.includes(" ") && folder.includes("-") && (folder.includes("_") || folder.split("-").length > 3)
 }
 
 /** Bracketed words that are notes, not part of the song's name: "(feat. …)", "[2011 Remaster]". */

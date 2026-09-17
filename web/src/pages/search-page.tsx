@@ -11,6 +11,14 @@ import { ReleaseModal } from "@/components/release-modal"
 import { Cover } from "@/components/cover"
 import { ResultFilters, type TierFilter } from "@/components/results/result-filters"
 import { ResultHeader, ResultList } from "@/components/results/result-list"
+import {
+  AlbumStrip,
+  ArtistBubble,
+  ArtistGrid,
+  KindToggle,
+  type SearchKind,
+  TrackList,
+} from "@/components/results/search-kinds"
 import { SearchField, type SearchFieldHandle } from "@/components/search-field"
 import { WishlistSheet } from "@/components/wishlist-sheet"
 import { describeSoulseek, useSoulseekStatus } from "@/components/soulseek-indicator"
@@ -21,6 +29,8 @@ import { useHiddenUsers } from "@/lib/hidden-users"
 import { useMe } from "@/lib/session"
 import { SearchContext, useAccentColour, useArtwork } from "@/lib/artwork"
 import { plural } from "@/lib/format"
+import { useMusicSearch } from "@/lib/music"
+import { artistOfAlbums, namedArtist, trackHits } from "@/lib/search-kinds"
 import { moonPhase } from "@/lib/moon-phase"
 import { SORTS, type SortKey, tierOf, typicalTracks } from "@/lib/quality"
 import { recentLabel, rememberLabel, useRecentSearches } from "@/lib/recent"
@@ -235,8 +245,12 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
   const [selected, setSelected] = useState(0)
   const [keyboard, setKeyboard] = useState(false)
   const [open, setOpen] = useState<Candidate | null>(null)
+  const [kind, setKind] = useState<SearchKind>("all")
   const field = useRef<SearchFieldHandle>(null)
   const progress = useProgress(search)
+  // Deezer, for who and what the search names; not for pasted links.
+  const music = useMusicSearch(search.resolved || looksLikeLink(query) ? "" : query)
+  const artist = namedArtist(query, music.data?.artists) ?? artistOfAlbums(query, music.data?.albums)
 
   // Filters other than the quality tier apply before counting, so tier counts stay honest.
   const pool = useMemo(() => {
@@ -276,6 +290,23 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
   }, [pool, search.candidates, search.resolved, tier, readyOnly, sort])
 
   useEffect(() => setSelected((s) => Math.min(s, Math.max(0, visible.length - 1))), [visible.length])
+
+  const tracks = useMemo(
+    () =>
+      trackHits(search.searchedFor ?? query, pool).filter(
+        (hit) => (tier === "all" || tierOf(hit.file.quality) === tier) && (!readyOnly || hit.album.free_slot),
+      ),
+    [pool, query, search.searchedFor, tier, readyOnly],
+  )
+  const artists = music.data?.artists ?? []
+  // Deezer's albums: the named artist's first, when the search names one.
+  const albums = useMemo(() => {
+    const all = music.data?.albums ?? []
+    if (!artist) return all.slice(0, 12)
+    const theirs = all.filter((a) => a.artist.toLowerCase() === artist.name.toLowerCase())
+    return (theirs.length ? theirs : all).slice(0, 12)
+  }, [music.data?.albums, artist])
+  const plainSearch = !search.resolved
 
   const onOpen = useCallback((c: Candidate) => setOpen(c), [])
   const onLeaveTop = useCallback(() => {
@@ -356,20 +387,51 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
           </div>
         </section>
 
-        {resolved?.kind === "playlist" ? (
+        {plainSearch && (
+          <div className="-mt-2 mb-6 space-y-4">
+            {artist && (kind === "all" || kind === "artists") && <ArtistBubble artist={artist} />}
+            <KindToggle
+              kind={kind}
+              onKind={setKind}
+              counts={{ artists: artists.length, albums: visible.length, tracks: tracks.length }}
+            />
+          </div>
+        )}
+
+        {plainSearch && kind === "artists" ? (
+          <div className="pb-16">
+            <ArtistGrid artists={artists} />
+          </div>
+        ) : resolved?.kind === "playlist" ? (
           <PlaylistImport link={resolved} />
         ) : search.status === "failed" ? (
-          <EmptyState
-            illumination={0}
-            title="The search didn't go through"
-            action={
-              <Button variant="outline" onClick={() => onSubmit(query)}>
-                <RotateCw /> Try again
-              </Button>
-            }
-          >
-            {search.error}
-          </EmptyState>
+          search.errorCode === "search-excluded" ? (
+            <EmptyState
+              illumination={0}
+              title="Soulseek won't search for this"
+              action={
+                artist ? (
+                  <Button nativeButton={false} render={<Link to="/artist/$name" params={{ name: artist.name }} />}>
+                    See {artist.name}'s albums
+                  </Button>
+                ) : undefined
+              }
+            >
+              {search.error}
+            </EmptyState>
+          ) : (
+            <EmptyState
+              illumination={0}
+              title="The search didn't go through"
+              action={
+                <Button variant="outline" onClick={() => onSubmit(query)}>
+                  <RotateCw /> Try again
+                </Button>
+              }
+            >
+              {search.error}
+            </EmptyState>
+          )
         ) : search.status === "done" && search.candidates.length === 0 ? (
           <EmptyState
             illumination={0.08}
@@ -404,9 +466,27 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
               hiddenPeople={hidden.filter((u) => search.candidates.some((c) => c.username === u))}
               onUnhide={unhide}
             />
+            {plainSearch && (kind === "all" || kind === "albums") && albums.length > 0 && (
+              <div className="mt-6">
+                <AlbumStrip albums={albums} title={artist ? `${artist.name} on Deezer` : "Albums on Deezer"} />
+              </div>
+            )}
+            {plainSearch && kind === "all" && tracks.length > 0 && (
+              <section className="mt-6">
+                <h2 className="mb-3 text-[13px] font-semibold tracking-wide text-muted-foreground uppercase">Songs</h2>
+                <TrackList hits={tracks} onOpen={onOpen} limit={4} onMore={() => setKind("tracks")} />
+              </section>
+            )}
             <div className="mt-6 pb-16">
+              {plainSearch && kind === "all" && visible.length > 0 && (
+                <h2 className="mb-3 text-[13px] font-semibold tracking-wide text-muted-foreground uppercase">
+                  Albums on Soulseek
+                </h2>
+              )}
               {search.candidates.length === 0 ? (
                 <Waiting />
+              ) : plainSearch && kind === "tracks" ? (
+                <TrackList hits={tracks} onOpen={onOpen} />
               ) : visible.length === 0 ? (
                 <p className="px-5 py-10 text-muted-foreground">No results match these filters.</p>
               ) : (
