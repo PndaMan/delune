@@ -298,7 +298,11 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
       ),
     [pool, query, search.searchedFor, tier, readyOnly],
   )
-  const artists = music.data?.artists ?? []
+  const artists = useMemo(() => {
+    const found = music.data?.artists ?? []
+    // The artist up top, found through their albums, belongs in the list too.
+    return artist && !found.some((a) => a.name === artist.name) ? [artist, ...found] : found
+  }, [music.data?.artists, artist])
   // Deezer's albums: the named artist's first, when the search names one.
   const albums = useMemo(() => {
     const all = music.data?.albums ?? []
@@ -432,6 +436,21 @@ function Results({ query, search, onSubmit }: { query: string; search: SearchSta
               {search.error}
             </EmptyState>
           )
+        ) : search.status === "done" && search.candidates.length === 0 && artist && (artist.listeners ?? 0) > 100_000 ? (
+          // A well-known artist with nobody at all answering: Soulseek quietly drops some names.
+          <EmptyState
+            illumination={0.08}
+            title={`Soulseek returned nothing for “${query}”`}
+            action={
+              <Button nativeButton={false} render={<Link to="/artist/$name" params={{ name: artist.name }} />}>
+                See {artist.name}'s albums
+              </Button>
+            }
+          >
+            {artist.name} has {artist.listeners?.toLocaleString()} fans on Deezer, so an empty answer usually means the
+            Soulseek network filters searches naming them, often at a rights holder's request. delune can't see that list.
+            Bandcamp, or wherever the artist sells their music, is the way to get it.
+          </EmptyState>
         ) : search.status === "done" && search.candidates.length === 0 ? (
           <EmptyState
             illumination={0.08}
