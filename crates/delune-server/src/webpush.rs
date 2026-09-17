@@ -78,6 +78,29 @@ impl Vapid {
     }
 }
 
+/// Push services browsers use. A subscription elsewhere is refused: delune would post
+/// to whatever address it names, and that must not be a machine on your network.
+const PUSH_SERVICES: &[&str] = &[
+    "fcm.googleapis.com",
+    "android.googleapis.com",
+    "updates.push.services.mozilla.com",
+    "push.services.mozilla.com",
+    "web.push.apple.com",
+    "notify.windows.com",
+    "push.api.chromium.org",
+];
+
+/// Whether `endpoint` is an https address at a known push service.
+#[must_use]
+pub fn known_push_service(endpoint: &str) -> bool {
+    let Ok(url) = url::Url::parse(endpoint) else { return false };
+    let Some(url::Host::Domain(host)) = url.host() else { return false };
+    let host = host.to_ascii_lowercase();
+    url.scheme() == "https"
+        && url.port().is_none_or(|p| p == 443)
+        && PUSH_SERVICES.iter().any(|s| host == *s || host.ends_with(&format!(".{s}")))
+}
+
 /// What a browser gave us when it subscribed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Subscription {
@@ -258,5 +281,28 @@ mod tests {
         );
         let signed = format!("{}.{}", parts[0], parts[1]);
         public.verify(signed.as_bytes(), &URL_SAFE_NO_PAD.decode(parts[2]).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn only_known_push_services_are_accepted() {
+        for good in [
+            "https://fcm.googleapis.com/fcm/send/abc",
+            "https://updates.push.services.mozilla.com/wpush/v2/abc",
+            "https://web.push.apple.com/abc",
+            "https://wns2-db5p.notify.windows.com/w/?token=abc",
+        ] {
+            assert!(known_push_service(good), "{good}");
+        }
+        for bad in [
+            "http://fcm.googleapis.com/fcm/send/abc",
+            "https://10.0.0.27/push",
+            "https://localhost/push",
+            "https://fcm.googleapis.com.evil.example/abc",
+            "https://fcm.googleapis.com:8443/abc",
+            "https://evilfcm.googleapis.com/abc",
+            "not a url",
+        ] {
+            assert!(!known_push_service(bad), "{bad}");
+        }
     }
 }

@@ -353,8 +353,8 @@ pub async fn add_device(
     Json(device): Json<PushDevice>,
 ) -> Response {
     let subscription = Subscription { endpoint: device.endpoint, p256dh: device.p256dh, auth: device.auth };
-    let valid = url::Url::parse(&subscription.endpoint).is_ok_and(|u| u.scheme() == "https")
-        && webpush::encrypt(&subscription, b"check").is_ok();
+    let valid =
+        webpush::known_push_service(&subscription.endpoint) && webpush::encrypt(&subscription, b"check").is_ok();
     if !valid {
         return error(StatusCode::BAD_REQUEST, "bad-subscription", "That isn't a usable push subscription.");
     }
