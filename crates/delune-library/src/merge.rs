@@ -191,17 +191,99 @@ fn is_audio(path: &Path) -> bool {
 }
 
 fn has_audio(dir: &Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|entries| entries.flatten().any(|e| is_audio(&e.path())))
+    audio_count(dir) > 0
 }
 
 fn loose(name: &str) -> String {
-    name.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+    name.to_lowercase().chars().filter(|c| c.is_alphanumeric()).map(fold).collect()
 }
 
-/// Find the library's folder for an album Navidrome says it has.
+/// An artist folder's key: "Fred again..", "Fred again._" and "fred again" are one artist,
+/// and so are "The Beatles" and "Beatles".
+#[must_use]
+pub fn artist_key(name: &str) -> String {
+    let key = loose(name);
+    key.strip_prefix("the").filter(|rest| rest.len() >= 3).map_or(key.clone(), str::to_owned)
+}
+
+/// Whether a bracketed part of a folder name is decoration a template or a ripper adds:
+/// a year, or a format.
+fn is_decoration(inner: &str) -> bool {
+    let inner = inner.trim().to_lowercase();
+    let year = inner.len() == 4 && inner.chars().all(|c| c.is_ascii_digit());
+    let formats = [
+        "flac", "mp3", "alac", "aac", "ogg", "opus", "wav", "web", "cd", "vinyl", "lossless", "hi-res", "hires",
+        "24bit", "24-bit", "16bit", "320", "v0",
+    ];
+    year || formats.iter().any(|f| inner.split(|c: char| !c.is_alphanumeric() && c != '-').any(|w| w == *f))
+}
+
+/// An album's key, from a title or a folder name, without the year or format a template
+/// or ripper adds: "2022 - USB", "USB (2022)" and "USB [FLAC]" are all "usb".
+#[must_use]
+pub fn album_key(name: &str) -> String {
+    let mut s = name.trim();
+    if let Some((head, rest)) = s.split_once(" - ")
+        && head.len() == 4
+        && head.chars().all(|c| c.is_ascii_digit())
+    {
+        s = rest;
+    }
+    loop {
+        let t = s.trim_end();
+        let close = match t.chars().last() {
+            Some(')') => '(',
+            Some(']') => '[',
+            _ => break,
+        };
+        let Some(open) = t.rfind(close) else { break };
+        if !is_decoration(&t[open + 1..t.len() - 1]) {
+            break;
+        }
+        s = &t[..open];
+    }
+    title_key(s)
+}
+
+fn audio_count(dir: &Path) -> usize {
+    std::fs::read_dir(dir).map_or(0, |entries| entries.flatten().filter(|e| is_audio(&e.path())).count())
+}
+
+/// Every folder in the library holding this album: under any spelling of the artist's
+/// folder, whatever year or format the folder name carries. Fullest first.
+#[must_use]
+pub fn album_folders(root: &Path, album_artist: &str, album: &str) -> Vec<PathBuf> {
+    let (wanted_artist, wanted_album) = (artist_key(album_artist), album_key(album));
+    if wanted_artist.is_empty() || wanted_album.is_empty() {
+        return Vec::new();
+    }
+    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    let mut found: Vec<(usize, PathBuf)> = Vec::new();
+    for artist_dir in entries.flatten().map(|e| e.path()) {
+        let matches = artist_dir.is_dir()
+            && artist_dir.file_name().and_then(|n| n.to_str()).is_some_and(|n| artist_key(n) == wanted_artist);
+        if !matches {
+            continue;
+        }
+        let Ok(albums) = std::fs::read_dir(&artist_dir) else { continue };
+        for dir in albums.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+            let name = dir.file_name().and_then(|n| n.to_str()).map(album_key).unwrap_or_default();
+            let count = audio_count(&dir);
+            if name == wanted_album && count > 0 {
+                found.push((count, dir));
+            }
+        }
+    }
+    // Fullest first; the path breaks ties, so the answer doesn't depend on disk order.
+    found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    found.into_iter().map(|(_, dir)| dir).collect()
+}
+
+/// Find the library's folder for an album.
 ///
-/// Tries where the naming template would put it, then any folder under a matching
-/// artist folder whose name contains the album's. `None` when nothing fits.
+/// Tries where the naming template would put it, then every folder of the album under
+/// any spelling of the artist's folder (see [`album_folders`]), taking the fullest.
+/// `None` when nothing fits.
 #[must_use]
 pub fn find_existing(
     root: &Path,
@@ -223,36 +305,17 @@ pub fn find_existing(
         ..TrackFields::default()
     };
     let rendered = template.render(&fields, options);
-    let mut found: Option<PathBuf> =
+    let at_template =
         rendered.rsplit_once('/').map(|(dir, _)| root.join(dir)).filter(|dir| dir.is_dir() && has_audio(dir));
-
-    if found.is_none() {
-        let wanted_artist = loose(album_artist);
-        let wanted_album = loose(album);
-        if wanted_album.len() < 2 {
-            return None;
+    let others = album_folders(root, album_artist, album);
+    // The template's folder, unless another copy of the album is clearly the main one.
+    let found = match (at_template, others.first()) {
+        (Some(template_dir), Some(fullest)) if audio_count(fullest) > audio_count(&template_dir) => {
+            Some(fullest.clone())
         }
-        let artist_dirs = std::fs::read_dir(root).ok()?.flatten().map(|e| e.path()).filter(|p| {
-            p.is_dir()
-                && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                    let n = loose(n);
-                    !n.is_empty()
-                        && (n == wanted_artist || n.starts_with(&wanted_artist) || wanted_artist.starts_with(&n))
-                })
-        });
-        'artists: for artist_dir in artist_dirs {
-            let Ok(entries) = std::fs::read_dir(&artist_dir) else { continue };
-            let mut albums: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
-            albums.sort();
-            for dir in albums {
-                let name = dir.file_name().and_then(|n| n.to_str()).map(loose).unwrap_or_default();
-                if name.contains(&wanted_album) && has_audio(&dir) {
-                    found = Some(dir);
-                    break 'artists;
-                }
-            }
-        }
-    }
+        (Some(template_dir), _) => Some(template_dir),
+        (None, fullest) => fullest.cloned(),
+    };
 
     let dir = found?;
     let folder = dir.strip_prefix(root).ok()?.to_str()?.replace('\\', "/");
@@ -344,5 +407,38 @@ mod tests {
         let found = find_existing(root.path(), &template, &options, "Fred again..", "USB", Some(2024)).unwrap();
         assert_eq!(found.folder, "Fred again../2022 - USB");
         assert!(find_existing(root.path(), &template, &options, "Fred again..", "Actual Life", None).is_none());
+    }
+
+    #[test]
+    fn album_and_artist_keys_ignore_decoration() {
+        for name in ["USB", "2022 - USB", "USB (2025)", "USB (0000)", "USB [FLAC]", "USB (2022) [24bit FLAC]"] {
+            assert_eq!(album_key(name), "usb", "{name}");
+        }
+        assert_ne!(album_key("USB002 REMIXES"), "usb");
+        assert_ne!(album_key("USB (Deluxe)"), "usb");
+        assert_eq!(artist_key("Fred again.."), artist_key("Fred again._"));
+        assert_eq!(artist_key("The Beatles"), artist_key("Beatles"));
+    }
+
+    #[test]
+    fn copies_under_other_spellings_are_found_and_the_fullest_wins() {
+        let root = tempfile::tempdir().unwrap();
+        let small = root.path().join("Fred again").join("USB (2026)");
+        let big = root.path().join("Fred again._").join("USB (2025)");
+        let other = root.path().join("Fred again._").join("USB002 REMIXES");
+        for (dir, n) in [(&small, 2), (&big, 5), (&other, 9)] {
+            std::fs::create_dir_all(dir).unwrap();
+            for i in 1..=n {
+                std::fs::write(dir.join(format!("{i:02} - Song {i}.flac")), "x").unwrap();
+            }
+        }
+        assert_eq!(album_folders(root.path(), "Fred again..", "USB"), [big.clone(), small.clone()]);
+        // The template would put it in "Fred again../USB", which doesn't exist; and even
+        // the template's own folder gives way to a fuller copy.
+        let template = Template::parse("{album_artist}/{album} ({year})/{track} - {title}").unwrap();
+        let options = NamingOptions::default();
+        let found = find_existing(root.path(), &template, &options, "Fred again", "USB", Some(2026)).unwrap();
+        assert_eq!(found.folder, "Fred again._/USB (2025)");
+        assert_eq!(found.tracks.len(), 5);
     }
 }

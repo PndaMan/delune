@@ -884,13 +884,13 @@ async fn check_job(app: &AppState, id: &str, staging: PathBuf, mut context: Rele
 /// the new tracks join it instead of starting a second copy.
 async fn joining_existing(app: &AppState, context: &mut ReleaseContext, library: &LibrarySettings) {
     let Some(root) = library.library_dir.clone() else { return };
+    // Navidrome gives the album's own spelling when it knows it; the folders on disk
+    // are checked either way, since Navidrome may not have scanned a recent import.
     let found = crate::library::lookup(app, context.artist.as_deref(), &context.album, None).await;
-    if found.state != delune_core::api::LibraryState::InLibrary {
-        return;
-    }
-    let Some(artist) = found.artist.clone().or_else(|| context.artist.clone()) else { return };
-    let album = found.album.clone().unwrap_or_else(|| context.album.clone());
-    let (template, options, year) = (library.template.clone(), library.options.clone(), found.year);
+    let known = found.state == delune_core::api::LibraryState::InLibrary;
+    let Some(artist) = found.artist.clone().filter(|_| known).or_else(|| context.artist.clone()) else { return };
+    let album = found.album.clone().filter(|_| known).unwrap_or_else(|| context.album.clone());
+    let (template, options, year) = (library.template.clone(), library.options.clone(), found.year.filter(|_| known));
     let existing = tokio::task::spawn_blocking(move || {
         delune_library::merge::find_existing(&root, &template, &options, &artist, &album, year)
     })
