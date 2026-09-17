@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.svg" width="112" alt="">
+
 # delune
 
 **Find music, check it, and file it into Navidrome. Soulseek first.**
@@ -12,13 +14,15 @@ file names you asked for.
 [![CI](https://github.com/PndaMan/delune/actions/workflows/ci.yml/badge.svg)](https://github.com/PndaMan/delune/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-pndaman.github.io%2Fdelune-aeb8ff)](https://pndaman.github.io/delune/)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-4f5bd5)](LICENSE)
+[![Rust 1.90+](https://img.shields.io/badge/rust-1.90%2B-aeb8ff)](https://www.rust-lang.org)
+[![Platforms](https://img.shields.io/badge/runs_on-Linux%20·%20macOS%20·%20NixOS%20·%20Docker-aeb8ff)](https://pndaman.github.io/delune/install/script.html)
 
 **[Documentation](https://pndaman.github.io/delune/)** ·
 [Quick start](https://pndaman.github.io/delune/quick-start.html) ·
 [Install](https://pndaman.github.io/delune/install/script.html) ·
 [Troubleshooting](https://pndaman.github.io/delune/operate/troubleshooting.html)
 
-<img src="docs/assets/results.png" alt="delune search results for Pink Floyd's The Dark Side of the Moon: album covers, colour-coded quality from FLAC 24/192 down, track counts, sizes and whether each person can send now" width="820">
+<img src="docs/assets/results.png" alt="Searching for Pink Floyd's The Dark Side of the Moon: Pink Floyd's picture at the top, filters for artists, albums and songs, the album on Deezer, and matching songs on Soulseek with their quality" width="860">
 
 </div>
 
@@ -32,13 +36,26 @@ file names you asked for.
 <table>
   <tr>
     <td width="50%"><img src="docs/assets/search.png" alt="The search screen: tonight's moon above a large search field"></td>
-    <td width="50%"><img src="docs/assets/release.png" alt="A release opened: large album cover, quality, availability and the full tracklist"></td>
+    <td width="50%"><img src="docs/assets/release.png" alt="A release opened: large album cover, quality, availability, the full tracklist with every track ticked, and buttons to follow the artist or keep the album complete"></td>
   </tr>
   <tr>
     <td align="center">Search, under tonight's actual moon phase</td>
-    <td align="center">Every release opens with artwork and a clean tracklist</td>
+    <td align="center">Every release opens with its artwork and tracks to pick from</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/library.png" alt="Library and imports settings: naming presets, the template split into artist folder, album folder and file, and a live folder-tree preview"></td>
+    <td width="50%"><img src="docs/assets/tui.png" alt="delune-tui in a terminal: search results with quality and library marks, and the album cover beside the selected release's files"></td>
+  </tr>
+  <tr>
+    <td align="center">Name files your way, previewed as a folder tree</td>
+    <td align="center"><code>delune-tui</code>: the whole flow in a terminal, covers included</td>
   </tr>
 </table>
+
+<p align="center">
+  <img src="docs/assets/phone.png" alt="delune on a phone: the artist at the top of the results, filters, and albums from Deezer" width="300">
+  <br><sub>Designed for phones, and installable as an app</sub>
+</p>
 
 ## Why
 
@@ -89,6 +106,10 @@ or your Navidrome's.
 - A wishlist that keeps searching and downloads good copies for review. Follow an
   artist and their new albums join it; upgrading lossy albums is opt-in.
 - Artist, album and song pages (with lyrics) that open from anywhere and share as links.
+- Search results lead with the artist you named, and switch between artists, albums
+  and single songs; a song downloads on its own, with its album's cover.
+- New releases from the artists you follow, and a notification when one arrives
+  (on your phone, in ntfy or on Discord).
 
 **Soulseek, natively** (no slskd)
 - Searching, downloads with queue position, resume and retry, stop and resume.
@@ -97,15 +118,21 @@ or your Navidrome's.
 - Private messages and chat rooms.
 - Share your library (opt-in): uploads with slots, speed limits, per-person queues,
   blocking, a leecher policy, and the distributed search network, so people find you.
-- Stats, with byte totals kept across restarts.
+- Uploads you can follow: who downloaded what, your ratio, and totals kept across restarts.
 
 **Check and import**
 - Every download waits for review. Each file is decoded, and transcodes posing as
   FLAC are flagged.
 - Naming templates with live preview, matched to your library; imports land in the
   Navidrome folder and trigger a scan.
-- Synced lyrics from LRCLIB (a sidecar `.lrc`, in the tags, or both) and embedded cover
-  art on every import.
+- Synced lyrics from LRCLIB (a sidecar `.lrc`, in the tags, or both) and cover art on
+  every import, from Deezer when the download has none.
+- Better copies replace worse ones; tracks you add join the album you already have,
+  renumbered to its current tracklist. Keep an album complete as the artist adds to it.
+- A library check that merges albums split over folders, makes tracks agree on which
+  album they're on, and removes doubled tracks. Nothing is deleted: every change can be
+  undone.
+- Add music you already have: tracks, a folder or a zip, checked like any download.
 
 **Bandcamp and SoundCloud**
 - Albums show their Bandcamp price, with a link to buy there (delune never takes payment).

@@ -36,6 +36,34 @@ pub enum Exit {
     SignedOut,
 }
 
+/// How pictures are drawn. Real images only in terminals known to show them (asking an
+/// unknown terminal can pick a protocol it then ignores, leaving blank space); coloured
+/// blocks everywhere else. `DELUNE_TUI_IMAGES` = `images`, `blocks` or `off` overrides.
+fn picker() -> Option<ratatui_image::picker::Picker> {
+    use ratatui_image::picker::Picker;
+    let env = |name: &str| std::env::var(name).unwrap_or_default().to_lowercase();
+    match env("DELUNE_TUI_IMAGES").as_str() {
+        "off" | "none" => return None,
+        "blocks" => return Some(Picker::halfblocks()),
+        "images" => return Picker::from_query_stdio().ok().or_else(|| Some(Picker::halfblocks())),
+        _ => {}
+    }
+    let program = env("TERM_PROGRAM");
+    let term = env("TERM");
+    let capable = ["kitty", "wezterm", "ghostty", "iterm.app", "konsole", "foot", "rio", "warpterminal"]
+        .iter()
+        .any(|t| program.contains(t) || term.contains(t))
+        || std::env::var_os("KITTY_WINDOW_ID").is_some()
+        || std::env::var_os("WEZTERM_EXECUTABLE").is_some()
+        || std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some()
+        || std::env::var_os("KONSOLE_VERSION").is_some();
+    if capable {
+        Picker::from_query_stdio().ok().or_else(|| Some(Picker::halfblocks()))
+    } else {
+        Some(Picker::halfblocks())
+    }
+}
+
 /// Run the TUI against `server_url` until the user quits or the session ends.
 ///
 /// Blocks the calling thread on the terminal event loop, and must be called from
@@ -52,11 +80,7 @@ pub fn run(server_url: String, http: &reqwest::Client) -> Result<Exit> {
 
     let mut terminal = ratatui::init();
     let mut app = App::new(server_url);
-    // Real images where the terminal can show them (kitty, iTerm2, sixel), blocks elsewhere.
-    app.canvas.get_mut().picker = Some(
-        ratatui_image::picker::Picker::from_query_stdio()
-            .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks()),
-    );
+    app.canvas.get_mut().picker = picker();
     let result = loop {
         if let Err(e) = terminal.draw(|frame| ui::draw(frame, &app)) {
             break Err(e.into());

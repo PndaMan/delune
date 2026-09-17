@@ -230,13 +230,13 @@ fn picture(frame: &mut Frame<'_>, area: Rect, app: &App, key: &str) {
         return;
     }
     let loading = matches!(app.pictures.get(key), Some(crate::app::Picture::Loading));
-    let block = Block::bordered().border_type(BorderType::Rounded).border_style(fg(FAINT));
+    let block = Block::bordered().border_type(BorderType::Rounded).border_style(fg(MUTED));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let mark = if loading { theme::spinner().to_string() } else { "♪".to_owned() };
     let [_, middle, _] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1), Constraint::Fill(1)]).areas(inner);
-    frame.render_widget(Paragraph::new(Span::styled(mark, fg(FAINT))).centered(), middle);
+    frame.render_widget(Paragraph::new(Span::styled(mark, fg(MUTED))).centered(), middle);
 }
 
 /// A picture's area: `height` rows, and about twice as many columns, since cells are tall.

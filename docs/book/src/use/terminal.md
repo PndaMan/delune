@@ -43,8 +43,10 @@ that device from the web app), the client asks you to sign in again.
   press `i` for the album's tracklist (which can still download that copy). An artist
   opens with their picture and releases.
 
-Covers and pictures are real images in terminals that can show them (kitty, WezTerm,
-iTerm2, Ghostty, and others with Sixel support), and coloured blocks elsewhere.
+Covers and pictures are real images in terminals known to show them (kitty, WezTerm,
+iTerm2, Ghostty, Konsole, foot), and coloured blocks elsewhere. Set
+`DELUNE_TUI_IMAGES` to `images` to try real images in another terminal, `blocks` to
+always use blocks, or `off` for no pictures.
 - **Downloads** groups everything by where it's got to: downloading, waiting, needs
   attention, ready for review, and (press `i`) imported. It shows speed and time left.
 - **Review** lists finished downloads with a verdict (clean, tracks to check, replaces

@@ -28,12 +28,21 @@ pub struct Context {
     pub jobs_changed: Arc<Notify>,
     /// Keeps library lookups from swamping Navidrome.
     lookups: Arc<Semaphore>,
+    /// Covers get their own turns, so they don't wait behind library lookups.
+    pictures: Arc<Semaphore>,
 }
 
 impl Context {
     #[must_use]
     pub fn new(http: Client, base: String, tx: Sender) -> Self {
-        Self { http, base, tx, jobs_changed: Arc::new(Notify::new()), lookups: Arc::new(Semaphore::new(4)) }
+        Self {
+            http,
+            base,
+            tx,
+            jobs_changed: Arc::new(Notify::new()),
+            lookups: Arc::new(Semaphore::new(4)),
+            pictures: Arc::new(Semaphore::new(3)),
+        }
     }
 
     fn url(&self, path: &str) -> String {
@@ -170,7 +179,7 @@ pub fn perform(action: Action, cx: &Context) {
 
 /// A cover (looked up by album) or a picture (by address), sent back decoded.
 async fn fetch_picture(action: Action, cx: Context) {
-    let Ok(_permit) = cx.lookups.acquire().await else { return };
+    let Ok(_permit) = cx.pictures.acquire().await else { return };
     let (key, image) = match action {
         Action::Cover { key, artist, album } => {
             let mut params = vec![("album", album.as_str())];
