@@ -163,6 +163,32 @@ async fn answers_people_browsing_us() {
 }
 
 #[tokio::test]
+async fn browsing_ourselves_is_answered_without_the_network() {
+    let (client, mut server, _) = online_client().await;
+    let files = shares()
+        .directories
+        .into_iter()
+        .flat_map(|d| d.files)
+        .map(|file| IndexedFile { disk_path: std::path::PathBuf::from("/nowhere"), file })
+        .collect();
+    client.set_share_index(ShareIndex::new(files));
+    let me = "DELUNE-TEST";
+
+    let list = timeout(WAIT, client.browse(me)).await.unwrap().unwrap();
+    assert_eq!(*list, shares());
+    let folder = &shares().directories[0].path;
+    let contents = timeout(WAIT, client.folder_contents(me, folder)).await.unwrap().unwrap();
+    assert_eq!(contents.directories[0].path, *folder);
+    assert!(timeout(WAIT, client.user_info(me)).await.unwrap().is_ok());
+    // None of that asked the server where we are.
+    while let Ok(frame) = timeout(Duration::from_millis(300), next_frame(&mut server)).await {
+        let (message, _) = split_code(&frame).unwrap();
+        assert_ne!(message, code::GET_PEER_ADDRESS);
+        assert_ne!(message, code::CONNECT_TO_PEER);
+    }
+}
+
+#[tokio::test]
 async fn browsing_offline_fails_fast() {
     let client = Client::start(Config { server: "127.0.0.1:1".into(), listen_port: None, ..Config::new("x", "y") });
     assert_eq!(client.browse("anyone").await.unwrap_err(), PeerError::Offline);

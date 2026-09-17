@@ -269,6 +269,14 @@ impl Client {
         transfer::start(self.inner.shared.clone(), request)
     }
 
+    /// Whether `username` is the account this client is signed in as. Asking the network
+    /// about ourselves goes out through our own public address and can be answered by
+    /// whatever sits behind it (a VPN's other customers, a hairpinning router), so those
+    /// questions are answered here instead.
+    fn is_us(&self, username: &str) -> bool {
+        username.eq_ignore_ascii_case(&self.inner.shared.own_username)
+    }
+
     /// Everything `username` shares. Large libraries can take a minute to arrive.
     ///
     /// # Errors
@@ -276,6 +284,9 @@ impl Client {
     /// When we're offline, the user can't be reached, or they don't answer in time.
     pub async fn browse(&self, username: &str) -> Result<Arc<SharedFileList>, PeerError> {
         let shared = &self.inner.shared;
+        if self.is_us(username) {
+            return Ok(shared.uploads.index().list());
+        }
         let answer = shared.share_lists.register(username.to_owned());
         let peer = connection::connect_peer(shared, username).await?;
         peer.send(PeerMessage::SharedFileListRequest.encode())
@@ -295,6 +306,13 @@ impl Client {
     /// As for [`Client::browse`].
     pub async fn folder_contents(&self, username: &str, folder: &str) -> Result<Arc<FolderContents>, PeerError> {
         let shared = &self.inner.shared;
+        if self.is_us(username) {
+            let ours = shared.uploads.index().list();
+            let prefix = format!("{folder}\\");
+            let directories =
+                ours.directories.iter().filter(|d| d.path == folder || d.path.starts_with(&prefix)).cloned().collect();
+            return Ok(Arc::new(FolderContents { token: 0, folder: folder.to_owned(), directories }));
+        }
         let token = shared.next_token();
         let answer = shared.folders.register(token);
         let peer = connection::connect_peer(shared, username).await?;
@@ -314,6 +332,10 @@ impl Client {
     /// As for [`Client::browse`].
     pub async fn user_info(&self, username: &str) -> Result<UserInfo, PeerError> {
         let shared = &self.inner.shared;
+        if self.is_us(username) {
+            let (slots_free, queue_size) = shared.uploads.availability();
+            return Ok(UserInfo { description: "delune".into(), slots_free, queue_size, ..UserInfo::default() });
+        }
         let answer = shared.user_infos.register(username.to_owned());
         let peer = connection::connect_peer(shared, username).await?;
         peer.send(PeerMessage::UserInfoRequest.encode()).await.map_err(|_| PeerError::Unreachable(username.into()))?;
