@@ -1,11 +1,14 @@
 # Terminal client
 
-`delune-tui` is delune in a terminal, for any machine that can reach the server. It does
+`delune` on its own opens the terminal client (so does `delune tui`, and the standalone
+`delune-tui`), for any machine that can reach the server. It does
 the whole flow: search, download, watch progress, review, and import. It marks what you
 already have: releases in your library, songs missing from a partial copy, and albums
 already downloading or waiting for review. Everything updates live.
 
 ```sh
+delune                                   # the server you used last time
+delune tui myserver                      # the same as delune-tui myserver
 delune-tui                               # the server you used last time
 delune-tui myserver                      # finds delune on that host
 delune-tui https://delune.example.com

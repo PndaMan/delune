@@ -32,6 +32,9 @@ pub struct Identity {
     pub artist: Option<String>,
     pub date: Option<String>,
     pub release_date: Option<String>,
+    /// Every original-date value, in order: players read the first, so the order counts.
+    #[serde(default)]
+    pub original_dates: Vec<String>,
     pub release_id: Option<String>,
     pub release_group_id: Option<String>,
     pub release_artist_id: Option<String>,
@@ -73,6 +76,13 @@ pub fn identity(path: &Path) -> Result<Identity, String> {
         artist: clean(tag.artist().as_deref()),
         date: clean(tag.get_string(ItemKey::RecordingDate)),
         release_date: clean(tag.get_string(ItemKey::ReleaseDate)),
+        original_dates: tag
+            .get_strings(ItemKey::OriginalReleaseDate)
+            .flat_map(|v| v.split(';'))
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+            .collect(),
         release_id: clean(tag.get_string(ItemKey::MusicBrainzReleaseId)),
         release_group_id: clean(tag.get_string(ItemKey::MusicBrainzReleaseGroupId)),
         release_artist_id: clean(tag.get_string(ItemKey::MusicBrainzReleaseArtistId)),
@@ -110,6 +120,8 @@ pub struct Look {
     pub date: Option<String>,
     #[serde(default)]
     pub release_date: Option<String>,
+    #[serde(default)]
+    pub original_dates: Vec<String>,
     /// Kept only when every track that has one agrees.
     pub release_id: Option<String>,
     /// Likewise; players use it to tell album artists apart.
@@ -172,6 +184,14 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
     let main_artist = most_common(artists.iter().map(String::as_str));
     let date = most_common(members.iter().filter_map(|(_, id)| id.date.as_deref()));
     let release_date = most_common(members.iter().filter_map(|(_, id)| id.release_date.as_deref()));
+    let joined: Vec<String> = members
+        .iter()
+        .filter(|(_, id)| !id.original_dates.is_empty())
+        .map(|(_, id)| id.original_dates.join("\u{1f}"))
+        .collect();
+    let original_dates: Vec<String> = most_common(joined.iter().map(String::as_str))
+        .map(|j| j.split('\u{1f}').map(str::to_owned).collect())
+        .unwrap_or_default();
     let ids: Vec<&str> = members.iter().filter_map(|(_, id)| id.release_id.as_deref()).collect();
     // Tracks without the id would still be their own album, so it's all or nothing.
     let release_id = ids
@@ -193,6 +213,7 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
                 || album_artist(id) != main_artist
                 || (date.is_some() && id.date != date)
                 || (release_date.is_some() && id.release_date != release_date)
+                || (!original_dates.is_empty() && id.original_dates != original_dates)
                 || id.release_id != release_id
                 || (release_id.is_none() && id.release_group_id.is_some())
                 || id.release_artist_id != release_artist_id
@@ -200,7 +221,17 @@ pub fn look(root: &Path, dir: &Path) -> Option<Look> {
         .map(|(p, _)| relative(root, p))
         .collect();
     let strays = others.iter().map(|(p, _)| relative(root, p)).collect();
-    Some(Look { album, album_artist: main_artist, date, release_date, release_id, release_artist_id, retag, strays })
+    Some(Look {
+        album,
+        album_artist: main_artist,
+        date,
+        release_date,
+        original_dates,
+        release_id,
+        release_artist_id,
+        retag,
+        strays,
+    })
 }
 
 /// A safe folder name for an album.
@@ -254,6 +285,10 @@ fn write(path: &Path, id: &Identity) -> Result<(), String> {
     }
     set(tag, ItemKey::RecordingDate, id.date.as_deref());
     set(tag, ItemKey::ReleaseDate, id.release_date.as_deref());
+    tag.remove_key(ItemKey::OriginalReleaseDate);
+    for date in &id.original_dates {
+        tag.push(lofty::tag::TagItem::new(ItemKey::OriginalReleaseDate, lofty::tag::ItemValue::Text(date.clone())));
+    }
     set(tag, ItemKey::MusicBrainzReleaseId, id.release_id.as_deref());
     set(tag, ItemKey::MusicBrainzReleaseGroupId, id.release_group_id.as_deref());
     set(tag, ItemKey::MusicBrainzReleaseArtistId, id.release_artist_id.as_deref());
@@ -312,6 +347,11 @@ pub fn tidy(root: &Path, dir: &Path, batch: &str) -> io::Result<Tidied> {
             artist: before.artist.clone(),
             date: look.date.clone().or_else(|| before.date.clone()),
             release_date: look.release_date.clone().or_else(|| before.release_date.clone()),
+            original_dates: if look.original_dates.is_empty() {
+                before.original_dates.clone()
+            } else {
+                look.original_dates.clone()
+            },
             release_id: look.release_id.clone(),
             release_group_id: look.release_id.as_ref().and(before.release_group_id.clone()),
             release_artist_id: look.release_artist_id.clone(),
@@ -323,13 +363,26 @@ pub fn tidy(root: &Path, dir: &Path, batch: &str) -> io::Result<Tidied> {
         write(&path, &wanted).map_err(io::Error::other)?;
         done.retagged += 1;
     }
+    if done.retagged + done.moved_out > 0 {
+        nudge(dir);
+    }
     Ok(done)
+}
+
+/// Mark a folder as changed. Navidrome only rescans folders whose own modified time
+/// moved, and rewriting tags inside files doesn't move it.
+pub fn nudge(dir: &Path) {
+    let marker = dir.join(".delune-rescan");
+    if fs::write(&marker, b"").is_ok() {
+        let _ = fs::remove_file(&marker);
+    }
 }
 
 /// Put back the tags a batch changed (before its files move back).
 pub fn undo_tags(root: &Path, batch: &str) {
     let Ok(text) = fs::read_to_string(root.join(trash::DIR).join(batch).join(TAGS)) else { return };
     // Newest first, so a file changed twice ends up as it began.
+    let mut touched = std::collections::BTreeSet::new();
     for line in text.lines().rev() {
         let Ok(before) = serde_json::from_str::<Before>(line) else { continue };
         let path = root.join(&before.file);
@@ -339,6 +392,12 @@ pub fn undo_tags(root: &Path, batch: &str) {
         {
             tracing::warn!(%error, path = %path.display(), "couldn't put tags back");
         }
+        if let Some(parent) = path.parent() {
+            touched.insert(parent.to_path_buf());
+        }
+    }
+    for dir in touched {
+        nudge(&dir);
     }
 }
 
@@ -470,6 +529,35 @@ mod tests {
         undo(root, &batch).unwrap();
         assert!(dir.join("02 - Kid A.flac").exists());
         assert!(!root.join("Radiohead/Kid A").exists(), "the folder made for them goes again");
+    }
+
+    #[test]
+    fn original_dates_must_match_in_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join("Fred again../USB");
+        for name in ["01 - A.flac", "02 - B.flac", "03 - C.flac"] {
+            flac(&dir.join(name), "USB", &["Fred again.."], "2025-12-12", None);
+        }
+        let dated = |name: &str, dates: &[&str]| {
+            let path = dir.join(name);
+            let id = Identity {
+                original_dates: dates.iter().map(|d| (*d).to_owned()).collect(),
+                ..identity(&path).unwrap()
+            };
+            write(&path, &id).unwrap();
+        };
+        dated("01 - A.flac", &["2022", "2022-01-18"]);
+        dated("02 - B.flac", &["2022", "2022-01-18"]);
+        dated("03 - C.flac", &["2022-01-18", "2022"]);
+        let look = look_of(root, &dir);
+        assert_eq!(look.original_dates, ["2022", "2022-01-18"]);
+        assert_eq!(look.retag, ["Fred again../USB/03 - C.flac"]);
+        let before = fs::metadata(&dir).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        tidy(root, &dir, &trash::batch_name()).unwrap();
+        assert!(look_of(root, &dir).is_tidy());
+        assert!(fs::metadata(&dir).unwrap().modified().unwrap() > before, "the folder shows it changed");
     }
 
     fn look_of(root: &Path, dir: &Path) -> Look {

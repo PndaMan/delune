@@ -57,8 +57,10 @@ folder for three things:
 - **An album that shows up more than once.** Players group tracks by their tags, not
   their folder. Tracks from different sources often disagree on the album artist (or
   list it twice), the release date or the MusicBrainz release, and each variant shows as
-  its own album. **Make it one album** gives every track the album title, album artist
-  and date most of them already have, and drops release ids the tracks don't share.
+  its own album. **Make it one album** gives every track the album title, album artist,
+  dates (original dates too, in the same order) most of them already have, and drops
+  release ids the tracks don't share. The folder is marked changed so Navidrome rescans
+  it.
   Tracks tagged for a different album move to that album's folder. The album gets a
   cover from Deezer if it has none.
 - **A track twice in one folder**, such as an MP3 beside the FLAC. **Keep the best**

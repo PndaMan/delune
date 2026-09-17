@@ -1,8 +1,9 @@
 //! `delune` — one binary for the server and the terminal client.
 //!
 //! ```text
+//! delune                       # the terminal client, against the server you used last
+//! delune tui myserver          # the terminal client, against that server
 //! delune serve                 # run the server next to Navidrome
-//! delune tui --server URL      # open the terminal UI against a server
 //! ```
 
 use std::net::SocketAddr;
@@ -15,8 +16,9 @@ mod setup;
 #[derive(Debug, Parser)]
 #[command(name = "delune", version, about, long_about = None)]
 struct Cli {
+    /// Without a command, delune opens the terminal client.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 // Parsed once at startup, so the size difference between variants doesn't matter.
@@ -44,9 +46,8 @@ enum Command {
         #[arg(long, env = "DELUNE_DATA_DIR")]
         data_dir: Option<std::path::PathBuf>,
     },
-    /// The terminal client is its own program now: `delune-tui`.
-    #[command(hide = true)]
-    Tui,
+    /// Open the terminal client (the default). `delune-tui` is the same program.
+    Tui(delune_tui::cli::Args),
 }
 
 // Field names become the `--slsk-*` flags, so the shared prefix is the point.
@@ -103,7 +104,16 @@ struct NavidromeArgs {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    match cli.command {
+    let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let command = cli.command.unwrap_or_else(|| {
+        Command::Tui(delune_tui::cli::Args {
+            server: env("DELUNE_SERVER"),
+            username: env("DELUNE_USERNAME"),
+            password: env("DELUNE_PASSWORD"),
+            forget: false,
+        })
+    });
+    match command {
         Command::Serve { bind, data_dir, mut soulseek, mut library, mut navidrome } => {
             init_logging();
             // Flags and environment variables win; the config file fills in the rest.
@@ -152,12 +162,7 @@ async fn main() -> Result<()> {
             delune_server::serve(bind, config).await?;
         }
         Command::Setup { data_dir } => setup::run(data_dir)?,
-        Command::Tui => {
-            anyhow::bail!(
-                "the terminal client is now its own program, so it can run on any machine: \
-                 run `delune-tui` (it finds this server by its address or your Navidrome's)"
-            );
-        }
+        Command::Tui(args) => delune_tui::cli::run(args).await?,
     }
     Ok(())
 }
