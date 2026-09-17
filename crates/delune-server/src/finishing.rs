@@ -6,7 +6,7 @@
 //! after the files have moved, so an import never waits on it, and Navidrome is asked
 //! to rescan once it's done so it picks up the lyrics too.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -62,11 +62,69 @@ pub struct Imported {
     pub artist: String,
 }
 
-/// Embed artwork and fetch lyrics for freshly imported tracks, then rescan.
-pub fn finish(app: &AppState, tracks: Vec<Imported>, cover: Option<PathBuf>) {
+const IMAGE_NAMES: &[&str] = &["cover", "folder", "front", "album"];
+const IMAGE_TYPES: &[&str] = &["jpg", "jpeg", "png", "webp"];
+
+/// A cover image already in `folder`, by the names players look for.
+fn cover_in(folder: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(folder).ok()?;
+    entries.flatten().map(|e| e.path()).find(|p| {
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        IMAGE_NAMES.contains(&stem.as_str()) && IMAGE_TYPES.contains(&ext.as_str())
+    })
+}
+
+/// Make sure the album has a cover: the one the download brought, one already in its
+/// folder, or else the album's cover from Deezer, saved as `cover.<ext>`.
+async fn ensure_cover(app: &AppState, folder: &Path, album: &AlbumName, brought: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(cover) = brought {
+        return Some(cover);
+    }
+    let dir = folder.to_path_buf();
+    if let Ok(Some(existing)) = tokio::task::spawn_blocking(move || cover_in(&dir)).await {
+        return Some(existing);
+    }
+    let Some((bytes, content_type)) = app.artwork.cover_image(&album.artist, &album.title).await else {
+        tracing::info!(album = %album.title, artist = %album.artist, "no cover art found for an import");
+        return None;
+    };
+    let ext = match content_type.as_str() {
+        "image/png" => "png",
+        "image/webp" => "webp",
+        _ => "jpg",
+    };
+    let path = folder.join(format!("cover.{ext}"));
+    match tokio::fs::write(&path, &bytes).await {
+        Ok(()) => {
+            tracing::info!(album = %album.title, "saved cover art from Deezer");
+            Some(path)
+        }
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "couldn't save cover art");
+            None
+        }
+    }
+}
+
+/// The album imported tracks belong to.
+#[derive(Debug, Clone)]
+pub struct AlbumName {
+    pub artist: String,
+    pub title: String,
+}
+
+/// Make sure the album has artwork, fetch lyrics for freshly imported tracks, then
+/// rescan.
+pub fn finish(app: &AppState, tracks: Vec<Imported>, cover: Option<PathBuf>, album: AlbumName) {
     let app = app.clone();
     tokio::spawn(async move {
         let options = app.finishing.options();
+        let folder = tracks.first().and_then(|t| t.path.parent().map(Path::to_path_buf));
+        let cover = match folder {
+            Some(folder) => ensure_cover(&app, &folder, &album, cover).await,
+            None => cover,
+        };
         if options.embed_cover
             && let Some(cover) = cover
         {

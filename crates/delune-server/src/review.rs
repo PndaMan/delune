@@ -325,7 +325,11 @@ async fn import_job(app: &AppState, id: &str, actor: &str, owner: Option<&str>) 
         })
         .collect();
     let cover = checked.plan.cover.as_ref().map(|(_, relative)| root.join(relative));
-    crate::finishing::finish(app, finishing, cover);
+    let album = crate::finishing::AlbumName {
+        artist: checked.report.album_artist.clone(),
+        title: checked.report.album.clone(),
+    };
+    crate::finishing::finish(app, finishing, cover, album);
     let scan_started = app.navidrome.is_some();
     tracing::info!(%id, files = imported.len(), %folder, scan_started, "imported into the library");
     Ok(ImportResult { imported: u32::try_from(imported.len()).unwrap_or(u32::MAX), folder, scan_started })

@@ -83,6 +83,15 @@ impl ArtworkService {
         }
     }
 
+    /// The album's full-size cover image and its type, for saving beside imported
+    /// tracks that came without one.
+    pub async fn cover_image(&self, artist: &str, album: &str) -> Option<(Bytes, String)> {
+        let artwork = self.find(Some(artist), album, None).await?;
+        let src = original_src(&artwork.cover)?;
+        let _permit = self.deezer.acquire().await.ok()?;
+        fetch_image(&self.http, &src).await
+    }
+
     async fn find(&self, artist: Option<&str>, album: &str, context: Option<&str>) -> Option<Artwork> {
         let (artist, album) = clean_names(artist, album);
         if album.is_empty() {
@@ -400,6 +409,13 @@ fn titles_match(wanted: &str, found: &str) -> bool {
     let wanted_forms = [normalize(wanted), normalize(&without_edition(wanted))];
     let found_forms = [normalize(found), normalize(&strip_brackets(found)), normalize(&without_edition(found))];
     wanted_forms.iter().any(|w| found_forms.iter().any(|f| names_match(w, f)))
+}
+
+/// The image address behind a [`proxy`] address, if it's one delune may fetch.
+fn original_src(proxied: &str) -> Option<String> {
+    let url = Url::parse(&format!("http://x{proxied}")).ok()?;
+    let src = url.query_pairs().find(|(k, _)| k == "src")?.1.into_owned();
+    is_allowed_image(&src).then_some(src)
 }
 
 /// The same-origin address delune serves `src` from.
@@ -743,6 +759,13 @@ mod tests {
         assert!(!is_allowed_image("https://cdn-images.dzcdn.net:8443/x.jpg"), "custom port");
         assert!(!is_allowed_image("https://169.254.169.254/latest/meta-data"), "metadata service");
         assert!(!is_allowed_image("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn proxied_addresses_lead_back_to_the_image() {
+        let src = "https://cdn-images.dzcdn.net/images/cover/abc/1000x1000-000000-80-0-0.jpg";
+        assert_eq!(original_src(&proxy_url(src)).as_deref(), Some(src));
+        assert_eq!(original_src(&proxy_url("https://evil.example/x.jpg")), None);
     }
 
     #[test]
