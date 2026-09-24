@@ -223,6 +223,31 @@ async fn reports_a_declined_download() {
 }
 
 #[tokio::test]
+async fn waits_out_a_peer_that_is_over_its_limits() {
+    let (client, mut server, _) = online_client().await;
+    let peer_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dir = temp_dir("over-limit");
+
+    let download = client.download(DownloadRequest {
+        username: "uploader".into(),
+        filename: FILE.into(),
+        destination: dir.join("x.flac"),
+    });
+    answer_address(&mut server, peer_listener.local_addr().unwrap().port()).await;
+    let mut peer = accept_queue_request(&peer_listener).await;
+    peer.send(PeerMessage::UploadDenied { filename: FILE.into(), reason: "Too many megabytes.".into() }.encode())
+        .await
+        .unwrap();
+
+    // Their queue is full, not our file missing: the download waits instead of failing.
+    let mut state = download.state();
+    timeout(WAIT, state.wait_for(|s| *s == DownloadState::Queued { place: None })).await.unwrap().unwrap();
+    assert!(timeout(Duration::from_millis(250), download.finished()).await.is_err());
+    assert_eq!(*download.state().borrow(), DownloadState::Queued { place: None });
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
 async fn firewalled_uploader_reaches_us_through_the_server() {
     let (client, mut server, _) = online_client().await;
     let peer_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

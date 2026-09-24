@@ -23,6 +23,8 @@
 //! is carried into the raw phase instead of being lost.
 
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -45,6 +47,12 @@ const FILE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
 const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+/// How long to leave a peer alone after it turns us away for being over its limits.
+const QUEUE_FULL_DELAY: Duration = Duration::from_secs(90);
+/// Give up on a full queue after this many waits (about half an hour).
+const MAX_QUEUE_WAITS: u32 = 20;
+/// Files of one job spread their waits over this window so they don't all ask at once.
+const QUEUE_FULL_SPREAD: Duration = Duration::from_secs(30);
 
 /// What to download and where to put it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,13 +259,12 @@ async fn run(
 ) -> DownloadState {
     let username = &request.username;
     let mut last_error = String::new();
+    let mut tries = Tries::spread_over(QUEUE_FULL_SPREAD, &request.filename);
 
-    'attempts: for attempt in 1..=MAX_ATTEMPTS {
-        if attempt > 1 {
-            tokio::select! {
-                () = tokio::time::sleep(RETRY_DELAY) => {}
-                _ = cancel.recv() => return DownloadState::Cancelled,
-            }
+    'attempts: while let Some(delay) = tries.pause() {
+        tokio::select! {
+            () = tokio::time::sleep(delay) => {}
+            _ = cancel.recv() => return DownloadState::Cancelled,
         }
         state.send_replace(DownloadState::Connecting);
 
@@ -303,6 +310,13 @@ async fn run(
                 Some(Event::Denied(reason)) if reason == "Queued" => {
                     state.send_replace(DownloadState::Queued { place: None });
                 }
+                Some(Event::Denied(reason)) if is_over_their_limit(&reason) => {
+                    last_error = format!("{username} declined: {}", reason.trim_end_matches('.'));
+                    // Their queue, not our file: keep the download alive and ask again later.
+                    state.send_replace(DownloadState::Queued { place: None });
+                    tries.over_limit = true;
+                    continue 'attempts;
+                }
                 Some(Event::Denied(reason)) => {
                     return DownloadState::Failed {
                         reason: format!("{username} declined: {}", reason.trim_end_matches('.')),
@@ -338,7 +352,58 @@ async fn run(
         }
     }
 
-    DownloadState::Failed { reason: format!("gave up after {MAX_ATTEMPTS} attempts: {last_error}") }
+    DownloadState::Failed { reason: format!("gave up after {} tries: {last_error}", tries.spent()) }
+}
+
+/// What is left of one file's patience: connection attempts, plus a separate budget of
+/// longer waits for a peer that is over its own limits, since that is not our fault.
+#[derive(Default)]
+struct Tries {
+    total: u32,
+    attempts: u32,
+    waits: u32,
+    /// Set when the last try ended in the peer saying it is over its limits.
+    over_limit: bool,
+    /// Added to every wait, so the files of one job don't all ask again in the same tick.
+    stagger: Duration,
+}
+
+impl Tries {
+    /// Patience for one file, its waits nudged apart from the other files of the job by
+    /// up to `window`, picked from the name so each file keeps its own offset.
+    fn spread_over(window: Duration, filename: &str) -> Self {
+        let mut hasher = DefaultHasher::new();
+        filename.hash(&mut hasher);
+        let window = u64::try_from(window.as_millis()).unwrap_or(u64::MAX).max(1);
+        Self { stagger: Duration::from_millis(hasher.finish() % window), ..Self::default() }
+    }
+
+    /// How long to wait before the next try, or `None` once the patience is spent.
+    fn pause(&mut self) -> Option<Duration> {
+        self.total += 1;
+        if std::mem::take(&mut self.over_limit) {
+            self.waits += 1;
+            return (self.waits <= MAX_QUEUE_WAITS).then(|| QUEUE_FULL_DELAY + self.stagger);
+        }
+        self.attempts += 1;
+        if self.attempts > MAX_ATTEMPTS {
+            return None;
+        }
+        Some(if self.attempts > 1 { RETRY_DELAY } else { Duration::ZERO })
+    }
+
+    /// How many tries were made, for the message when we give up.
+    fn spent(&self) -> u32 {
+        self.total - 1
+    }
+}
+
+/// Whether a refusal means "not now" rather than "not ever": the peer is over the files
+/// or megabytes it lets one person queue, so the same request works later. Clients word
+/// this differently, so match the phrase rather than one client's exact sentence.
+fn is_over_their_limit(reason: &str) -> bool {
+    let reason = reason.to_ascii_lowercase();
+    ["too many", "queue full", "queue is full", "limit reached"].iter().any(|r| reason.contains(r))
 }
 
 #[derive(Debug)]
@@ -447,5 +512,59 @@ mod tests {
         assert!(DownloadState::Completed { bytes: 1 }.is_finished());
         assert!(DownloadState::Failed { reason: String::new() }.is_finished());
         assert!(!DownloadState::Queued { place: Some(3) }.is_finished());
+    }
+
+    #[test]
+    fn connection_attempts_run_out() {
+        let mut tries = Tries::default();
+        assert_eq!(tries.pause(), Some(Duration::ZERO));
+        for _ in 1..MAX_ATTEMPTS {
+            assert_eq!(tries.pause(), Some(RETRY_DELAY));
+        }
+        assert_eq!(tries.pause(), None);
+        assert_eq!(tries.spent(), MAX_ATTEMPTS);
+    }
+
+    #[test]
+    fn waiting_out_a_full_queue_does_not_spend_attempts() {
+        let mut tries = Tries::default();
+        assert_eq!(tries.pause(), Some(Duration::ZERO));
+        for _ in 0..MAX_QUEUE_WAITS {
+            tries.over_limit = true;
+            assert_eq!(tries.pause(), Some(QUEUE_FULL_DELAY));
+        }
+        tries.over_limit = true;
+        assert_eq!(tries.pause(), None);
+        assert_eq!(tries.spent(), MAX_QUEUE_WAITS + 1);
+        assert_eq!(tries.attempts, 1);
+    }
+
+    #[test]
+    fn files_of_a_job_wait_out_of_step() {
+        let one = Tries::spread_over(QUEUE_FULL_SPREAD, "Music/01 - Featherfall.flac");
+        let two = Tries::spread_over(QUEUE_FULL_SPREAD, "Music/02 - Watcher.flac");
+        assert_ne!(one.stagger, two.stagger);
+        assert!(one.stagger < QUEUE_FULL_SPREAD && two.stagger < QUEUE_FULL_SPREAD);
+    }
+
+    #[test]
+    fn other_wordings_for_a_full_queue_count_too() {
+        assert!(is_over_their_limit("Too many megabytes queued"));
+        assert!(is_over_their_limit("User queue is full."));
+        assert!(is_over_their_limit("Upload limit reached"));
+    }
+
+    #[test]
+    fn limit_refusals_are_worth_waiting_out() {
+        assert!(is_over_their_limit("Too many megabytes."));
+        assert!(is_over_their_limit("Too many files"));
+        assert!(is_over_their_limit("queue full"));
+    }
+
+    #[test]
+    fn other_refusals_are_final() {
+        assert!(!is_over_their_limit("File not shared."));
+        assert!(!is_over_their_limit("Banned"));
+        assert!(!is_over_their_limit("Cancelled"));
     }
 }
