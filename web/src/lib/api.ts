@@ -378,6 +378,12 @@ export const api = {
     if (!res.ok) throw await toApiError(res)
     return res.json() as Promise<DownloadJob>
   },
+  /** Start the same release again from the next best person, skipping the ones it failed with. */
+  anotherSource: async (id: string): Promise<DownloadJob> => {
+    const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}/another-source`, { method: "POST" })
+    if (!res.ok) throw await toApiError(res)
+    return res.json() as Promise<DownloadJob>
+  },
   removeDownload: async (id: string): Promise<void> => {
     const res = await fetch(`/api/v1/downloads/${encodeURIComponent(id)}`, { method: "DELETE" })
     if (!res.ok && res.status !== 404) throw await toApiError(res)

@@ -43,6 +43,18 @@ export function useToggleDownload() {
   })
 }
 
+/**
+ * Try the same album again from someone else. The search runs on the server, which picks
+ * the best copy from anyone this album hasn't already failed with.
+ */
+export function useAnotherSource() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.anotherSource(id),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
+  })
+}
+
 export function useRemoveDownload() {
   const client = useQueryClient()
   return useMutation({

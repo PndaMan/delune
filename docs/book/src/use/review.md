@@ -8,7 +8,9 @@ progress, your place in their queue, and lets you:
 - **Stop** (keeping what's arrived) and **Resume**;
 - **Start next**, when only a few downloads may run at once (Settings → Sharing →
   *downloads at once*);
-- **Find another copy**, when a download failed;
+- **Try someone else**, when a download failed: delune searches again and takes the best
+  copy from anyone this album hasn't already failed with;
+- **Find another copy**, to search for it yourself;
 - **Remove**, which deletes what was downloaded.
 
 Downloads survive restarts: delune picks up where it left off.

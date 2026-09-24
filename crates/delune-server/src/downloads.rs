@@ -23,8 +23,11 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use delune_core::api::{ApiError, DownloadJob, DownloadJobRequest, FileStatus, JobFile, JobStatus, ReviewState};
+use delune_core::api::{
+    ApiError, Candidate, DownloadJob, DownloadJobRequest, FileStatus, JobFile, JobStatus, RequestedFile, ReviewState,
+};
 use delune_library::import::ReleaseContext;
+use delune_resolve::query::search_query;
 use delune_soulseek::{DownloadRequest, DownloadState};
 use tokio::sync::{Notify, broadcast, watch};
 
@@ -794,6 +797,107 @@ pub async fn resume_one(State(app): State<AppState>, user: CurrentUser, UrlPath(
     Json(job).into_response()
 }
 
+/// `POST /api/v1/downloads/{id}/another-source`: search for the same release again and
+/// start it from the next best person, skipping everyone it has already failed with.
+#[utoipa::path(
+    post,
+    operation_id = "downloads_another_source",
+    path = "/api/v1/downloads/{id}/another-source",
+    tag = "downloads",
+    params(
+        ("id" = String, Path),
+    ),
+    responses(
+        (status = 201, description = "Started from someone else", body = delune_core::api::DownloadJob),
+        (status = 403, description = "Not allowed", body = delune_core::api::ApiError),
+        (status = 404, description = "Nobody else has it", body = delune_core::api::ApiError),
+        (status = 409, description = "Can't right now", body = delune_core::api::ApiError),
+        (status = 503, description = "Soulseek isn't set up", body = delune_core::api::ApiError),
+        (status = 401, description = "Signed out", body = delune_core::api::ApiError),
+    ),
+)]
+pub async fn another_source(State(app): State<AppState>, user: CurrentUser, UrlPath(id): UrlPath<String>) -> Response {
+    if let Some(denied) = user.refuse_unless(|p| p.download, "download") {
+        return denied;
+    }
+    let jobs = app.downloads.list();
+    let Some(job) = jobs.iter().find(|j| j.id == id && user.can_see(j.requested_by.as_deref())) else {
+        return error(StatusCode::NOT_FOUND, "no-such-download", "That download doesn't exist.");
+    };
+    if is_external(job) {
+        return error(
+            StatusCode::CONFLICT,
+            "fetch-again",
+            "This came from a fetch, not Soulseek. Fetch it again from where you found it.",
+        );
+    }
+    if !matches!(job.status, JobStatus::Failed | JobStatus::Cancelled) {
+        return error(StatusCode::CONFLICT, "not-stopped", "That download is already running or finished.");
+    }
+    let Some(client) = app.soulseek.clone() else {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "soulseek-not-configured", "Soulseek isn't set up.");
+    };
+
+    let query = search_query(job.parent.as_deref(), &job.title);
+    let mut search = match client.search(&query).await {
+        Ok(search) => search,
+        Err(e) => {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "soulseek-unavailable",
+                &format!("Can't search right now: {e}."),
+            );
+        }
+    };
+    let mut found = Vec::new();
+    while let Some(response) = search.next().await {
+        found.extend(crate::search::candidates(&response));
+    }
+
+    let tried = already_tried(&jobs, job);
+    found.retain(|c| c.audio_files > 0 && !tried.contains(&c.username));
+    let names: Vec<&str> = found.iter().map(|c| c.username.as_str()).collect();
+    let history = app.db.peers(&names);
+    for candidate in &mut found {
+        candidate.peer = history.get(&candidate.username).cloned();
+    }
+    let typical = u32::try_from(job.files.len()).unwrap_or(u32::MAX);
+    found.sort_by(|a, b| Candidate::compare_in(a, b, typical));
+
+    let Some(best) = found.first() else {
+        return error(
+            StatusCode::NOT_FOUND,
+            "no-other-source",
+            "Nobody else is sharing this right now. Search again in a while, or add it to your wishlist.",
+        );
+    };
+    tracing::info!(%id, from = %job.username, to = %best.username, "download moved to another source");
+    let request = DownloadJobRequest {
+        username: best.username.clone(),
+        folder: best.folder.clone(),
+        title: best.title.clone(),
+        parent: best.parent.clone(),
+        files: best.files.iter().map(|f| RequestedFile { path: f.path.clone(), size: f.size }).collect(),
+    };
+    let requested_by = job.requested_by.clone().unwrap_or_else(|| user.username.clone());
+    match begin(&app, request, &requested_by) {
+        Ok(job) => (StatusCode::CREATED, Json(job)).into_response(),
+        Err((status, code, message)) => error(status, code, &message),
+    }
+}
+
+/// Everyone this release has already been asked for and didn't come from: the job we're
+/// replacing, plus anyone else a stopped job for the same title used.
+fn already_tried(jobs: &[DownloadJob], job: &DownloadJob) -> Vec<String> {
+    let same = |other: &DownloadJob| other.title.eq_ignore_ascii_case(&job.title) && other.parent == job.parent;
+    jobs.iter()
+        .filter(|other| {
+            other.id == job.id || (same(other) && matches!(other.status, JobStatus::Failed | JobStatus::Cancelled))
+        })
+        .map(|other| other.username.clone())
+        .collect()
+}
+
 /// `POST /api/v1/downloads/{id}/prioritise`: start this waiting download next.
 #[utoipa::path(
     post,
@@ -1130,6 +1234,27 @@ mod tests {
             checked: None,
             slot: Slot::None,
         }
+    }
+
+    #[test]
+    fn another_source_skips_everyone_the_album_already_failed_with() {
+        let job = |id: &str, who: &str, title: &str, status| DownloadJob {
+            username: who.into(),
+            title: title.into(),
+            status,
+            ..waiting_job(id, 1).job
+        };
+        let failed = job("a", "technoknight", "Tricky Trials", JobStatus::Failed);
+        let jobs = [
+            failed.clone(),
+            job("b", "marrow", "Tricky Trials", JobStatus::Cancelled),
+            // Someone else's copy that worked, and a different album, are both fair game.
+            job("c", "velvetbat", "Tricky Trials", JobStatus::Imported),
+            job("d", "n0h0pe", "Wonder What's Next", JobStatus::Failed),
+        ];
+
+        let tried = already_tried(&jobs, &failed);
+        assert_eq!(tried, ["technoknight", "marrow"]);
     }
 
     #[tokio::test]

@@ -9,6 +9,7 @@ import {
   Play,
   Search,
   Trash2,
+  UserRoundSearch,
 } from "lucide-react"
 import { useState } from "react"
 
@@ -20,7 +21,7 @@ import { RequestsSection } from "@/components/requests-section"
 import { Button } from "@/components/ui/button"
 import type { DownloadJob, JobFile } from "@/lib/api"
 import { useArtwork } from "@/lib/artwork"
-import { describeJob, useDownloads, useRemoveDownload, useToggleDownload } from "@/lib/downloads"
+import { describeJob, useAnotherSource, useDownloads, useRemoveDownload, useToggleDownload } from "@/lib/downloads"
 import { requesterLabel, useMe } from "@/lib/session"
 import { formatBytes } from "@/lib/format"
 import { parseTrackName } from "@/lib/track-name"
@@ -78,6 +79,7 @@ export function JobCard({ job }: { job: DownloadJob }) {
   const views = useMusicViews()
   const remove = useRemoveDownload()
   const toggle = useToggleDownload()
+  const elsewhere = useAnotherSource()
   const stopped = job.status === "failed" || job.status === "cancelled"
   const progress = job.total_bytes ? job.bytes / job.total_bytes : 0
   const running = job.status === "queued" || job.status === "downloading"
@@ -140,6 +142,18 @@ export function JobCard({ job }: { job: DownloadJob }) {
           {job.status === "ready" && (
             <Button size="sm" nativeButton={false} render={<Link to="/review" />}>
               Review
+            </Button>
+          )}
+          {stopped && !fetched && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => elsewhere.mutate(job.id)}
+              disabled={elsewhere.isPending}
+              aria-label="Try someone else"
+              title="Search again and take the best copy from someone else"
+            >
+              {elsewhere.isPending ? <LoaderCircle className="animate-spin" /> : <UserRoundSearch />}
             </Button>
           )}
           {stopped && (

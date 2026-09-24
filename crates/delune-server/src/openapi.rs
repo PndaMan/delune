@@ -113,6 +113,7 @@ use utoipa::OpenApi;
         crate::downloads::remove,
         crate::downloads::stop,
         crate::downloads::resume_one,
+        crate::downloads::another_source,
         crate::downloads::prioritise,
         crate::review::report,
         crate::review::import,

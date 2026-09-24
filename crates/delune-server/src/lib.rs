@@ -362,6 +362,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/downloads/{id}", delete(downloads::remove))
         .route("/api/v1/downloads/{id}/stop", post(downloads::stop))
         .route("/api/v1/downloads/{id}/resume", post(downloads::resume_one))
+        .route("/api/v1/downloads/{id}/another-source", post(downloads::another_source))
         .route("/api/v1/downloads/{id}/prioritise", post(downloads::prioritise))
         .route("/api/v1/downloads/{id}/review", get(review::report))
         .route("/api/v1/downloads/{id}/import", post(review::import))
