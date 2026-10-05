@@ -180,6 +180,7 @@ impl Client {
             search_timeout: config.search_timeout,
         });
         tokio::spawn(upload::schedule(shared.clone()));
+        tokio::spawn(crate::distributed::keep_parent(shared.clone()));
         tokio::spawn(supervise(config, command_rx, state_tx, shared));
         Self { inner }
     }

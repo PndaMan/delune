@@ -24,7 +24,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tokio_util::codec::Framed;
 
 use crate::connection::Shared;
@@ -39,6 +39,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PARENT_IDLE: Duration = Duration::from_secs(5 * 60);
 /// How long a candidate has to send its first search before we give up on it.
 const ADOPT_TIMEOUT: Duration = Duration::from_secs(60);
+/// How often to ask the server for parents again while we have none. An attempt
+/// already under way is left alone, so candidates that all go quiet for the whole
+/// of [`ADOPT_TIMEOUT`] push the next ask out by one period.
+const PARENT_RETRY: Duration = Duration::from_secs(60);
 /// Searches queued for a child before it's considered too slow to keep up.
 const CHILD_QUEUE: usize = 256;
 
@@ -227,7 +231,7 @@ pub(crate) async fn run_child(shared: Arc<Shared>, username: String, mut conn: F
 /// The server suggested parents: try them all at once and keep the first that
 /// relays a search. Does nothing if we already have a parent or share nothing.
 pub(crate) fn on_possible_parents(shared: &Arc<Shared>, candidates: Vec<(String, Ipv4Addr, u32)>) {
-    if shared.distributed_parent.load(Ordering::Relaxed) || shared.uploads.index().file_count() == 0 {
+    if !wants_parent(shared.distributed_parent.load(Ordering::Relaxed), shared.uploads.index().file_count()) {
         return;
     }
     if shared.distributed_connecting.swap(true, Ordering::Relaxed) {
@@ -294,6 +298,35 @@ async fn try_parent(
     let level = level.unwrap_or(0);
     let root = root.unwrap_or_else(|| username.clone());
     Some((username, level, root, conn))
+}
+
+/// Keep asking the server for parents until we have one. Runs for the life of the
+/// client.
+///
+/// The server only offers candidates when a client says it needs them, so the one
+/// `HaveNoParent(true)` sent on losing a parent isn't enough: when none of those
+/// candidates works out — offline, firewalled, or silent past [`ADOPT_TIMEOUT`] —
+/// nothing would ever ask again, and the client sits parentless until it reconnects.
+/// Searches reach a leaf through its parent, so that means nobody finds our shares.
+pub(crate) async fn keep_parent(shared: Arc<Shared>) {
+    loop {
+        sleep(PARENT_RETRY).await;
+        if !wants_parent(shared.distributed_parent.load(Ordering::Relaxed), shared.uploads.index().file_count())
+            || shared.distributed_connecting.load(Ordering::Relaxed)
+        {
+            continue;
+        }
+        if let Some(server) = shared.server() {
+            tracing::debug!("still no distributed parent; asking the server for more");
+            let _ = server.try_send(ServerRequest::HaveNoParent(true));
+        }
+    }
+}
+
+/// Whether a parent is worth having: we don't have one, and we share something to
+/// be found by.
+fn wants_parent(has_parent: bool, shared_files: usize) -> bool {
+    !has_parent && shared_files > 0
 }
 
 /// Read searches from our parent until it goes away, then ask for a new one.
@@ -418,5 +451,14 @@ mod tests {
         let mut embedded = vec![code::EMBEDDED];
         embedded.extend_from_slice(&search);
         assert!(matches!(DistributedMessage::decode(&embedded).unwrap(), DistributedMessage::Search { token: 77, .. }));
+    }
+
+    #[test]
+    fn asks_for_parents_only_when_one_is_needed() {
+        assert!(wants_parent(false, 3254));
+        // We already have one.
+        assert!(!wants_parent(true, 3254));
+        // Nothing shared: being found would serve no one.
+        assert!(!wants_parent(false, 0));
     }
 }
