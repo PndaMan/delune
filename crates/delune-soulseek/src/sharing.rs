@@ -191,8 +191,8 @@ mod tests {
         let index = index();
         assert_eq!(found(&index, "boards twoism"), ["01 Sixtyniner.flac", "02 Oirectine.flac"]);
         assert_eq!(found(&index, "BOARDS of canada math"), ["03 Music Is Math.flac"]);
-        assert!(found(&index, "boards radiohead").is_empty());
-        assert!(found(&index, "nothing").is_empty());
+        assert_eq!(found(&index, "boards radiohead"), [] as [&str; 0]);
+        assert_eq!(found(&index, "nothing"), [] as [&str; 0]);
     }
 
     #[test]
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn ignores_queries_that_match_everything() {
         let index = index();
-        assert!(found(&index, "a").is_empty());
-        assert!(found(&index, "-boards").is_empty());
+        assert_eq!(found(&index, "a"), [] as [&str; 0]);
+        assert_eq!(found(&index, "-boards"), [] as [&str; 0]);
     }
 }
