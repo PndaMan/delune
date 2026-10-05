@@ -850,9 +850,7 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
         }
         ServerEvent::ResetDistributed => {
             crate::distributed::reset(shared);
-            if let Some(server) = shared.server() {
-                let _ = server.try_send(ServerRequest::HaveNoParent(true));
-            }
+            crate::distributed::announce(shared);
         }
         ServerEvent::WishlistInterval(seconds) => {
             shared.wishlist_interval.store(seconds, std::sync::atomic::Ordering::Relaxed);

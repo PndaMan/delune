@@ -154,6 +154,18 @@ fn to_children(shared: &Shared, frame: &Bytes) {
     });
 }
 
+/// Push [`greeting`] to the server, after our place in the tree changed. Login
+/// batches the same requests into its own greeting instead, because the outbox
+/// these go through doesn't exist yet that early.
+pub(crate) fn announce(shared: &Shared) {
+    let requests = greeting(shared);
+    if let Some(server) = shared.server() {
+        for request in requests {
+            let _ = server.try_send(request);
+        }
+    }
+}
+
 /// Tell the server whether we take children, after something changed.
 fn announce_children(shared: &Shared) {
     let accept = taking_children(shared, &shared.branch());
@@ -316,10 +328,8 @@ pub(crate) async fn keep_parent(shared: Arc<Shared>) {
         {
             continue;
         }
-        if let Some(server) = shared.server() {
-            tracing::debug!("still no distributed parent; asking the server for more");
-            let _ = server.try_send(ServerRequest::HaveNoParent(true));
-        }
+        tracing::debug!("still no distributed parent; asking the server for more");
+        announce(&shared);
     }
 }
 
@@ -390,10 +400,7 @@ async fn run_parent(
         branch.place = None;
         branch.children.clear();
     }
-    if let Some(server) = shared.server() {
-        let _ = server.try_send(ServerRequest::HaveNoParent(true));
-        let _ = server.try_send(ServerRequest::AcceptChildren(false));
-    }
+    announce(&shared);
 }
 
 /// A search relayed to us, or embedded in a server message when we're a branch root.
