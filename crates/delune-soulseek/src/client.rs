@@ -180,6 +180,7 @@ impl Client {
             search_timeout: config.search_timeout,
         });
         tokio::spawn(upload::schedule(shared.clone()));
+        tokio::spawn(crate::distributed::keep_parent(shared.clone()));
         tokio::spawn(supervise(config, command_rx, state_tx, shared));
         Self { inner }
     }
@@ -849,9 +850,7 @@ fn on_server_event(event: ServerEvent, shared: &Arc<Shared>) -> Option<SessionEn
         }
         ServerEvent::ResetDistributed => {
             crate::distributed::reset(shared);
-            if let Some(server) = shared.server() {
-                let _ = server.try_send(ServerRequest::HaveNoParent(true));
-            }
+            crate::distributed::announce(shared);
         }
         ServerEvent::WishlistInterval(seconds) => {
             shared.wishlist_interval.store(seconds, std::sync::atomic::Ordering::Relaxed);
