@@ -66,7 +66,7 @@ jobs:
           cp "$out/delune" "$out/delune-tui" README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             delune-*.tar.gz
