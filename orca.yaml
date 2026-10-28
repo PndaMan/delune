@@ -1,0 +1,14 @@
+# Workspace setup for Orca. The setup script runs in each new worktree, with
+# ORCA_ROOT_PATH pointing at the main checkout.
+scripts:
+  setup: |
+    set -euo pipefail
+
+    # Start from the main checkout's Rust build so only changed crates compile.
+    # --reflink=always clones on copy-on-write filesystems such as btrfs and fails
+    # anywhere else rather than copying gigabytes, so those builds start cold.
+    if [ ! -e target ] && [ -d "$ORCA_ROOT_PATH/target" ]; then
+      cp -a --reflink=always "$ORCA_ROOT_PATH/target" target 2>/dev/null || rm -rf target
+    fi
+
+    (cd web && bun install --frozen-lockfile)
